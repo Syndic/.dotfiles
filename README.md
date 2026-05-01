@@ -16,7 +16,7 @@ The bootstrap shim will:
 
 1. Install Xcode Command Line Tools (needed for `git` and `python3`).
 2. Clone this repo to `~/.dotfiles`.
-3. Hand off to `bootstrap.py`, which installs Homebrew + Ansible and runs the playbook.
+3. Hand off to `phase2.py`, which installs Homebrew + Ansible and runs the playbook.
 
 ## How the short URL works
 
