@@ -36,8 +36,8 @@ In the Cloudflare dashboard for `yanch.ar`:
    - **When incoming requests match**: `Hostname equals install.yanch.ar`
    - **Then**:
      - Type: **Static**
-     - URL: `https://raw.githubusercontent.com/Syndic/.dotfiles/main/install.sh`
-     - Status code: **302** (use 301 only once you're confident the path is stable)
+     - URL: `https://raw.githubusercontent.com/Syndic/.dotfiles/refs/heads/main/install.sh`
+     - Status code: 301
      - Preserve query string: off
 3. Test:
    ```bash
