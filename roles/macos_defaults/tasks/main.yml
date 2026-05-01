@@ -1,0 +1,8 @@
+---
+# macos_defaults role
+# Will apply macOS system preferences via community.general.osx_defaults.
+# Settings are gated by host vars so different machines can have different defaults.
+
+- name: macos_defaults role placeholder
+  ansible.builtin.debug:
+    msg: "macos_defaults role: not yet implemented"

@@ -1,0 +1,18 @@
+---
+# Ansible inventory for dotfiles bootstrap.
+# All hosts are personal machines running Ansible against localhost.
+# Use --limit <hostname> to target a specific machine.
+
+all:
+  children:
+    personal:
+      hosts:
+        laptop24:
+          ansible_connection: local
+          ansible_host: localhost
+        mini18:
+          ansible_connection: local
+          ansible_host: localhost
+        mini26:
+          ansible_connection: local
+          ansible_host: localhost

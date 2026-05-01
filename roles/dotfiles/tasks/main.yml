@@ -1,0 +1,9 @@
+---
+# dotfiles role
+# Will create symlinks from home/* into ~/.
+# Uses ansible.builtin.file state=link per file; no Jinja templating in dotfiles
+# so they can be edited in-place and committed back to the repo.
+
+- name: dotfiles role placeholder
+  ansible.builtin.debug:
+    msg: "dotfiles role: not yet implemented"

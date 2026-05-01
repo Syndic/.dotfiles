@@ -1,0 +1,6 @@
+---
+# Host-specific variables for mini18.
+# macOS defaults overrides for this machine go here.
+
+# Brewfile with packages specific to this machine (layered on top of common.Brewfile)
+brewfile_host: "{{ playbook_dir }}/brewfiles/mini18.Brewfile"

@@ -1,0 +1,7 @@
+---
+# Shared variables for all personal machines.
+# Everything gets group_vars/all.yml.
+# Host-specific overrides go in host_vars/<hostname>.yml.
+
+# Path to the Brewfile shared across all machines
+brewfile_common: "{{ playbook_dir }}/brewfiles/personal.Brewfile"

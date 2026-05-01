@@ -1,0 +1,18 @@
+---
+# Main dotfiles playbook.
+# Run with: ansible-playbook site.yml -i inventory.yml --limit <hostname>
+# Run only certs: ansible-playbook site.yml -i inventory.yml --limit <hostname> --tags certs
+
+- name: Configure macOS dotfiles
+  hosts: personal
+  connection: local
+  gather_facts: false
+
+  roles:
+    - homebrew
+    - dotfiles
+    - macos_defaults
+    - role: certs
+      tags: certs
+    - role: ssh
+      tags: ssh
