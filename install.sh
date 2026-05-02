@@ -15,8 +15,8 @@ set -euo pipefail
 DOTFILES_REPO="https://github.com/Syndic/.dotfiles"
 DOTFILES_DIR="${HOME}/.dotfiles"
 
-info() { echo "[info]  $*"; }
-die()  { echo "[error] $*" >&2; exit 1; }
+info() { echo "[1;30;104m info [0m  $*"; }
+die()  { echo "[1;30;101m error [0m $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Step 1: Xcode Command Line Tools
@@ -57,7 +57,7 @@ fi
 # ---------------------------------------------------------------------------
 
 if [[ -d "${DOTFILES_DIR}/.git" ]]; then
-  info "Dotfiles repo already present — pulling latest..."
+  info "Dotfiles repo already present - pulling latest..."
   git -C "${DOTFILES_DIR}" pull --ff-only \
     || die "git pull failed. Resolve conflicts in ${DOTFILES_DIR} and re-run."
 else
@@ -71,5 +71,7 @@ fi
 # /usr/bin/python3 is the system Python, reliable now that CLT is installed.
 # phase2.py handles Homebrew, Ansible, host profile selection, and playbook.
 # ---------------------------------------------------------------------------
+
+info "Running phase 2... (in python)"
 
 exec /usr/bin/python3 "${DOTFILES_DIR}/phase2.py" "$@"

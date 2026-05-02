@@ -9,6 +9,7 @@ Ansible playbook.
 Usage:
     python3 phase2.py [--host PROFILE]
 """
+from __future__ import annotations
 
 import argparse
 import shutil
@@ -34,15 +35,15 @@ BREW_PATHS = [
 
 
 def info(msg: str) -> None:
-    print(f"[info]  {msg}")
+    print(f"[1;30;104m info [0m  {msg}")
 
 
 def warn(msg: str) -> None:
-    print(f"[warn]  {msg}", file=sys.stderr)
+    print(f"[1;30;103m warn [0m  {msg}", file=sys.stderr)
 
 
 def die(msg: str) -> None:
-    print(f"[error] {msg}", file=sys.stderr)
+    print(f"[1;30;101m error [0m {msg}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -89,7 +90,7 @@ def setup_homebrew() -> None:
     brew = find_brew()
 
     if brew is not None:
-        info("Homebrew already installed — running brew update...")
+        info("Homebrew already installed - running brew update...")
         run([str(brew), "update"])
     else:
         info("Installing Homebrew...")
