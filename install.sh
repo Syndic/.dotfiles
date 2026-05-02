@@ -8,7 +8,7 @@
 #   3. Hand off to ~/.dotfiles/phase2.py for everything else
 #
 # Usage (curl | bash):
-#   curl -fsSL https://install.yanch.ar | bash -s -- --host <profile>
+#   curl -fsSL https://install.yanch.ar | bash -s -- --host PROFILE
 # ---------------------------------------------------------------------------
 set -euo pipefail
 

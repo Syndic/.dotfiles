@@ -7,7 +7,7 @@ cloned. Handles Homebrew, Ansible, host profile selection, and runs the
 Ansible playbook.
 
 Usage:
-    python3 phase2.py [--host <profile>]
+    python3 phase2.py [--host PROFILE]
 """
 
 import argparse

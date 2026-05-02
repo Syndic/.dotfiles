@@ -5,7 +5,7 @@ Joshua Yanchar's (macOS) dotfiles, managed with Ansible.
 ## Install
 
 ```bash
-curl -fsSL https://install.yanch.ar | bash -s -- --host <profile>
+curl -fsSL https://install.yanch.ar | bash -s -- --host PROFILE
 ```
 
 Should work on a brand new mac, or one that has had this run before.
