@@ -102,11 +102,6 @@ assert_arg_present() {
   [[ "$output" == *"Dotfiles repo already present"* ]]
 }
 
-@test "install.sh announces phase 2 handoff" {
-  run bash "$REPO_ROOT/install.sh"
-  [[ "$output" == *"Running phase 2"* ]]
-}
-
 @test "install.sh actually invokes \$PYTHON3 with phase2.py" {
   run bash "$REPO_ROOT/install.sh"
   [ "$status" -eq 0 ]

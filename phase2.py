@@ -35,7 +35,7 @@ def announce(msg: str) -> None:
 
 def centered_announce(msg: str) -> None:
     terminal_cols = shutil.get_terminal_size().columns
-    indent = max(0, (terminal_cols - len(msg)) // 2)
+    indent = max(0, (terminal_cols - (len(msg) + 2)) // 2)
     print(f"\n{' ' * indent}\u001b[1;37;43m {msg} \u001b[0m")
 
 def info(msg: str) -> None:
