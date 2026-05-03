@@ -44,3 +44,19 @@ In the Cloudflare dashboard for `yanch.ar`:
    curl -sSI https://install.yanch.ar          # should show 302 + Location header
    curl -fsSL https://install.yanch.ar | head  # should show install.sh contents
    ```
+
+## Tests
+
+Local dev deps are in `tests/Brewfile`:
+
+```bash
+brew bundle --file=tests/Brewfile   # one-time, installs bats-core + pytest
+./tests/run                         # runs both suites
+./tests/run python                  # python only
+./tests/run bash                    # bash only
+```
+
+CI runs the same suites on every push (except `main`) and on PRs targeting
+`main` — see `.github/workflows/tests.yml`. CI pins Python 3.9 to match the
+macOS system Python that `install.sh` actually invokes, so syntax that's only
+valid in newer Pythons gets caught before it reaches a fresh Mac.

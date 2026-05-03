@@ -21,3 +21,8 @@
 # worktrees/ is ephemeral scratch space used during development
 .claude/settings.local.json
 .claude/worktrees/
+
+# ── Python ────────────────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.pytest_cache/

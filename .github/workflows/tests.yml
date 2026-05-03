@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Match the macOS system Python (CLT) that install.sh actually
+          # invokes. Pinning here keeps us honest about not using newer
+          # syntax (3.10+ unions, match statements) that would break a
+          # fresh-Mac bootstrap.
+          python-version: '3.9'
+      - run: pip install pytest
+      - run: pytest tests/python -v
+
+  bash:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y bats
+      - run: bats tests/bash

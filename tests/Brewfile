@@ -1,0 +1,7 @@
+# Local dev dependencies for running the test suite.
+# CI installs the same tools via apt + pip in .github/workflows/tests.yml.
+#
+#   brew bundle --file tests/Brewfile
+
+brew "bats-core"
+brew "pytest"
