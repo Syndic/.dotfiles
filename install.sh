@@ -15,6 +15,9 @@ set -euo pipefail
 DOTFILES_REPO="https://github.com/Syndic/.dotfiles"
 DOTFILES_DIR="${HOME}/.dotfiles"
 
+# Override-able for tests; default is the macOS system Python provided by CLT.
+PYTHON3="${PYTHON3:-/usr/bin/python3}"
+
 announce() { printf "\n[1;37;43m $* [0m\n"; }
 info() { printf "[1;37;44m info [0m  $*\n"; }
 die()  { printf "[1;37;101m error [0m $*\n" >&2; exit 1; }
@@ -93,7 +96,7 @@ announce "Running phase 2... (in python)"
 # (Wrapping the real exec in a 2>/dev/null group would survive into the
 # exec'd process and silently swallow input()'s prompt and any die() output.)
 if (exec < /dev/tty) 2>/dev/null; then
-  exec /usr/bin/python3 "${DOTFILES_DIR}/phase2.py" "$@" < /dev/tty
+  exec "$PYTHON3" "${DOTFILES_DIR}/phase2.py" "$@" < /dev/tty
 else
-  exec /usr/bin/python3 "${DOTFILES_DIR}/phase2.py" "$@"
+  exec "$PYTHON3" "${DOTFILES_DIR}/phase2.py" "$@"
 fi

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Run the full test suite (python + bash).
+#
+#   ./tests/run            # both suites
+#   ./tests/run python     # just pytest
+#   ./tests/run bash       # just bats
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+run_python() {
+  echo "=== python ==="
+  pytest tests/python -v
+}
+
+run_bash() {
+  echo "=== bash ==="
+  bats tests/bash
+}
+
+case "${1:-all}" in
+  python) run_python ;;
+  bash)   run_bash ;;
+  all)    run_python; run_bash ;;
+  *)      echo "usage: $0 [python|bash|all]" >&2; exit 2 ;;
+esac

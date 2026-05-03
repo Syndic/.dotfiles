@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""Run a command detached from the controlling terminal.
+
+Cross-platform replacement for the `setsid` binary, which isn't shipped on
+macOS. Used by bats tests that need to exercise install.sh's no-/dev/tty
+path regardless of whether the bats runner inherited a controlling terminal.
+
+  usage: no_tty CMD [ARGS...]
+
+Calls os.setsid() (creating a new session, detaching from any controlling
+terminal) and then execs the given command in the same process. Both macOS
+and Linux support setsid as a syscall — the binary just isn't installed by
+default on macOS.
+"""
+import os
+import sys
+
+if len(sys.argv) < 2:
+    sys.exit("usage: no_tty CMD [ARGS...]")
+
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])
