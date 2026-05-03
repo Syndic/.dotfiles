@@ -33,6 +33,11 @@ BREW_PATHS = [
 def announce(msg: str) -> None:
     print(f"\n[1;37;43m {msg} [0m")
 
+def centered_announce(msg: str) -> None:
+    terminal_cols = shutil.get_terminal_size().columns
+    indent = max(0, (terminal_cols - len(msg)) // 2)
+    print(f"\n{' ' * indent}\u001b[1;37;43m {msg} \u001b[0m")
+
 def info(msg: str) -> None:
     print(f"[1;37;44m info [0m  {msg}")
 
@@ -66,7 +71,40 @@ def parse_args() -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Prepare Homebrew
+# Step 1: Display Kilobyte
+# ---------------------------------------------------------------------------
+def display_kilobyte() -> None:
+    terminal_cols = shutil.get_terminal_size().columns
+    art_dir = DOTFILES_DIR / "ascii_art"
+
+    texts = []
+    for p in art_dir.glob("kilobyte*.txt"):
+        try:
+            width = int(p.stem.removeprefix("kilobyte"))
+            texts.append((width, p))
+        except ValueError:
+            pass
+
+    if not texts:
+        return
+
+    texts.sort()
+
+    # Find largest that fits, defaulting to the smallest available
+    best_width, best_path = texts[0]
+    for w, p in texts:
+        if w <= terminal_cols:
+            best_width, best_path = w, p
+
+    indent = max(0, (terminal_cols - best_width) // 2)
+    indent_str = " " * indent
+
+    with open(best_path, "r") as f:
+        for line in f:
+            print(indent_str + line.rstrip("\r\n"))
+
+# ---------------------------------------------------------------------------
+# Step 2: Prepare Homebrew
 # ---------------------------------------------------------------------------
 def find_brew() -> Path | None:
     """Return the path to brew if it is already installed, else None."""
@@ -124,7 +162,7 @@ def setup_homebrew() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Prepare Ansible
+# Step 3: Prepare Ansible
 # ---------------------------------------------------------------------------
 def setup_ansible() -> None:
     if shutil.which("ansible-playbook"):
@@ -139,7 +177,7 @@ def setup_ansible() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 3: Select host profile
+# Step 4: Select host profile
 # ---------------------------------------------------------------------------
 def is_profile_entry(p: Path) -> bool:
     """Return True if `p` looks like an Ansible host_vars entry: either a
@@ -208,7 +246,7 @@ def resolve_host_profile(host_arg: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Run Ansible playbook
+# Step 5: Run Ansible playbook
 # ---------------------------------------------------------------------------
 def run_playbook(host_profile: str) -> None:
     run([
@@ -224,6 +262,9 @@ def run_playbook(host_profile: str) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
+
+    display_kilobyte()
+    centered_announce(f"SIT. STAY. SUBMIT.")
 
     setup_homebrew()
     setup_ansible()

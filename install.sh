@@ -85,16 +85,14 @@ fi
 # install-script pipe, not the user's keyboard). Skip the redirect in
 # tty-less contexts so non-interactive runs with --host still launch
 # - phase2.py reports the missing-tty case itself.
-# ---------------------------------------------------------------------------
-
-announce "Running phase 2... (in python)"
-
+#
 # NOTE: `[[ -r /dev/tty ]]` is unreliable — the file exists in /dev but open() fails
 # when the process has no controlling terminal. Probe the redirect in a
 # subshell first, scoping 2>/dev/null to just the probe, then do the real
 # exec with stderr intact so phase2.py's prompts and errors reach the user.
 # (Wrapping the real exec in a 2>/dev/null group would survive into the
 # exec'd process and silently swallow input()'s prompt and any die() output.)
+# ---------------------------------------------------------------------------
 if (exec < /dev/tty) 2>/dev/null; then
   exec "$PYTHON3" "${DOTFILES_DIR}/phase2.py" "$@" < /dev/tty
 else
