@@ -18,9 +18,7 @@ import sys
 from pathlib import Path
 
 DOTFILES_DIR = Path.home() / ".dotfiles"
-HOMEBREW_INSTALL_URL = (
-    "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-)
+HOMEBREW_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
 # Homebrew installs to different paths on Apple Silicon vs Intel
 BREW_PATHS = [
@@ -32,31 +30,44 @@ BREW_PATHS = [
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
-
+def announce(msg: str) -> None:
+    print(f"\n[1;37;43m {msg} [0m")
 
 def info(msg: str) -> None:
-    print(f"[1;30;104m info [0m  {msg}")
+    print(f"[1;37;44m info [0m  {msg}")
 
 
 def warn(msg: str) -> None:
-    print(f"[1;30;103m warn [0m  {msg}", file=sys.stderr)
+    print(f"[1;37;43m warn [0m  {msg}", file=sys.stderr)
 
 
 def die(msg: str) -> None:
-    print(f"[1;30;101m error [0m {msg}", file=sys.stderr)
+    print(f"[1;37;101m error [0m {msg}", file=sys.stderr)
     sys.exit(1)
-
 
 def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Run a command, raising CalledProcessError on non-zero exit."""
     return subprocess.run(args, check=True, **kwargs)
 
+# ---------------------------------------------------------------------------
+# Step 0: Argument parsing
+# ---------------------------------------------------------------------------
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Configure a macOS machine from the dotfiles repo."
+    )
+    parser.add_argument(
+        "--host",
+        metavar="PROFILE",
+        help="Use the host profile named PROFILE (in host_vars/). "
+        "If omitted, you will be prompted to choose one.",
+    )
+    return parser.parse_args()
+
 
 # ---------------------------------------------------------------------------
-# Step 1: Homebrew
+# Step 1: Prepare Homebrew
 # ---------------------------------------------------------------------------
-
-
 def find_brew() -> Path | None:
     """Return the path to brew if it is already installed, else None."""
     # Check PATH first (covers the case where brew is already in the shell env)
@@ -113,10 +124,8 @@ def setup_homebrew() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Ansible
+# Step 2: Prepare Ansible
 # ---------------------------------------------------------------------------
-
-
 def setup_ansible() -> None:
     if shutil.which("ansible-playbook"):
         info("Ansible already installed.")
@@ -130,8 +139,19 @@ def setup_ansible() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 3: Host profile
+# Step 3: Select host profile
 # ---------------------------------------------------------------------------
+def is_profile_entry(p: Path) -> bool:
+    """Return True if `p` looks like an Ansible host_vars entry: either a
+    YAML file (host_vars/<name>.yml) or a directory (host_vars/<name>/).
+    Skips dotfiles and anything else (READMEs, .bak files, etc.)."""
+    if p.name.startswith("."):
+        return False
+    if p.is_file():
+        return p.suffix in (".yml", ".yaml")
+    if p.is_dir():
+        return True
+    return False
 
 
 def resolve_host_profile(host_arg: str | None) -> str:
@@ -140,39 +160,57 @@ def resolve_host_profile(host_arg: str | None) -> str:
         return host_arg
 
     profiles_dir = DOTFILES_DIR / "host_vars"
-    print()
-    print("Available host profiles:")
-
     profiles: list[str] = []
     if profiles_dir.is_dir():
         profiles = sorted(
             p.stem if p.is_file() else p.name
             for p in profiles_dir.iterdir()
+            if is_profile_entry(p)
         )
-        for p in profiles:
-            print(f"  - {p}")
-    else:
-        warn("No host_vars directory found - profile list unavailable.")
 
-    print()
-    try:
-        profile = input("Enter host profile name: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        die("No host profile specified.")
+    if not profiles:
+        die("No --host given and no host_vars/ profiles found to choose from.")
 
-    if not profile:
-        die("No host profile specified.")
+    if not sys.stdin.isatty():
+        die("No --host given and no terminal available - pass --host PROFILE explicitly.")
 
-    return profile
+    print("\nAvailable host profiles:")
+    for i, p in enumerate(profiles, start=1):
+        print(f"  {i}) {p}")
+
+    prompt = f"Choose [1-{len(profiles)}] or name: "
+    while True:
+        try:
+            choice = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            die("No host profile specified.")
+
+        if not choice:
+            continue
+
+        # Numeric selection
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(profiles):
+                profile = profiles[idx - 1]
+                info(f"Using host profile: {profile}")
+                return profile
+            print(f"  -> {idx} is out of range. Try again.")
+            continue
+
+        # Exact name match
+        if choice in profiles:
+            info(f"Using host profile: {choice}")
+            return choice
+
+        print(f"  -> '{choice}' is not a valid profile. Try again.")
 
 
 # ---------------------------------------------------------------------------
 # Step 4: Run Ansible playbook
 # ---------------------------------------------------------------------------
-
-
 def run_playbook(host_profile: str) -> None:
-    info(f"Running Ansible playbook for host profile '{host_profile}'...")
     run([
         "ansible-playbook",
         str(DOTFILES_DIR / "site.yml"),
@@ -184,27 +222,14 @@ def run_playbook(host_profile: str) -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Configure a macOS machine from the dotfiles repo."
-    )
-    parser.add_argument(
-        "--host",
-        metavar="PROFILE",
-        help="Host profile name (must match a key in inventory.yml)",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
     args = parse_args()
 
     setup_homebrew()
     setup_ansible()
-
     host_profile = resolve_host_profile(args.host)
+
+    announce(f"Tools ready - Running Playbook")
     run_playbook(host_profile)
 
 

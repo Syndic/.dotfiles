@@ -15,8 +15,14 @@ set -euo pipefail
 DOTFILES_REPO="https://github.com/Syndic/.dotfiles"
 DOTFILES_DIR="${HOME}/.dotfiles"
 
-info() { echo "[1;30;104m info [0m  $*"; }
-die()  { echo "[1;30;101m error [0m $*" >&2; exit 1; }
+announce() { printf "\n[1;37;43m $* [0m\n"; }
+info() { printf "[1;37;44m info [0m  $*\n"; }
+die()  { printf "[1;37;101m error [0m $*\n" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Step 0: Opening message
+# ---------------------------------------------------------------------------
+announce "Joshua Yanchar's Dotfile Setup"
 
 # ---------------------------------------------------------------------------
 # Step 1: Xcode Command Line Tools
@@ -70,8 +76,24 @@ fi
 # Step 3: Hand off to Python
 # /usr/bin/python3 is the system Python, reliable now that CLT is installed.
 # phase2.py handles Homebrew, Ansible, host profile selection, and playbook.
+#
+# Reattach stdin to the controlling terminal when available, so phase2.py's
+# interactive prompts work under `curl | bash` (where bash's stdin is the
+# install-script pipe, not the user's keyboard). Skip the redirect in
+# tty-less contexts so non-interactive runs with --host still launch
+# - phase2.py reports the missing-tty case itself.
 # ---------------------------------------------------------------------------
 
-info "Running phase 2... (in python)"
+announce "Running phase 2... (in python)"
 
-exec /usr/bin/python3 "${DOTFILES_DIR}/phase2.py" "$@"
+# NOTE: `[[ -r /dev/tty ]]` is unreliable — the file exists in /dev but open() fails
+# when the process has no controlling terminal. Probe the redirect in a
+# subshell first, scoping 2>/dev/null to just the probe, then do the real
+# exec with stderr intact so phase2.py's prompts and errors reach the user.
+# (Wrapping the real exec in a 2>/dev/null group would survive into the
+# exec'd process and silently swallow input()'s prompt and any die() output.)
+if (exec < /dev/tty) 2>/dev/null; then
+  exec /usr/bin/python3 "${DOTFILES_DIR}/phase2.py" "$@" < /dev/tty
+else
+  exec /usr/bin/python3 "${DOTFILES_DIR}/phase2.py" "$@"
+fi
