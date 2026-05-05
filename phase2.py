@@ -172,9 +172,13 @@ def setup_ansible() -> None:
     info("Installing Ansible via Homebrew...")
     run(["brew", "install", "ansible"])
 
-    if not shutil.which("ansible-playbook"):
-        die("Ansible not found after Homebrew install.")
-
+    info("Installing Ansible Galaxy roles...")
+    run([
+        "ansible-galaxy",
+        "install",
+        "-r",
+        str(DOTFILES_DIR / "requirements.yml")
+    ])
 
 # ---------------------------------------------------------------------------
 # Step 4: Select host profile
@@ -254,6 +258,7 @@ def run_playbook(host_profile: str) -> None:
         str(DOTFILES_DIR / "site.yml"),
         "--inventory", str(DOTFILES_DIR / "inventory.yml"),
         "--limit", host_profile,
+        "--ask-become-pass",
     ])
 
 
