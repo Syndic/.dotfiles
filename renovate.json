@@ -3,5 +3,14 @@
   "extends": [
     "config:recommended",
     ":dependencyDashboard"
+  ],
+  "packageRules": [
+    {
+      "description": "Pin Python to 3.9 to match macOS system Python from Xcode CLT — see CLAUDE.md.",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "matchFileNames": [".github/workflows/tests.yml"],
+      "enabled": false
+    }
   ]
 }
