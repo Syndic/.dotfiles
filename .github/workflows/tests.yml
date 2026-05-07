@@ -17,7 +17,7 @@ jobs:
           # invokes. Pinning here keeps us honest about not using newer
           # syntax (3.10+ unions, match statements) that would break a
           # fresh-Mac bootstrap.
-          python-version: '3.9'
+          python-version: '3.14'
       - run: pip install pytest
       - run: pytest tests/python -v
 
