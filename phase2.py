@@ -12,12 +12,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 DOTFILES_DIR = Path.home() / ".dotfiles"
+ASCII_ART_SUBDIR = "ascii_art"
+ASCII_ART_TRUECOLOR_SUBDIR = "truecolor"
+ASCII_ART_256_COLOR_SUBDIR = "256color"
+
 HOMEBREW_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
 # Homebrew installs to different paths on Apple Silicon vs Intel
@@ -73,9 +78,29 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Step 1: Display Kilobyte
 # ---------------------------------------------------------------------------
-def display_kilobyte() -> None:
+def select_ascii_art_format() -> str:
+    """Select the folder with ascii art in an appropriate format for the terminal emulator.
+
+    Older versions of Apple's built-in Terminal do not support truecolor (24-bit RGB) control
+    sequences, so art that looks best in a modern terminal emulator can render badly there. Newer
+    Terminal.app releases on macOS 26+ do support 24-bit color.
+
+    Currently, the options are ASCII_ART_TRUECOLOR_SUBDIR and ASCII_ART_256_COLOR_SUBDIR.
+    """
+    # info("Detecting appropriate ascii art format for the terminal emulator...")
+    colorterm = os.environ.get("COLORTERM", "").lower()
+    term = os.environ.get("TERM", "")
+
+    if colorterm in {"truecolor", "24bit"} or term.endswith("-direct"):
+        # info("Detected truecolor terminal support - using truecolor ascii art.")
+        return ASCII_ART_TRUECOLOR_SUBDIR
+
+    # info("Falling back to ANSI 256-color ascii art.")
+    return ASCII_ART_256_COLOR_SUBDIR
+
+def display_kilobyte(format_subdir: str) -> None:
     terminal_cols = shutil.get_terminal_size().columns
-    art_dir = DOTFILES_DIR / "ascii_art"
+    art_dir = DOTFILES_DIR / ASCII_ART_SUBDIR / format_subdir
 
     texts = []
     for p in art_dir.glob("kilobyte*.txt"):
@@ -85,10 +110,11 @@ def display_kilobyte() -> None:
         except ValueError:
             pass
 
-    if not texts:
-        return
-
     texts.sort()
+
+    if not texts:
+        warn("No kilobyte ascii art found.")
+        return
 
     # Find largest that fits, defaulting to the smallest available
     best_width, best_path = texts[0]
@@ -102,6 +128,9 @@ def display_kilobyte() -> None:
     with open(best_path, "r") as f:
         for line in f:
             print(indent_str + line.rstrip("\r\n"))
+
+    centered_announce(f"SIT. STAY. SUBMIT.")
+
 
 # ---------------------------------------------------------------------------
 # Step 2: Prepare Homebrew
@@ -263,8 +292,7 @@ def run_playbook(host_profile: str) -> None:
 def main() -> None:
     args = parse_args()
 
-    display_kilobyte()
-    centered_announce(f"SIT. STAY. SUBMIT.")
+    display_kilobyte(select_ascii_art_format())
 
     setup_homebrew()
     setup_ansible()
