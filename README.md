@@ -50,8 +50,21 @@ In the Cloudflare dashboard for `yanch.ar`:
 Local dev deps are in `tests/Brewfile`:
 
 ```bash
-brew bundle --file=tests/Brewfile   # one-time, installs bats-core + pytest
+brew bundle --file=tests/Brewfile   # one-time, installs bats-core + pytest + pre-commit
 ./tests/run                         # runs both suites
 ./tests/run python                  # python only
 ./tests/run bash                    # bash only
+pre-commit install                  # optional: install the repo hooks
+pre-commit run --all-files          # run the nested-.dotfiles guard manually
 ```
+
+The `dotfiles` role builds an effective tree from:
+
+- `home_source/common/`
+- `home_source/hosts/<inventory_hostname>/`
+
+Host files override common files at the same relative path, and
+`dotfiles_excludes` can remove common-only paths for a specific host without
+needing placeholder files. The role then mirrors that effective tree into `~/`,
+backing up any conflicting filesystem object to `<name>.backup-N` before
+replacing it with the expected symlink.

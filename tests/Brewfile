@@ -4,4 +4,5 @@
 #   brew bundle --file tests/Brewfile
 
 brew "bats-core"
+brew "pre-commit"
 brew "pytest"
