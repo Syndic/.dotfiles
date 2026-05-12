@@ -1,9 +1,127 @@
 ---
 # dotfiles role
-# Will create symlinks from home/* into ~/.
-# Uses ansible.builtin.file state=link per file; no Jinja templating in dotfiles
-# so they can be edited in-place and committed back to the repo.
+# Merge home_source/common with home_source/hosts/<inventory_hostname>,
+# then symlink the effective tree into dotfiles_home_dir.
 
-- name: dotfiles role placeholder
+- name: Check whether the common dotfiles source tree exists
+  ansible.builtin.stat:
+    path: "{{ dotfiles_common_source_dir }}"
+  register: dotfiles_common_source_dir_state
+
+- name: Check whether the host dotfiles source tree exists
+  ansible.builtin.stat:
+    path: "{{ dotfiles_host_source_dir }}"
+  register: dotfiles_host_source_dir_state
+
+- name: Skip dotfiles role when no source tree is present
   ansible.builtin.debug:
-    msg: "dotfiles role: not yet implemented"
+    msg: >-
+      no dotfiles source tree found at {{ dotfiles_common_source_dir }} or
+      {{ dotfiles_host_source_dir }}; skipping
+  when:
+    - not (dotfiles_common_source_dir_state.stat.isdir | default(false))
+    - not (dotfiles_host_source_dir_state.stat.isdir | default(false))
+
+- name: Manage dotfiles symlinks
+  when:
+    - (dotfiles_common_source_dir_state.stat.isdir | default(false)) or
+      (dotfiles_host_source_dir_state.stat.isdir | default(false))
+  block:
+    - name: Build the effective dotfiles manifest
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/dotfiles_tree.py"
+          - build-manifest
+          - --common-dir
+          - "{{ dotfiles_common_source_dir }}"
+          - --host-dir
+          - "{{ dotfiles_host_source_dir }}"
+          - --home-dir
+          - "{{ dotfiles_home_dir }}"
+          - --excludes-json
+          - "{{ dotfiles_excludes | to_json }}"
+      register: dotfiles_manifest_command
+      changed_when: false
+
+    - name: Parse the effective dotfiles manifest
+      ansible.builtin.set_fact:
+        dotfiles_target_directories: "{{ (dotfiles_manifest_command.stdout | from_json).directories }}"
+        dotfiles_target_links: "{{ (dotfiles_manifest_command.stdout | from_json).links }}"
+
+    - name: Inspect target directory paths
+      ansible.builtin.stat:
+        path: "{{ item.dest }}"
+        follow: false
+      loop: "{{ dotfiles_target_directories | default([]) }}"
+      register: dotfiles_target_directory_stats
+
+    - name: Determine backup paths for conflicting target directories
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/dotfiles_tree.py"
+          - next-backup
+          - "{{ item.item.dest }}"
+      loop: "{{ dotfiles_target_directory_stats.results | default([]) }}"
+      when:
+        - (item.stat.exists | default(false)) or (item.stat.islnk | default(false))
+        - not (item.stat.isdir | default(false))
+      register: dotfiles_target_directory_backups
+      changed_when: false
+
+    - name: Backup conflicting target directories
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ item.item.item.dest }}"
+          - "{{ item.stdout }}"
+      loop: "{{ dotfiles_target_directory_backups.results | default([]) }}"
+      when: not (item.skipped | default(false))
+
+    - name: Ensure target directories exist
+      ansible.builtin.file:
+        path: "{{ item.dest }}"
+        state: directory
+      loop: "{{ dotfiles_target_directories | default([]) }}"
+
+    - name: Inspect target symlink paths
+      ansible.builtin.stat:
+        path: "{{ item.dest }}"
+        follow: false
+      loop: "{{ dotfiles_target_links | default([]) }}"
+      register: dotfiles_target_link_stats
+
+    - name: Determine backup paths for conflicting target files
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/dotfiles_tree.py"
+          - next-backup
+          - "{{ item.item.dest }}"
+      loop: "{{ dotfiles_target_link_stats.results | default([]) }}"
+      when:
+        - (item.stat.exists | default(false)) or (item.stat.islnk | default(false))
+        - not (
+            (item.stat.islnk | default(false)) and
+            (item.stat.lnk_target | default('')) == item.item.src
+          )
+      register: dotfiles_target_link_backups
+      changed_when: false
+
+    - name: Backup conflicting target files
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ item.item.item.dest }}"
+          - "{{ item.stdout }}"
+      loop: "{{ dotfiles_target_link_backups.results | default([]) }}"
+      when: not (item.skipped | default(false))
+
+    - name: Create dotfiles symlinks
+      ansible.builtin.file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        force: false
+      loop: "{{ dotfiles_target_links | default([]) }}"
