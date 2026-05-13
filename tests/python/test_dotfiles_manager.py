@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from dotfiles_tree import (
+from dotfiles_manager import (
     assert_no_nested_dotfiles_dirs,
     backup_path_info,
     build_source_manifest,
