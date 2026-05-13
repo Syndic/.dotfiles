@@ -2,5 +2,6 @@
 dotfiles_home_source_dir: "{{ playbook_dir }}/home_source"
 dotfiles_common_source_dir: "{{ dotfiles_home_source_dir }}/common"
 dotfiles_host_source_dir: "{{ dotfiles_home_source_dir }}/hosts/{{ inventory_hostname }}"
+dotfiles_managed_root_dir: "{{ playbook_dir }}"
 dotfiles_home_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}"
 dotfiles_excludes: []

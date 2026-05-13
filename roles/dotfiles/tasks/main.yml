@@ -37,6 +37,8 @@
           - "{{ dotfiles_common_source_dir }}"
           - --host-dir
           - "{{ dotfiles_host_source_dir }}"
+          - --managed-root
+          - "{{ dotfiles_managed_root_dir }}"
           - --home-dir
           - "{{ dotfiles_home_dir }}"
           - --excludes-json
@@ -48,6 +50,13 @@
       ansible.builtin.set_fact:
         dotfiles_target_directories: "{{ (dotfiles_manifest_command.stdout | from_json).directories }}"
         dotfiles_target_links: "{{ (dotfiles_manifest_command.stdout | from_json).links }}"
+        dotfiles_stale_managed_links: "{{ (dotfiles_manifest_command.stdout | from_json).stale_links }}"
+
+    - name: Remove stale managed symlinks that are no longer desired
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ dotfiles_stale_managed_links | default([]) }}"
 
     - name: Inspect target directory paths
       ansible.builtin.stat:
@@ -61,7 +70,7 @@
         argv:
           - python3
           - "{{ playbook_dir }}/dotfiles_tree.py"
-          - next-backup
+          - backup-info
           - "{{ item.item.dest }}"
       loop: "{{ dotfiles_target_directory_stats.results | default([]) }}"
       when:
@@ -70,12 +79,24 @@
       register: dotfiles_target_directory_backups
       changed_when: false
 
+    - name: Warn when repeated directory backups are required
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: backing up {{ item.item.item.dest }} to
+          {{ (item.stdout | from_json).path }}. This is backup number
+          {{ (item.stdout | from_json).index }}, which suggests a previously
+          created backup was left in place and the managed path was changed again.
+      loop: "{{ dotfiles_target_directory_backups.results | default([]) }}"
+      when:
+        - not (item.skipped | default(false))
+        - (item.stdout | from_json).index > 1
+
     - name: Backup conflicting target directories
       ansible.builtin.command:
         argv:
           - mv
           - "{{ item.item.item.dest }}"
-          - "{{ item.stdout }}"
+          - "{{ (item.stdout | from_json).path }}"
       loop: "{{ dotfiles_target_directory_backups.results | default([]) }}"
       when: not (item.skipped | default(false))
 
@@ -92,12 +113,24 @@
       loop: "{{ dotfiles_target_links | default([]) }}"
       register: dotfiles_target_link_stats
 
+    - name: Remove managed symlinks that need to be retargeted
+      ansible.builtin.file:
+        path: "{{ item.item.dest }}"
+        state: absent
+      loop: "{{ dotfiles_target_link_stats.results | default([]) }}"
+      when:
+        - item.stat.islnk | default(false)
+        - >
+          ((item.stat.lnk_source | default('')) == item.item.managed_root) or
+          ((item.stat.lnk_source | default('')).startswith(item.item.managed_root ~ '/'))
+        - (item.stat.lnk_target | default('')) != item.item.src
+
     - name: Determine backup paths for conflicting target files
       ansible.builtin.command:
         argv:
           - python3
           - "{{ playbook_dir }}/dotfiles_tree.py"
-          - next-backup
+          - backup-info
           - "{{ item.item.dest }}"
       loop: "{{ dotfiles_target_link_stats.results | default([]) }}"
       when:
@@ -106,15 +139,34 @@
             (item.stat.islnk | default(false)) and
             (item.stat.lnk_target | default('')) == item.item.src
           )
+        - not (
+            (item.stat.islnk | default(false)) and
+            (
+              ((item.stat.lnk_source | default('')) == item.item.managed_root) or
+              ((item.stat.lnk_source | default('')).startswith(item.item.managed_root ~ '/'))
+            )
+          )
       register: dotfiles_target_link_backups
       changed_when: false
+
+    - name: Warn when repeated file backups are required
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: backing up {{ item.item.item.dest }} to
+          {{ (item.stdout | from_json).path }}. This is backup number
+          {{ (item.stdout | from_json).index }}, which suggests a previously
+          created backup was left in place and the managed path was changed again.
+      loop: "{{ dotfiles_target_link_backups.results | default([]) }}"
+      when:
+        - not (item.skipped | default(false))
+        - (item.stdout | from_json).index > 1
 
     - name: Backup conflicting target files
       ansible.builtin.command:
         argv:
           - mv
           - "{{ item.item.item.dest }}"
-          - "{{ item.stdout }}"
+          - "{{ (item.stdout | from_json).path }}"
       loop: "{{ dotfiles_target_link_backups.results | default([]) }}"
       when: not (item.skipped | default(false))
 
