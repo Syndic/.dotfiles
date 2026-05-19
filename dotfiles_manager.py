@@ -78,15 +78,15 @@ def normalize_relative_path(path_text: str) -> str:
 
 def is_excluded(relative_path: str, excludes: Sequence[str]) -> bool:
     """Return true when relative_path is excluded directly or by an excluded parent."""
-    normalized_rel = normalize_relative_path(relative_path)
+    relative_path = normalize_relative_path(relative_path)
 
     for excluded_path in excludes:
         normalized_exclude = normalize_relative_path(excluded_path)
         if not normalized_exclude:
             continue
-        if normalized_rel == normalized_exclude:
+        if relative_path == normalized_exclude:
             return True
-        if normalized_rel.startswith(normalized_exclude + "/"):
+        if relative_path.startswith(normalized_exclude + "/"):
             return True
 
     return False
@@ -176,8 +176,7 @@ def managed_target_candidates(
     relative_path: str,
 ) -> List[str]:
     """Return all repo-side source paths this tool could manage for relative_path."""
-    normalized_rel = normalize_relative_path(relative_path)
-    relative = Path(normalized_rel)
+    relative = Path(normalize_relative_path(relative_path))
     return [str(common_source_dir / relative), str(host_source_dir / relative)]
 
 
@@ -191,20 +190,18 @@ def path_is_within_root(path: Path, root: Path) -> bool:
 
 
 def is_managed_link_target(
-    link_target: str,
-    managed_root_dir: Path,
+    resolved_link_target: str,
+    resolved_managed_root_dir: Path,
 ) -> bool:
-    """Return true when link_target points anywhere inside the managed repo root."""
-    if not link_target:
+    """Return true when a resolved link target points anywhere inside the managed repo root."""
+    if not resolved_link_target:
         return False
 
-    target_path = Path(link_target).resolve(strict=False)
-    root_path = managed_root_dir.resolve(strict=False)
-    return path_is_within_root(target_path, root_path)
+    return path_is_within_root(Path(resolved_link_target), resolved_managed_root_dir)
 
 
 def find_stale_managed_symlinks(
-    managed_root_dir: Path,
+    resolved_managed_root_dir: Path,
     home_dir: Path,
     desired_link_paths: Sequence[str],
 ) -> List[Dict[str, str]]:
@@ -218,7 +215,7 @@ def find_stale_managed_symlinks(
 
         if is_managed_link_target(
             symlink["resolved_target"],
-            managed_root_dir=managed_root_dir,
+            resolved_managed_root_dir=resolved_managed_root_dir,
         ):
             stale_symlinks.append(symlink)
 
@@ -272,6 +269,7 @@ def build_source_manifest(
     assert_no_nested_dotfiles_dirs(common_source_dir)
     assert_no_nested_dotfiles_dirs(host_source_dir)
 
+    resolved_managed_root_dir = managed_root_dir.resolve(strict=False)
     normalized_excludes = [normalize_relative_path(path_text) for path_text in excludes]
     merged_entries = {}  # type: Dict[str, Dict[str, str]]
 
@@ -301,7 +299,7 @@ def build_source_manifest(
                     "src": entry["src"],
                     "rel": relative_path,
                     "dest": destination,
-                    "managed_root": str(managed_root_dir.resolve(strict=False)),
+                    "managed_root": str(resolved_managed_root_dir),
                     "managed_targets": managed_targets,
                 }
             )
@@ -312,13 +310,13 @@ def build_source_manifest(
                 "src": entry["src"],
                 "rel": relative_path,
                 "dest": destination,
-                "managed_root": str(managed_root_dir.resolve(strict=False)),
+                "managed_root": str(resolved_managed_root_dir),
                 "managed_targets": managed_targets,
             }
         )
 
     stale_links = find_stale_managed_symlinks(
-        managed_root_dir=managed_root_dir,
+        resolved_managed_root_dir=resolved_managed_root_dir,
         home_dir=home_dir,
         desired_link_paths=[entry["rel"] for entry in links],
     )

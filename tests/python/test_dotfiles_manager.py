@@ -204,7 +204,7 @@ def test_find_stale_managed_symlinks_ignores_foreign_links(tmp_path: Path) -> No
 
     assert (
         find_stale_managed_symlinks(
-            managed_root_dir=tmp_path / "other-root",
+            resolved_managed_root_dir=(tmp_path / "other-root").resolve(strict=False),
             home_dir=home_dir,
             desired_link_paths=[],
         )
