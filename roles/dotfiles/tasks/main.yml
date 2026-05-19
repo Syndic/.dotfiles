@@ -27,7 +27,7 @@
     - (dotfiles_common_source_dir_state.stat.isdir | default(false)) or
       (dotfiles_host_source_dir_state.stat.isdir | default(false))
   block:
-    - name: Build the effective dotfiles manifest
+    - name: Compute effective dotfiles manifest
       ansible.builtin.command:
         argv:
           - python3
@@ -46,26 +46,26 @@
       register: dotfiles_manifest_command
       changed_when: false
 
-    - name: Parse the effective dotfiles manifest
+    - name: Parse effective dotfiles manifest JSON
       ansible.builtin.set_fact:
         dotfiles_target_directories: "{{ (dotfiles_manifest_command.stdout | from_json).directories }}"
         dotfiles_target_links: "{{ (dotfiles_manifest_command.stdout | from_json).links }}"
         dotfiles_stale_managed_links: "{{ (dotfiles_manifest_command.stdout | from_json).stale_links }}"
 
-    - name: Remove stale managed symlinks that are no longer desired
+    - name: Remove stale managed symlinks
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent
       loop: "{{ dotfiles_stale_managed_links | default([]) }}"
 
-    - name: Inspect target directory paths
+    - name: Inspect destination directory paths
       ansible.builtin.stat:
         path: "{{ item.dest }}"
         follow: false
       loop: "{{ dotfiles_target_directories | default([]) }}"
       register: dotfiles_target_directory_stats
 
-    - name: Determine backup paths for conflicting target directories
+    - name: Collect conflicting destination directories
       ansible.builtin.set_fact:
         dotfiles_conflicting_directory_targets: >-
           {{
@@ -80,7 +80,7 @@
         - (directory_target_stat.stat.exists | default(false)) or (directory_target_stat.stat.islnk | default(false))
         - not (directory_target_stat.stat.isdir | default(false))
 
-    - name: Determine backup paths for conflicting target directories
+    - name: Compute backup metadata for conflicting directories
       ansible.builtin.command:
         argv:
           - python3
@@ -93,7 +93,7 @@
       register: dotfiles_target_directory_backups
       changed_when: false
 
-    - name: Build readable directory backup actions
+    - name: Build directory backup action list
       ansible.builtin.set_fact:
         dotfiles_directory_backup_actions: >-
           {{
@@ -107,7 +107,7 @@
       loop_control:
         loop_var: directory_backup_result
 
-    - name: Warn when repeated directory backups are required
+    - name: Warn about repeated directory backups
       ansible.builtin.debug:
         msg: >-
           WARNING: backing up {{ directory_backup_action.dest }} to
@@ -120,7 +120,7 @@
       when:
         - directory_backup_action.backup_index > 1
 
-    - name: Backup conflicting target directories
+    - name: Backup conflicting destination directories
       ansible.builtin.command:
         argv:
           - mv
@@ -130,20 +130,20 @@
       loop_control:
         loop_var: directory_backup_action
 
-    - name: Ensure target directories exist
+    - name: Ensure destination directories exist
       ansible.builtin.file:
         path: "{{ item.dest }}"
         state: directory
       loop: "{{ dotfiles_target_directories | default([]) }}"
 
-    - name: Inspect target symlink paths
+    - name: Inspect destination symlink paths
       ansible.builtin.stat:
         path: "{{ item.dest }}"
         follow: false
       loop: "{{ dotfiles_target_links | default([]) }}"
       register: dotfiles_target_link_stats
 
-    - name: Build the list of managed symlinks that need retargeting
+    - name: Collect managed symlinks that need retargeting
       ansible.builtin.set_fact:
         dotfiles_links_to_retarget: >-
           {{
@@ -161,7 +161,7 @@
           ((link_target_stat.stat.lnk_source | default('')).startswith(link_target_stat.item.managed_root ~ '/'))
         - (link_target_stat.stat.lnk_target | default('')) != link_target_stat.item.src
 
-    - name: Remove managed symlinks that need to be retargeted
+    - name: Remove managed symlinks before retargeting
       ansible.builtin.file:
         path: "{{ link_to_retarget.dest }}"
         state: absent
@@ -169,7 +169,7 @@
       loop_control:
         loop_var: link_to_retarget
 
-    - name: Build the list of conflicting target files
+    - name: Collect conflicting destination files
       ansible.builtin.set_fact:
         dotfiles_conflicting_file_targets: >-
           {{
@@ -194,7 +194,7 @@
             )
           )
 
-    - name: Determine backup paths for conflicting target files
+    - name: Compute backup metadata for conflicting files
       ansible.builtin.command:
         argv:
           - python3
@@ -207,7 +207,7 @@
       register: dotfiles_target_link_backups
       changed_when: false
 
-    - name: Build readable file backup actions
+    - name: Build file backup action list
       ansible.builtin.set_fact:
         dotfiles_file_backup_actions: >-
           {{
@@ -221,7 +221,7 @@
       loop_control:
         loop_var: file_backup_result
 
-    - name: Warn when repeated file backups are required
+    - name: Warn about repeated file backups
       ansible.builtin.debug:
         msg: >-
           WARNING: backing up {{ file_backup_action.dest }} to
@@ -234,7 +234,7 @@
       when:
         - file_backup_action.backup_index > 1
 
-    - name: Backup conflicting target files
+    - name: Backup conflicting destination files
       ansible.builtin.command:
         argv:
           - mv
@@ -244,7 +244,7 @@
       loop_control:
         loop_var: file_backup_action
 
-    - name: Create dotfiles symlinks
+    - name: Create destination dotfiles symlinks
       ansible.builtin.file:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
