@@ -1,6 +1,7 @@
 ---
 # homebrew role
-# Will install Homebrew packages from brewfile_common and brewfile_host.
+# Will install Homebrew packages from brewfile_common, brewfile_group, and
+# brewfile_host.
 # Uses community.general.homebrew_cask and ansible.builtin.command for brew bundle.
 
 - name: homebrew role placeholder

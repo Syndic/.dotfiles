@@ -136,8 +136,11 @@ to main." If a feature branch shows no CI run, that's expected, not broken.
   (`announce`, `centered_announce`, `info`, `warn`, `die`) with parallel ANSI
   styling. Keep them consistent — a user shouldn't be able to tell which
   language printed a line.
-- `host_vars/<name>.yml` and `brewfiles/<name>.Brewfile` are the per-host
-  pivots. Adding a new host means a file in each.
+- `host_vars/<name>.yml` and `brewfiles/hosts/<name>.Brewfile` are the
+  per-host pivots. Adding a new host means a file in each, plus assigning the
+  host to either the `personal` or `work` inventory group.
+- The universal Brewfile layer lives at `brewfiles/common.Brewfile`.
+- Group Brewfile layers live in `brewfiles/groups/`.
 - `tests/Brewfile` is dev-only (bats, pytest). Don't conflate it with
   `brewfiles/` — the latter is what Ansible installs on hosts at runtime.
 - The `PYTHON3` env var in `install.sh` exists so the bats suite can
