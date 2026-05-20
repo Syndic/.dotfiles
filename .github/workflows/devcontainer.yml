@@ -54,16 +54,20 @@ jobs:
         uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
         with:
           push: never
-          # `python3 --version` confirms the python feature landed the pinned 3.9
-          # interpreter on PATH; `bats --version` confirms the Dockerfile apt install.
-          # `pytest`/`pre-commit` checks confirm post-create.sh ran and put both on
-          # PATH — i.e. `./tests/run` would work inside the container.
+          # Asserts the default interpreter is still the pinned 3.9.x (a Renovate
+          # bump of the frozen pin would fail here). `bats` confirms the Dockerfile
+          # apt install; `pytest`/`pre-commit` confirm post-create.sh ran. `ansible`
+          # /`ansible-lint` confirm the pipx install onto the latest-Python
+          # additionalVersion landed (their `--version` output names that Python).
           runCmd: |
             set -euo pipefail
             python3 --version
+            python3 --version | grep -q '^Python 3\.9\.'
             bats --version
             pytest --version
             pre-commit --version
+            ansible --version
+            ansible-lint --version
 
       - if: steps.changes.outputs.changed != 'true'
         run: echo "No devcontainer changes in this PR; skipping build."

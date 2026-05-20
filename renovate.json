@@ -11,6 +11,24 @@
       "matchDepNames": ["python"],
       "matchFileNames": [".github/workflows/tests.yml"],
       "enabled": false
+    },
+    {
+      "description": "Freeze the devcontainer's primary Python (the python feature's `version`) at the exact Xcode CLT patch — the built-in devcontainer manager must not bump it. The latest-Python pin (`additionalVersions`) is bumped by the customManager below. See CLAUDE.md.",
+      "matchManagers": ["devcontainer"],
+      "matchDepNames": ["python"],
+      "matchFileNames": [".devcontainer/devcontainer.json"],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Keep the devcontainer's latest-Python pin (`additionalVersions`) current. Only the annotated line is matched, so the frozen `version` pin is never touched.",
+      "managerFilePatterns": ["/^\\.devcontainer/devcontainer\\.json$/"],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*\"additionalVersions\": \"(?<currentValue>[^\"]+)\""
+      ],
+      "versioningTemplate": "python"
     }
   ]
 }
