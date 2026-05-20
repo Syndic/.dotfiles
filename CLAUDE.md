@@ -39,8 +39,10 @@ Concrete consequences:
 ## Python 3.9 pin
 
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.
-Both the runtime (`/usr/bin/python3` in install.sh) and CI
-(`python-version: '3.9'`) are pinned.
+The pin is enforced in three places: the runtime (`/usr/bin/python3` in
+install.sh), CI (`python-version: '3.9'` in `.github/workflows/tests.yml`),
+and the devcontainer (the `python` feature's `version` in
+`.devcontainer/devcontainer.json`). Keep all three in step.
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.
