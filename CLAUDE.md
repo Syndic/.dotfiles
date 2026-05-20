@@ -41,8 +41,17 @@ Concrete consequences:
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.
 The pin is enforced in three places: the runtime (`/usr/bin/python3` in
 install.sh), CI (`python-version: '3.9'` in `.github/workflows/tests.yml`),
-and the devcontainer (the `python` feature's `version` in
-`.devcontainer/devcontainer.json`). Keep all three in step.
+and the devcontainer (the `python` feature's `version`, pinned to the exact
+CLT patch `3.9.6`, in `.devcontainer/devcontainer.json`). Keep all three in
+step.
+
+The devcontainer *also* installs the latest Python via that feature's
+`additionalVersions` — but that one is not part of the pin. It exists solely
+for the Ansible tooling (`ansible`, `ansible-lint`), which `post-create.sh`
+installs into isolated pipx venvs because modern ansible-core/ansible-lint
+require Python >= 3.10. Renovate keeps that latest pin current while leaving
+`3.9.6` frozen; the wiring is in `renovate.json` (a disabled `devcontainer`
+manager rule for the frozen pin, plus a `customManager` for the latest one).
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.

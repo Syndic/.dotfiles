@@ -11,7 +11,13 @@
       "upgradePackages": false
     },
     "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.9",
+      // Exact Python that macOS Xcode CLT ships — phase2.py runs under it on a
+      // real bootstrap. Frozen: Renovate is blocked from bumping it (renovate.json).
+      "version": "3.9.6",
+      // Latest Python, for the Ansible tooling installed by post-create.sh.
+      // Renovate keeps this current via the customManager in renovate.json.
+      // renovate: datasource=python-version depName=python
+      "additionalVersions": "3.14",
       "installTools": false
     },
     "ghcr.io/devcontainers/features/github-cli:1": {},
