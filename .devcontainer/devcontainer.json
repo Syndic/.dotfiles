@@ -20,20 +20,23 @@
       "additionalVersions": "3.14",
       "installTools": false
     },
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/git:1": {}
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "remoteUser": "vscode",
   "postCreateCommand": ".devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
       "extensions": [
+        "github.vscode-github-actions",
+        "gruntfuggly.todo-tree",
+        "jetmartin.bats",
         "ms-python.python",
+        "ms-python.debugpy",
         "redhat.ansible",
         "redhat.vscode-yaml",
-        "timonwong.shellcheck",
-        "jetmartin.bats",
-        "gruntfuggly.todo-tree"
+        "ryanluker.vscode-coverage-gutters",
+        "timonwong.shellcheck"
       ]
     }
   }
