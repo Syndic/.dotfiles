@@ -2,8 +2,8 @@ repos:
   - repo: local
     hooks:
       - id: dotfiles-source-guard
-        name: dotfiles source guard
-        entry: python3 dotfiles_tree.py check home_source
+        name: prevent recursive dotfiles repo nesting
+        entry: python3 dotfiles_manager.py check home_source
         language: system
         pass_filenames: false
         always_run: true

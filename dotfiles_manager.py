@@ -31,8 +31,8 @@ def assert_no_nested_dotfiles_dirs(source_root: Path) -> None:
     )
 
 
-def next_backup_path(target_path: Path) -> Path:
-    """Return the next available '<name>.backup-N' path for target_path."""
+def backup_path_info(target_path: Path) -> Dict[str, object]:
+    """Return backup path metadata for the next available '<name>.backup-N' path."""
     parent = target_path.parent
     prefix = "{name}.backup-".format(name=target_path.name)
     highest_seen = 0
@@ -46,7 +46,15 @@ def next_backup_path(target_path: Path) -> Path:
             if suffix.isdigit():
                 highest_seen = max(highest_seen, int(suffix))
 
-    return target_path.with_name("{name}{index}".format(name=prefix, index=highest_seen + 1))
+    next_index = highest_seen + 1
+    backup_path = target_path.with_name("{name}{index}".format(name=prefix, index=next_index))
+
+    return {"path": str(backup_path), "index": next_index}
+
+
+def next_backup_path(target_path: Path) -> Path:
+    """Return the next available '<name>.backup-N' path for target_path."""
+    return Path(str(backup_path_info(target_path)["path"]))
 
 
 def normalize_relative_path(path_text: str) -> str:
@@ -70,15 +78,15 @@ def normalize_relative_path(path_text: str) -> str:
 
 def is_excluded(relative_path: str, excludes: Sequence[str]) -> bool:
     """Return true when relative_path is excluded directly or by an excluded parent."""
-    normalized_rel = normalize_relative_path(relative_path)
+    relative_path = normalize_relative_path(relative_path)
 
     for excluded_path in excludes:
         normalized_exclude = normalize_relative_path(excluded_path)
         if not normalized_exclude:
             continue
-        if normalized_rel == normalized_exclude:
+        if relative_path == normalized_exclude:
             return True
-        if normalized_rel.startswith(normalized_exclude + "/"):
+        if relative_path.startswith(normalized_exclude + "/"):
             return True
 
     return False
@@ -123,6 +131,97 @@ def iter_source_entries(source_root: Path) -> List[Dict[str, str]]:
     return sorted(entries, key=lambda entry: (entry["rel"].count("/"), entry["rel"], entry["type"]))
 
 
+def iter_home_symlinks(home_dir: Path) -> List[Dict[str, str]]:
+    """Return symlinks below home_dir without following symlinked directories."""
+    if not home_dir.is_dir():
+        return []
+
+    symlinks = []
+    stack = [("", home_dir)]
+
+    while stack:
+        relative_parent, absolute_parent = stack.pop()
+        with os.scandir(absolute_parent) as scandir_entries:
+            children = sorted(scandir_entries, key=lambda entry: entry.name, reverse=True)
+
+        for child in children:
+            relative_path = child.name if not relative_parent else relative_parent + "/" + child.name
+            absolute_path = Path(child.path)
+
+            if child.is_symlink():
+                raw_target = os.readlink(absolute_path)
+                if Path(raw_target).is_absolute():
+                    resolved_target = str(Path(raw_target).resolve(strict=False))
+                else:
+                    resolved_target = str((absolute_path.parent / raw_target).resolve(strict=False))
+                symlinks.append(
+                    {
+                        "path": str(absolute_path),
+                        "rel": relative_path,
+                        "target": raw_target,
+                        "resolved_target": resolved_target,
+                    }
+                )
+                continue
+
+            if child.is_dir(follow_symlinks=False):
+                stack.append((relative_path, absolute_path))
+
+    return sorted(symlinks, key=lambda item: item["rel"])
+
+
+def managed_target_candidates(
+    common_source_dir: Path,
+    host_source_dir: Path,
+    relative_path: str,
+) -> List[str]:
+    """Return all repo-side source paths this tool could manage for relative_path."""
+    relative = Path(normalize_relative_path(relative_path))
+    return [str(common_source_dir / relative), str(host_source_dir / relative)]
+
+
+def path_is_within_root(path: Path, root: Path) -> bool:
+    """Return true when path is equal to root or nested below it."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def is_managed_link_target(
+    resolved_link_target: str,
+    resolved_managed_root_dir: Path,
+) -> bool:
+    """Return true when a resolved link target points anywhere inside the managed repo root."""
+    if not resolved_link_target:
+        return False
+
+    return path_is_within_root(Path(resolved_link_target), resolved_managed_root_dir)
+
+
+def find_stale_managed_symlinks(
+    resolved_managed_root_dir: Path,
+    home_dir: Path,
+    desired_link_paths: Sequence[str],
+) -> List[Dict[str, str]]:
+    """Return managed symlinks under home_dir that should no longer exist."""
+    desired_links = {normalize_relative_path(path_text) for path_text in desired_link_paths}
+    stale_symlinks = []
+
+    for symlink in iter_home_symlinks(home_dir):
+        if normalize_relative_path(symlink["rel"]) in desired_links:
+            continue
+
+        if is_managed_link_target(
+            symlink["resolved_target"],
+            resolved_managed_root_dir=resolved_managed_root_dir,
+        ):
+            stale_symlinks.append(symlink)
+
+    return stale_symlinks
+
+
 def _remove_descendants(entries: Dict[str, Dict[str, str]], relative_path: str) -> None:
     prefix = relative_path + "/"
     for rel in list(entries):
@@ -162,6 +261,7 @@ def _merge_entry(
 def build_source_manifest(
     common_source_dir: Path,
     host_source_dir: Path,
+    managed_root_dir: Path,
     home_dir: Path,
     excludes: Sequence[str],
 ) -> Dict[str, List[Dict[str, str]]]:
@@ -169,6 +269,7 @@ def build_source_manifest(
     assert_no_nested_dotfiles_dirs(common_source_dir)
     assert_no_nested_dotfiles_dirs(host_source_dir)
 
+    resolved_managed_root_dir = managed_root_dir.resolve(strict=False)
     normalized_excludes = [normalize_relative_path(path_text) for path_text in excludes]
     merged_entries = {}  # type: Dict[str, Dict[str, str]]
 
@@ -186,16 +287,41 @@ def build_source_manifest(
     for relative_path in sorted(merged_entries):
         entry = merged_entries[relative_path]
         destination = str(home_dir / Path(relative_path))
+        managed_targets = managed_target_candidates(
+            common_source_dir=common_source_dir,
+            host_source_dir=host_source_dir,
+            relative_path=relative_path,
+        )
 
         if entry["type"] == "directory":
             directories.append(
-                {"src": entry["src"], "rel": relative_path, "dest": destination}
+                {
+                    "src": entry["src"],
+                    "rel": relative_path,
+                    "dest": destination,
+                    "managed_root": str(resolved_managed_root_dir),
+                    "managed_targets": managed_targets,
+                }
             )
             continue
 
-        links.append({"src": entry["src"], "rel": relative_path, "dest": destination})
+        links.append(
+            {
+                "src": entry["src"],
+                "rel": relative_path,
+                "dest": destination,
+                "managed_root": str(resolved_managed_root_dir),
+                "managed_targets": managed_targets,
+            }
+        )
 
-    return {"directories": directories, "links": links}
+    stale_links = find_stale_managed_symlinks(
+        resolved_managed_root_dir=resolved_managed_root_dir,
+        home_dir=home_dir,
+        desired_link_paths=[entry["rel"] for entry in links],
+    )
+
+    return {"directories": directories, "links": links, "stale_links": stale_links}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -214,12 +340,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     backup_parser.add_argument("target_path", type=Path)
 
+    backup_info_parser = subparsers.add_parser(
+        "backup-info",
+        help="print JSON describing the next available '<name>.backup-N' path for a target",
+    )
+    backup_info_parser.add_argument("target_path", type=Path)
+
     manifest_parser = subparsers.add_parser(
         "build-manifest",
         help="build the effective directory/link manifest for home_source overlays",
     )
     manifest_parser.add_argument("--common-dir", type=Path, required=True)
     manifest_parser.add_argument("--host-dir", type=Path, required=True)
+    manifest_parser.add_argument("--managed-root", type=Path, required=True)
     manifest_parser.add_argument("--home-dir", type=Path, required=True)
     manifest_parser.add_argument("--excludes-json", default="[]")
 
@@ -241,9 +374,15 @@ def _run_next_backup(target_path: Path) -> int:
     return 0
 
 
+def _run_backup_info(target_path: Path) -> int:
+    print(json.dumps(backup_path_info(target_path), sort_keys=True))
+    return 0
+
+
 def _run_build_manifest(
     common_dir: Path,
     host_dir: Path,
+    managed_root: Path,
     home_dir: Path,
     excludes_json: str,
 ) -> int:
@@ -259,6 +398,7 @@ def _run_build_manifest(
         manifest = build_source_manifest(
             common_source_dir=common_dir,
             host_source_dir=host_dir,
+            managed_root_dir=managed_root,
             home_dir=home_dir,
             excludes=raw_excludes,
         )
@@ -277,10 +417,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return _run_check(args.source_dir)
     if args.command == "next-backup":
         return _run_next_backup(args.target_path)
+    if args.command == "backup-info":
+        return _run_backup_info(args.target_path)
     if args.command == "build-manifest":
         return _run_build_manifest(
             common_dir=args.common_dir,
             host_dir=args.host_dir,
+            managed_root=args.managed_root,
             home_dir=args.home_dir,
             excludes_json=args.excludes_json,
         )
