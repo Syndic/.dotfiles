@@ -5,10 +5,11 @@ set -euo pipefail
 # the pinned 3.9.6, matching the macOS CLT Python phase2.py runs under — so the
 # suite exercises the code on the interpreter a real bootstrap uses, and
 # `./tests/run`'s bare `pytest` resolves correctly. CI installs pytest the same
-# way (pip); see .github/workflows/tests.yml. The 3.9.6 source build bundles a
+# way (pip); see .github/workflows/tests.yml. pytest-cov backs the VS Code
+# Testing panel's "Run with Coverage". The 3.9.6 source build bundles a
 # 2021-era pip, so upgrade it first to a current release.
 pip install --no-warn-script-location --upgrade pip
-pip install --no-warn-script-location pytest
+pip install --no-warn-script-location pytest pytest-cov
 
 # Dev tooling that need not match the 3.9.6 runtime, installed into pipx venvs
 # on the latest Python (the python feature's `additionalVersion`). Modern
@@ -31,7 +32,9 @@ export PIPX_BIN_DIR="$HOME/.local/bin"
 pipx install --include-deps --python "$latest_python/bin/python3" ansible
 pipx inject --include-apps ansible ansible-lint
 pipx install --python "$latest_python/bin/python3" pre-commit
-pipx ensurepath
+# We were getting a warning about the relevant paths already being on PATH, so we don't need to call
+# `pipx ensurepath` here. If we did, it would be:
+# pipx ensurepath
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.

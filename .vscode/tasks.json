@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run all tests",
+      "detail": "Full suite - pytest + bats (tests/run)",
+      "type": "shell",
+      "command": "./tests/run",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run bats tests",
+      "detail": "Bash suite only (tests/run bash)",
+      "type": "shell",
+      "command": "./tests/run",
+      "args": [
+        "bash"
+      ],
+      "group": "test",
+      "presentation": {
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

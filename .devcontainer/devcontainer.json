@@ -27,7 +27,19 @@
   "postCreateCommand": ".devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
+      // Pin the Python extension (and its Testing UI) to the 3.9.6 primary:
+      // pytest is installed only there, and the suite must exercise the code
+      // on the same interpreter a real macOS bootstrap uses. The Python
+      // Environments extension is turned off because its auto-discovery picks
+      // the 3.13 Debian system python in this container and ignores
+      // defaultInterpreterPath (verified — it does not honor the pin here);
+      // classic interpreter management does honor it.
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/python/current/bin/python3",
+        "python.useEnvironmentsExtension": false
+      },
       "extensions": [
+        "cnshenj.vscode-task-manager",
         "github.vscode-github-actions",
         "gruntfuggly.todo-tree",
         "jetmartin.bats",

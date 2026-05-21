@@ -15,6 +15,7 @@
 *.swp
 *.swo
 *~
+.coverage
 
 # ── Claude Code ───────────────────────────────────────────────────────────────────────────────────
 # settings.local.json holds per-developer overrides — never shared
