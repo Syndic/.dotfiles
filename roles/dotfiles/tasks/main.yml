@@ -126,6 +126,7 @@
           - mv
           - "{{ directory_backup_action.dest }}"
           - "{{ directory_backup_action.backup_path }}"
+      changed_when: true
       loop: "{{ dotfiles_directory_backup_actions | default([]) }}"
       loop_control:
         loop_var: directory_backup_action
@@ -134,6 +135,7 @@
       ansible.builtin.file:
         path: "{{ item.dest }}"
         state: directory
+        mode: "0755"
       loop: "{{ dotfiles_target_directories | default([]) }}"
 
     - name: Inspect destination symlink paths
@@ -240,6 +242,7 @@
           - mv
           - "{{ file_backup_action.dest }}"
           - "{{ file_backup_action.backup_path }}"
+      changed_when: true
       loop: "{{ dotfiles_file_backup_actions | default([]) }}"
       loop_control:
         loop_var: file_backup_action

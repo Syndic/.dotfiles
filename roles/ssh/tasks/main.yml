@@ -3,7 +3,7 @@
 # Will configure SSH client settings and install SSH certificates.
 # Independently invokable via --tags ssh.
 
-- name: ssh role placeholder
+- name: SSH role placeholder
   ansible.builtin.debug:
     msg: "ssh role: not yet implemented"
   tags: ssh
