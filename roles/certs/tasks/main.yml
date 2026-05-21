@@ -4,7 +4,7 @@
 # request machine certs from smallstep CA, and provision SSH host/user certs.
 # Must be idempotent and independently invokable via --tags certs.
 
-- name: certs role placeholder
+- name: Certs role placeholder
   ansible.builtin.debug:
     msg: "certs role: not yet implemented (smallstep CA planned)"
   tags: certs
