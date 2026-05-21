@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -275,6 +276,51 @@ def test_stale_symlink_to_unexpected_managed_repo_path_is_still_managed(tmp_path
             "src": str(common_root / ".zshrc"),
         }
     ]
+
+
+def test_build_source_manifest_records_symlinks_in_the_source_tree(tmp_path: Path) -> None:
+    """A symlink inside the source tree is itself a managed entry — it should
+    surface as a link whose src is the symlink, not its resolved target."""
+    common_root = tmp_path / "home_source" / "common"
+    host_root = tmp_path / "home_source" / "hosts" / "mini18"
+    home_dir = tmp_path / "home"
+
+    common_root.mkdir(parents=True)
+    (common_root / ".vimrc").symlink_to("/etc/some-vimrc")
+
+    manifest = build_source_manifest(
+        common_source_dir=common_root,
+        host_source_dir=host_root,
+        managed_root_dir=tmp_path / "home_source",
+        home_dir=home_dir,
+        excludes=[],
+    )
+
+    assert [entry["rel"] for entry in manifest["links"]] == [".vimrc"]
+    assert manifest["links"][0]["src"] == str(common_root / ".vimrc")
+
+
+def test_find_stale_managed_symlinks_resolves_relative_targets(tmp_path: Path) -> None:
+    """Home symlinks with a relative target are resolved against the link's
+    own parent before deciding whether they point into the managed repo."""
+    managed_root = tmp_path / "repo"
+    target_file = managed_root / "home_source" / "common" / ".zshrc"
+    write_file(target_file, "common zshrc")
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir(parents=True)
+    link = home_dir / ".zshrc"
+    link.symlink_to(os.path.relpath(target_file, home_dir))
+
+    stale = find_stale_managed_symlinks(
+        resolved_managed_root_dir=managed_root.resolve(strict=False),
+        home_dir=home_dir,
+        desired_link_paths=[],
+    )
+
+    assert [item["rel"] for item in stale] == [".zshrc"]
+    assert not Path(stale[0]["target"]).is_absolute()
+    assert stale[0]["resolved_target"] == str(target_file.resolve(strict=False))
 
 
 def test_repo_home_source_tree_has_no_nested_dotfiles_dirs() -> None:
