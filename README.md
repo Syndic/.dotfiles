@@ -41,7 +41,7 @@ In the Cloudflare dashboard for `yanch.ar`:
      - Preserve query string: off
 3. Test:
    ```bash
-   curl -sSI https://install.yanch.ar          # should show 302 + Location header
+   curl -sSI https://install.yanch.ar          # should show 301 + Location header
    curl -fsSL https://install.yanch.ar | head  # should show install.sh contents
    ```
 
