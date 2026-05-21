@@ -2,7 +2,7 @@ repos:
   - repo: local
     hooks:
       - id: dotfiles-source-guard
-        name: prevent recursive dotfiles repo nesting
+        name: reject nested .dotfiles dirs and symlinks in home_source
         entry: python3 dotfiles_manager.py check home_source
         language: system
         pass_filenames: false
