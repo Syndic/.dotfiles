@@ -5,6 +5,7 @@ import pytest
 
 from dotfiles_manager import (
     assert_no_nested_dotfiles_dirs,
+    assert_no_symlinks_in_source,
     backup_path_info,
     build_source_manifest,
     find_stale_managed_symlinks,
@@ -51,6 +52,42 @@ def test_assert_no_nested_dotfiles_dirs_rejects_nested_repo_copy(tmp_path: Path)
 
     with pytest.raises(ValueError, match="nested '.dotfiles' directories"):
         assert_no_nested_dotfiles_dirs(source_root)
+
+
+def test_assert_no_symlinks_in_source_rejects_file_symlink(tmp_path: Path) -> None:
+    source_root = tmp_path / "home_source"
+    write_file(source_root / ".zshrc", "real zshrc")
+    (source_root / ".zprofile").symlink_to(source_root / ".zshrc")
+
+    with pytest.raises(ValueError, match="contains symlinks"):
+        assert_no_symlinks_in_source(source_root)
+
+
+def test_assert_no_symlinks_in_source_rejects_directory_symlink(tmp_path: Path) -> None:
+    source_root = tmp_path / "home_source"
+    write_file(source_root / "real" / "config.toml", "real config")
+    (source_root / ".config").symlink_to(source_root / "real")
+
+    with pytest.raises(ValueError, match="contains symlinks"):
+        assert_no_symlinks_in_source(source_root)
+
+
+def test_build_source_manifest_rejects_symlink_in_source(tmp_path: Path) -> None:
+    common_root = tmp_path / "home_source" / "common"
+    host_root = tmp_path / "home_source" / "hosts" / "mini26"
+    home_dir = tmp_path / "home"
+
+    write_file(common_root / ".zshrc", "common zshrc")
+    (common_root / ".zprofile").symlink_to(common_root / ".zshrc")
+
+    with pytest.raises(ValueError, match="contains symlinks"):
+        build_source_manifest(
+            common_source_dir=common_root,
+            host_source_dir=host_root,
+            managed_root_dir=tmp_path / "home_source",
+            home_dir=home_dir,
+            excludes=[],
+        )
 
 
 def test_build_source_manifest_applies_overlays_and_excludes(tmp_path: Path) -> None:
@@ -327,3 +364,9 @@ def test_repo_home_source_tree_has_no_nested_dotfiles_dirs() -> None:
     repo_root = Path(__file__).resolve().parents[2]
 
     assert_no_nested_dotfiles_dirs(repo_root / "home_source")
+
+
+def test_repo_home_source_tree_has_no_symlinks() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+
+    assert_no_symlinks_in_source(repo_root / "home_source")

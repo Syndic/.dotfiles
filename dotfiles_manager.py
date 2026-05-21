@@ -31,6 +31,35 @@ def assert_no_nested_dotfiles_dirs(source_root: Path) -> None:
     )
 
 
+def find_symlinks_in_source(source_root: Path) -> List[Path]:
+    """Return symlink paths below source_root (symlinked directories are not descended)."""
+    return [
+        Path(entry["src"])
+        for entry in iter_source_entries(source_root)
+        if entry["type"] == "link"
+    ]
+
+
+def assert_no_symlinks_in_source(source_root: Path) -> None:
+    """Raise when the source tree contains symlinks.
+
+    home_source must hold only plain files and directories. A symlink there
+    would be linked into $HOME as a symlink-to-a-symlink chain, and because
+    managed-link detection resolves the whole chain, a source symlink whose
+    target escapes the repo silently breaks stale-link cleanup and retargeting.
+    """
+    offenders = find_symlinks_in_source(source_root)
+    if not offenders:
+        return
+
+    formatted = "\n".join(str(path) for path in offenders)
+    raise ValueError(
+        "Refusing to link a source tree that contains symlinks "
+        "(home_source must hold only plain files and directories):\n"
+        f"{formatted}"
+    )
+
+
 def backup_path_info(target_path: Path) -> Dict[str, object]:
     """Return backup path metadata for the next available '<name>.backup-N' path."""
     parent = target_path.parent
@@ -268,6 +297,8 @@ def build_source_manifest(
     """Build the effective directory/link plan for common + host overlay sources."""
     assert_no_nested_dotfiles_dirs(common_source_dir)
     assert_no_nested_dotfiles_dirs(host_source_dir)
+    assert_no_symlinks_in_source(common_source_dir)
+    assert_no_symlinks_in_source(host_source_dir)
 
     resolved_managed_root_dir = managed_root_dir.resolve(strict=False)
     normalized_excludes = [normalize_relative_path(path_text) for path_text in excludes]
@@ -330,7 +361,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     check_parser = subparsers.add_parser(
         "check",
-        help="fail if the dotfiles source tree contains nested '.dotfiles' directories",
+        help="fail if the dotfiles source tree contains nested '.dotfiles' directories or symlinks",
     )
     check_parser.add_argument("source_dir", type=Path)
 
@@ -362,6 +393,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _run_check(source_dir: Path) -> int:
     try:
         assert_no_nested_dotfiles_dirs(source_dir)
+        assert_no_symlinks_in_source(source_dir)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 1

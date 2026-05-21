@@ -143,5 +143,11 @@ to main." If a feature branch shows no CI run, that's expected, not broken.
 - Group Brewfile layers live in `brewfiles/groups/`.
 - `tests/Brewfile` is dev-only (bats, pytest). Don't conflate it with
   `brewfiles/` — the latter is what Ansible installs on hosts at runtime.
+- The `home_source/` tree (`common/` plus `hosts/<name>/` overlays) holds the
+  files symlinked into `$HOME`. It must contain **only plain files and
+  directories** — no symlinks (they'd be linked as a symlink-to-symlink chain
+  and break managed-link detection) and no nested `.dotfiles` directories.
+  Both are enforced by `dotfiles_manager.py check` (the `dotfiles-source-guard`
+  pre-commit hook) and again at runtime in `build_source_manifest`.
 - The `PYTHON3` env var in `install.sh` exists so the bats suite can
   substitute a stub. Default (`/usr/bin/python3`) is unchanged for users.
