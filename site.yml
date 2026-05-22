@@ -3,15 +3,22 @@
 # Run with: ansible-playbook site.yml -i inventory.yml --limit <hostname>
 # Run only certs: ansible-playbook site.yml -i inventory.yml --limit <hostname> --tags certs
 
-- name: Configure macOS dotfiles
+- name: Configure dotfiles
   hosts: all
   connection: local
-  gather_facts: false
+  # gather_facts: true so OS-gated roles below can key off ansible_system /
+  # ansible_os_family. Cheap on connection: local.
+  gather_facts: true
 
   roles:
     - homebrew
+    - role: apt
+      when: ansible_os_family == 'Debian'
+    - role: flatpak
+      when: ansible_system == 'Linux'
     - dotfiles
-    - macos_defaults
+    - role: macos_defaults
+      when: ansible_system == 'Darwin'
     - role: certs
       tags: certs
     - role: ssh

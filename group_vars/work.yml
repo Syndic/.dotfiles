@@ -3,5 +3,10 @@
 # Everything gets group_vars/all.yml.
 # Host-specific overrides go in host_vars/<hostname>.yml.
 
-# Brewfile layer shared by all work machines.
+# Brewfile layer shared by all work machines (used on both macOS and Linux).
 brewfile_group: "{{ playbook_dir }}/brewfiles/groups/work.Brewfile"
+
+# apt / flatpak group layers shared by all work Linux machines. Unused on
+# macOS work hosts (the apt/flatpak roles are gated to Linux in site.yml).
+apt_group: []
+flatpak_group: []

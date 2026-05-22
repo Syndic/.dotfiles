@@ -1,8 +1,14 @@
 ---
 # Ansible inventory for dotfiles bootstrap.
-# Hosts are organized into personal and work groups, all running Ansible
-# against localhost.
-# Use --limit <hostname> to target a specific machine.
+#
+# Hosts belong to two orthogonal group axes:
+#   purpose: personal / work
+#   OS:      macos / linux
+# Each host joins one group per axis (e.g. laptop24 ∈ {personal, macos}).
+#
+# All hosts run Ansible against localhost.
+# Use --limit <hostname> to target a specific machine, or --limit <group> to
+# target everything in (say) the linux group.
 
 all:
   children:
@@ -17,5 +23,16 @@ all:
         mini26:
           ansible_connection: local
           ansible_host: localhost
+        devbox:
+          ansible_connection: local
+          ansible_host: localhost
     work:
       hosts: {}
+    macos:
+      hosts:
+        laptop24:
+        mini18:
+        mini26:
+    linux:
+      hosts:
+        devbox:

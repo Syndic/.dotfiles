@@ -7,7 +7,19 @@
 # interpreter discovery doesn't drift as other Python installs appear.
 ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-# Brewfile layering is explicit: common + group + host.
-# `brewfile_group` is set by group_vars/<group>.yml.
+# Package layering is explicit: common + group + host, for each backend.
+# `_group` layers are set by group_vars/<personal|work>.yml.
+# `_host` layers are set by host_vars/<host>.yml.
+
+# Brewfile (used on both macOS and Linux — Linuxbrew silently skips casks).
 brewfile_common: "{{ playbook_dir }}/brewfiles/common.Brewfile"
 brewfile_group:
+
+# apt packages (Linux only; the apt role is gated to Debian in site.yml,
+# so these lists are simply unused on macOS).
+apt_common: []
+apt_group: []
+
+# flatpak apps (Linux only; the flatpak role is gated to Linux in site.yml).
+flatpak_common: []
+flatpak_group: []

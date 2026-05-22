@@ -26,9 +26,19 @@ setup() {
   # and takes the "already cloned" branch (which runs `git pull`).
   mkdir -p "$TEST_HOME/.dotfiles/.git"
 
-  # xcode-select: returns success so the CLT-install path is skipped.
-  cat > "$STUB_BIN/xcode-select" <<'STUB'
+  # uname: configurable per-test via $FAKE_UNAME_S. Default Darwin so the
+  # existing CLT-path tests work unchanged regardless of the host the test
+  # suite runs on (e.g. Linux CI). Linux-branch tests override this.
+  cat > "$STUB_BIN/uname" <<'STUB'
 #!/usr/bin/env bash
+echo "${FAKE_UNAME_S:-Darwin}"
+STUB
+
+  # xcode-select: returns success so the CLT-install path is skipped.
+  # Also logs invocation so we can assert it ISN'T called on the Linux branch.
+  cat > "$STUB_BIN/xcode-select" <<STUB
+#!/usr/bin/env bash
+echo "called" >> "$TEST_HOME/xcode-select.log"
 exit 0
 STUB
 
@@ -43,6 +53,31 @@ STUB
   cat > "$STUB_BIN/softwareupdate" <<'STUB'
 #!/usr/bin/env bash
 exit 0
+STUB
+
+  # apt-get: no-op for the Linux branch. Logs its args so tests can assert
+  # which subcommands ran.
+  cat > "$STUB_BIN/apt-get" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$TEST_HOME/apt-get.log"
+exit 0
+STUB
+
+  # sudo: exec the rest of the args so the apt-get stub still runs under PATH.
+  cat > "$STUB_BIN/sudo" <<'STUB'
+#!/usr/bin/env bash
+exec "$@"
+STUB
+
+  # id: report a non-root UID so install.sh selects the sudo branch.
+  # Tests that want to exercise the root branch can override $FAKE_UID.
+  cat > "$STUB_BIN/id" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "-u" ]]; then
+  echo "${FAKE_UID:-1000}"
+else
+  /usr/bin/id "$@"
+fi
 STUB
 
   # Fake python3: writes the args and stdin tty status to a log file, exit 0.
@@ -220,4 +255,61 @@ STUB
 
   run bash "$REPO_ROOT/install.sh"
   [[ "$output" == *$'\e[1;37;101m error \e[0m'* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Linux branch (uname -s == Linux)
+# ---------------------------------------------------------------------------
+
+@test "install.sh runs the Linux branch end-to-end when uname says Linux" {
+  FAKE_UNAME_S=Linux run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Installing Linux prerequisites"* ]]
+}
+
+@test "install.sh invokes apt-get update + install on the Linux branch" {
+  FAKE_UNAME_S=Linux run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_HOME/apt-get.log" ]
+  grep -q "update" "$TEST_HOME/apt-get.log"
+  grep -q "install" "$TEST_HOME/apt-get.log"
+  # Homebrew's documented Linux build prerequisites must be in the install list.
+  grep -q "build-essential" "$TEST_HOME/apt-get.log"
+  grep -q "procps" "$TEST_HOME/apt-get.log"
+  grep -q "file" "$TEST_HOME/apt-get.log"
+  # Plus the basics needed to clone the repo and run phase 2.
+  grep -q "^git\$" "$TEST_HOME/apt-get.log"
+  grep -q "^python3\$" "$TEST_HOME/apt-get.log"
+}
+
+@test "install.sh does not invoke xcode-select on the Linux branch" {
+  FAKE_UNAME_S=Linux run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TEST_HOME/xcode-select.log" ]
+}
+
+@test "install.sh forwards --host to python on the Linux branch" {
+  FAKE_UNAME_S=Linux run bash "$REPO_ROOT/install.sh" --host devbox
+  [ "$status" -eq 0 ]
+  assert_arg_present "--host"
+  assert_arg_present "devbox"
+}
+
+@test "install.sh skips sudo when id -u returns 0 on the Linux branch" {
+  # Override id to report root; install.sh sets SUDO="" and calls apt-get
+  # directly. The apt-get stub still records the install args.
+  FAKE_UNAME_S=Linux FAKE_UID=0 run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  grep -q "install" "$TEST_HOME/apt-get.log"
+}
+
+# ---------------------------------------------------------------------------
+# Unknown OS
+# ---------------------------------------------------------------------------
+
+@test "install.sh dies with a clear error on an unknown OS" {
+  FAKE_UNAME_S=Plan9 run bash "$REPO_ROOT/install.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unsupported OS"* ]]
+  [[ "$output" == *"Plan9"* ]]
 }

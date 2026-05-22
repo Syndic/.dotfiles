@@ -1,0 +1,18 @@
+---
+# apt role (Debian/Ubuntu)
+# Install packages from the 3-layer list vars
+#   apt_common + apt_group + apt_host
+# defined in group_vars/all.yml, group_vars/<personal|work>.yml, and
+# host_vars/<host>.yml respectively. The role itself is OS-gated to
+# ansible_os_family == 'Debian' in site.yml, so it's safe to expect apt here.
+
+- name: Install apt packages (common + group + host layers)
+  become: true
+  ansible.builtin.apt:
+    name: >-
+      {{ (apt_common | default([]))
+         + (apt_group | default([]))
+         + (apt_host | default([])) }}
+    state: present
+    update_cache: true
+    cache_valid_time: 3600

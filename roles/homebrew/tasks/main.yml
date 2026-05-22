@@ -1,9 +1,39 @@
 ---
 # homebrew role
-# Will install Homebrew packages from brewfile_common, brewfile_group, and
-# brewfile_host.
-# Uses community.general.homebrew_cask and ansible.builtin.command for brew bundle.
+# Run `brew bundle` over the layered Brewfiles
+# (brewfile_common + brewfile_group + brewfile_host).
+# Runs on both macOS and Linux (Linuxbrew). On Linux, `brew bundle` silently
+# skips any `cask` lines ("Skipping cask X (requires macOS)"), so the same
+# Brewfiles are valid on both platforms with no per-OS splitting needed.
 
-- name: Homebrew role placeholder
-  ansible.builtin.debug:
-    msg: "homebrew role: not yet implemented"
+- name: Stat each Brewfile layer
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ brewfile_common | default('') }}"
+    - "{{ brewfile_group | default('') }}"
+    - "{{ brewfile_host | default('') }}"
+  register: brewfile_stats
+  when: item | length > 0
+  loop_control:
+    label: "{{ item }}"
+
+- name: Run brew bundle for each existing Brewfile
+  ansible.builtin.command:
+    argv:
+      - brew
+      - bundle
+      - install
+      - --file
+      - "{{ brewfile_layer.item }}"
+  loop: "{{ brewfile_stats.results | default([]) }}"
+  loop_control:
+    loop_var: brewfile_layer
+    label: "{{ brewfile_layer.item }}"
+  when:
+    - not (brewfile_layer.skipped | default(false))
+    - brewfile_layer.stat.exists | default(false)
+  register: brew_bundle_result
+  changed_when: >-
+    ('Installing' in (brew_bundle_result.stdout | default('')))
+    or ('Upgrading' in (brew_bundle_result.stdout | default('')))

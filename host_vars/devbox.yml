@@ -1,0 +1,11 @@
+---
+# Host-specific variables for devbox (Linux host profile).
+# Placeholder name — rename to whatever you actually call the box.
+
+# Brewfile with packages specific to this machine (layered on top of the
+# common and group Brewfiles).
+brewfile_host: "{{ playbook_dir }}/brewfiles/hosts/devbox.Brewfile"
+
+# apt / flatpak host layers. Empty by default.
+apt_host: []
+flatpak_host: []

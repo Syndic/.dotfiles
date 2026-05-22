@@ -30,3 +30,28 @@ def test_returns_none_when_brew_missing(monkeypatch, tmp_path):
         [tmp_path / "missing1", tmp_path / "missing2"],
     )
     assert phase2.find_brew() is None
+
+
+def test_brew_paths_cover_macos_and_linux():
+    """BREW_PATHS must include both macOS prefixes (Apple Silicon + Intel)
+    and both Linuxbrew prefixes (multi-user + single-user)."""
+    paths = {str(p) for p in phase2.BREW_PATHS}
+    assert "/opt/homebrew/bin/brew" in paths
+    assert "/usr/local/bin/brew" in paths
+    assert "/home/linuxbrew/.linuxbrew/bin/brew" in paths
+    # Single-user Linuxbrew lives under the user's home.
+    assert any(p.endswith("/.linuxbrew/bin/brew") for p in paths)
+
+
+def test_finds_linuxbrew_when_only_linuxbrew_exists(monkeypatch, tmp_path):
+    """When brew isn't in PATH and only a Linuxbrew install is present,
+    find_brew picks it up via the BREW_PATHS fallback."""
+    linuxbrew = tmp_path / "home" / "linuxbrew" / ".linuxbrew" / "bin" / "brew"
+    linuxbrew.parent.mkdir(parents=True)
+    linuxbrew.write_text("")
+    monkeypatch.setattr(phase2.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        phase2, "BREW_PATHS",
+        [Path("/nonexistent/opt/homebrew/bin/brew"), linuxbrew],
+    )
+    assert phase2.find_brew() == linuxbrew

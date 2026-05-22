@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-phase2.py - dotfiles setup for macOS
+phase2.py - dotfiles setup (macOS and Linux)
 
-Called by install.sh after Xcode CLT is installed and the dotfiles repo is
-cloned. Handles Homebrew, Ansible, host profile selection, and runs the
-Ansible playbook.
+Called by install.sh after phase-1 prerequisites are installed (macOS Xcode
+CLT or Linux apt packages) and the dotfiles repo is cloned. Handles Homebrew
+(Linuxbrew on Linux), Ansible, host profile selection, and runs the Ansible
+playbook.
 
 Usage:
     python3 phase2.py [--host PROFILE]
@@ -25,10 +26,12 @@ ASCII_ART_256_COLOR_SUBDIR = "256color"
 
 HOMEBREW_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
-# Homebrew installs to different paths on Apple Silicon vs Intel
+# Homebrew installs to different default prefixes per platform.
 BREW_PATHS = [
-    Path("/opt/homebrew/bin/brew"),   # Apple Silicon
-    Path("/usr/local/bin/brew"),      # Intel
+    Path("/opt/homebrew/bin/brew"),                  # macOS Apple Silicon
+    Path("/usr/local/bin/brew"),                     # macOS Intel
+    Path("/home/linuxbrew/.linuxbrew/bin/brew"),     # Linuxbrew (multi-user)
+    Path.home() / ".linuxbrew" / "bin" / "brew",     # Linuxbrew (single-user)
 ]
 
 
@@ -64,7 +67,7 @@ def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Configure a macOS machine from the dotfiles repo."
+        description="Configure a machine (macOS or Linux) from the dotfiles repo."
     )
     parser.add_argument(
         "--host",
