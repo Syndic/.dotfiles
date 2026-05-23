@@ -43,6 +43,8 @@ echo "==> Running install.sh end-to-end inside $IMAGE (host profile: $HOST_PROFI
 docker run --rm \
   -v "$TARBALL:/srv/dotfiles.tar:ro" \
   -e HOST_PROFILE="$HOST_PROFILE" \
+  -e COLORTERM=truecolor \
+  -e COLUMNS=160 \
   "$IMAGE" \
   bash -euo pipefail -c '
     # Phase 0 (test harness, not install.sh): bring up enough tooling to
