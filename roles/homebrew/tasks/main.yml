@@ -1,7 +1,7 @@
 ---
 # homebrew role
 # Run `brew bundle` over the layered Brewfiles
-# (brewfile_common + group_purpose_brewfile + brewfile_host).
+# (common_brewfile + group_purpose_brewfile + host_brewfile).
 # See group_vars/all.yml for the package-layering convention.
 # Runs on both macOS and Linux (Linuxbrew). On Linux, `brew bundle` silently
 # skips any `cask` lines ("Skipping cask X (requires macOS)"), so the same
@@ -11,9 +11,9 @@
   ansible.builtin.stat:
     path: "{{ item }}"
   loop:
-    - "{{ brewfile_common | default('') }}"
+    - "{{ common_brewfile | default('') }}"
     - "{{ group_purpose_brewfile | default('') }}"
-    - "{{ brewfile_host | default('') }}"
+    - "{{ host_brewfile | default('') }}"
   register: brewfile_stats
   when: item | length > 0
   loop_control:

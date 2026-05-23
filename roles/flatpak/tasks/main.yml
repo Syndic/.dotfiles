@@ -3,7 +3,7 @@
 # 1) Install flatpak itself.
 # 2) Register the Flathub remote (system-wide).
 # 3) Install GUI apps from the layered list vars
-#    flatpak_common + group_purpose_flatpak + flatpak_host.
+#    common_flatpak + group_purpose_flatpak + host_flatpak.
 # See group_vars/all.yml for the package-layering convention.
 # The role itself is OS-gated to ansible_system == 'Linux' in site.yml.
 
@@ -25,9 +25,9 @@
   become: true
   community.general.flatpak:
     name: >-
-      {{ (flatpak_common | default([]))
+      {{ (common_flatpak | default([]))
          + (group_purpose_flatpak | default([]))
-         + (flatpak_host | default([])) }}
+         + (host_flatpak | default([])) }}
     state: present
     remote: flathub
     method: system

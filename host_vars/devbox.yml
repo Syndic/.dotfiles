@@ -4,8 +4,8 @@
 
 # Brewfile with packages specific to this machine (layered on top of the
 # common and group Brewfiles).
-brewfile_host: "{{ playbook_dir }}/brewfiles/hosts/devbox.Brewfile"
+host_brewfile: "{{ playbook_dir }}/brewfiles/hosts/devbox.Brewfile"
 
 # apt / flatpak host layers. Empty by default.
-apt_host: []
-flatpak_host: []
+host_apt: []
+host_flatpak: []

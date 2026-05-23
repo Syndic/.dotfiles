@@ -18,14 +18,15 @@ def test_inventory_defines_personal_and_work_machine_groups() -> None:
 
 
 def test_brewfile_layering_is_split_across_common_group_and_host_vars() -> None:
-    """All-hosts gets brewfile_common; each purpose group gets its own
+    """All-hosts gets common_brewfile; each purpose group gets its own
     group_purpose_brewfile (the set-qualified name; see group_vars/all.yml
-    for the naming convention)."""
+    for the naming convention). Scope is encoded as a prefix so vars at the
+    same scope sort together alphabetically."""
     all_vars_text = (REPO_ROOT / "group_vars" / "all.yml").read_text()
     personal_vars_text = (REPO_ROOT / "group_vars" / "personal.yml").read_text()
     work_vars_text = (REPO_ROOT / "group_vars" / "work.yml").read_text()
 
-    assert 'brewfile_common: "{{ playbook_dir }}/brewfiles/common.Brewfile"' in all_vars_text
+    assert 'common_brewfile: "{{ playbook_dir }}/brewfiles/common.Brewfile"' in all_vars_text
     assert (
         'group_purpose_brewfile: "{{ playbook_dir }}/brewfiles/groups/personal.Brewfile"'
         in personal_vars_text
@@ -41,6 +42,6 @@ def test_host_brewfiles_live_under_brewfiles_hosts() -> None:
         host_vars_text = (REPO_ROOT / "host_vars" / f"{host_name}.yml").read_text()
 
         assert (
-            f'brewfile_host: "{{{{ playbook_dir }}}}/brewfiles/hosts/{host_name}.Brewfile"'
+            f'host_brewfile: "{{{{ playbook_dir }}}}/brewfiles/hosts/{host_name}.Brewfile"'
             in host_vars_text
         )
