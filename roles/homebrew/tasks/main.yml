@@ -1,7 +1,8 @@
 ---
 # homebrew role
 # Run `brew bundle` over the layered Brewfiles
-# (brewfile_common + brewfile_group + brewfile_host).
+# (brewfile_common + group_purpose_brewfile + brewfile_host).
+# See group_vars/all.yml for the package-layering convention.
 # Runs on both macOS and Linux (Linuxbrew). On Linux, `brew bundle` silently
 # skips any `cask` lines ("Skipping cask X (requires macOS)"), so the same
 # Brewfiles are valid on both platforms with no per-OS splitting needed.
@@ -11,7 +12,7 @@
     path: "{{ item }}"
   loop:
     - "{{ brewfile_common | default('') }}"
-    - "{{ brewfile_group | default('') }}"
+    - "{{ group_purpose_brewfile | default('') }}"
     - "{{ brewfile_host | default('') }}"
   register: brewfile_stats
   when: item | length > 0

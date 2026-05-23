@@ -7,19 +7,30 @@
 # interpreter discovery doesn't drift as other Python installs appear.
 ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-# Package layering is explicit: common + group + host, for each backend.
-# `_group` layers are set by group_vars/<personal|work>.yml.
-# `_host` layers are set by host_vars/<host>.yml.
+# -----------------------------------------------------------------------------
+# Package layering convention
+#
+# For each package backend (brewfile, apt, flatpak), values come from up to
+# three scopes that the role concatenates at run time:
+#
+#   <thing>_common              applied to all hosts; lives in this file
+#   group_<set>_<thing>         applied per group within a group set;
+#                               lives in group_vars/<group>.yml for each
+#                               group in that set
+#   <thing>_host                applied to one host; lives in host_vars/<h>.yml
+#
+# The `group_<set>_<thing>` form is deliberate: when we have multiple group
+# sets (e.g. an OS set added alongside the existing `purpose` set), each set
+# gets its own variable name so values from different sets compose rather
+# than collide. See inventory.yml for the list of currently defined sets.
+# -----------------------------------------------------------------------------
 
 # Brewfile (used on both macOS and Linux — Linuxbrew silently skips casks).
 brewfile_common: "{{ playbook_dir }}/brewfiles/common.Brewfile"
-brewfile_group:
 
-# apt packages (Linux only; the apt role is gated to Debian in site.yml,
-# so these lists are simply unused on macOS).
+# apt packages (Linux only; the apt role is gated to Debian in site.yml, so
+# these lists are simply unused on macOS hosts).
 apt_common: []
-apt_group: []
 
 # flatpak apps (Linux only; the flatpak role is gated to Linux in site.yml).
 flatpak_common: []
-flatpak_group: []

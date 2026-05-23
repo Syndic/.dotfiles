@@ -1,12 +1,13 @@
 ---
-# Shared variables for all personal machines.
+# Shared variables for all personal machines (group `personal` in the
+# `purpose` group set — see inventory.yml).
 # Everything gets group_vars/all.yml.
 # Host-specific overrides go in host_vars/<hostname>.yml.
 
 # Brewfile layer shared by all personal machines (used on both macOS and Linux).
-brewfile_group: "{{ playbook_dir }}/brewfiles/groups/personal.Brewfile"
+group_purpose_brewfile: "{{ playbook_dir }}/brewfiles/groups/personal.Brewfile"
 
-# apt / flatpak group layers shared by all personal Linux machines. Unused on
+# apt / flatpak layers shared by all personal Linux machines. Unused on
 # macOS personal hosts (the apt/flatpak roles are gated to Linux in site.yml).
-apt_group: []
-flatpak_group: []
+group_purpose_apt: []
+group_purpose_flatpak: []
