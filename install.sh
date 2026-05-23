@@ -26,8 +26,8 @@ DOTFILES_DIR="${HOME}/.dotfiles"
 # apt-installed python3 on Linux — both land at /usr/bin/python3).
 PYTHON3="${PYTHON3:-/usr/bin/python3}"
 
-announce() { printf "\n[1;37;43m $* [0m\n"; }
-info() { printf "[1;37;44m info [0m  $*\n"; }
+announce() { printf "\n[1;37;43m $* [0m\n" >&2; }
+info() { printf "[1;37;44m info [0m  $*\n" >&2; }
 die()  { printf "[1;37;101m error [0m $*\n" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------

@@ -316,6 +316,16 @@ def capture_sudo_password() -> str | None:
 # Entry point
 # ---------------------------------------------------------------------------
 def main() -> None:
+    # Line-buffer our own output so status lines ("Installing Homebrew...",
+    # the kilobyte ASCII art, etc.) flush at each newline. Without this,
+    # Python full-buffers stdout/stderr when they aren't a tty (CI logs,
+    # docker logs, redirects), so our prints sit in Python's buffer until
+    # exit while curl/brew/ansible-playbook write directly to the underlying
+    # fd — and the captured output ends up with our status text appearing
+    # AFTER the subprocess output it was meant to describe.
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+
     args = parse_args()
 
     # Capture the sudo password (if any) BEFORE running anything else so it's
