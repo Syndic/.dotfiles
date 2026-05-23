@@ -1,8 +1,24 @@
 ---
 # Ansible inventory for dotfiles bootstrap.
-# Hosts are organized into personal and work groups, all running Ansible
-# against localhost.
-# Use --limit <hostname> to target a specific machine.
+#
+# Groups are organized as orthogonal "group sets". Each host joins exactly one
+# group per set. Currently defined sets:
+#
+#   purpose:  personal | work
+#
+# Per-group values for a given set live in `group_vars/<group>.yml` under
+# variable names of the form `group_<set>_<thing>` (see group_vars/all.yml
+# for the full convention). Adding a new set (e.g. `os: macos | linux`) means:
+#   (1) listing the groups in this file with their hosts,
+#   (2) adding `group_<set>_<thing>` vars to each group's group_vars/<g>.yml,
+#   (3) updating roles to concatenate the new set's contribution alongside
+#       the existing common / group_<existing-set>_* / host layers.
+#
+# OS-axis gating uses the runtime `ansible_system` / `ansible_os_family`
+# facts (see site.yml), so it does not require an OS group set in inventory.
+#
+# All hosts run Ansible against localhost. The playbook is invoked against
+# exactly one host at a time via `--limit <hostname>`.
 
 all:
   children:
@@ -15,6 +31,9 @@ all:
           ansible_connection: local
           ansible_host: localhost
         mini26:
+          ansible_connection: local
+          ansible_host: localhost
+        devbox:
           ansible_connection: local
           ansible_host: localhost
     work:

@@ -1,0 +1,25 @@
+---
+# End-to-end Linux test.
+# Manually-triggered only (workflow_dispatch). The job is a thin wrapper
+# around tests/e2e-linux.sh — same code path runs locally and in CI.
+#
+# Why manual: the run includes a real Linuxbrew install and full playbook,
+# which takes several minutes. Wire it to push/pull_request later if/when
+# the cost is acceptable.
+
+name: e2e-linux
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run end-to-end Linux test
+        run: ./tests/e2e-linux.sh

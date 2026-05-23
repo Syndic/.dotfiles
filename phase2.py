@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-phase2.py - dotfiles setup for macOS
+phase2.py - dotfiles setup (macOS and Linux)
 
-Called by install.sh after Xcode CLT is installed and the dotfiles repo is
-cloned. Handles Homebrew, Ansible, host profile selection, and runs the
-Ansible playbook.
+Called by install.sh after phase-1 prerequisites are installed (macOS Xcode
+CLT or Linux apt packages) and the dotfiles repo is cloned. Handles Homebrew
+(Linuxbrew on Linux), Ansible, host profile selection, and runs the Ansible
+playbook.
 
 Usage:
     python3 phase2.py [--host PROFILE]
@@ -25,10 +26,12 @@ ASCII_ART_256_COLOR_SUBDIR = "256color"
 
 HOMEBREW_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
-# Homebrew installs to different paths on Apple Silicon vs Intel
+# Homebrew installs to different default prefixes per platform.
 BREW_PATHS = [
-    Path("/opt/homebrew/bin/brew"),   # Apple Silicon
-    Path("/usr/local/bin/brew"),      # Intel
+    Path("/opt/homebrew/bin/brew"),                  # macOS Apple Silicon
+    Path("/usr/local/bin/brew"),                     # macOS Intel
+    Path("/home/linuxbrew/.linuxbrew/bin/brew"),     # Linuxbrew (multi-user)
+    Path.home() / ".linuxbrew" / "bin" / "brew",     # Linuxbrew (single-user)
 ]
 
 
@@ -64,7 +67,7 @@ def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Configure a macOS machine from the dotfiles repo."
+        description="Configure a machine (macOS or Linux) from the dotfiles repo."
     )
     parser.add_argument(
         "--host",
@@ -277,13 +280,29 @@ def resolve_host_profile(host_arg: str | None) -> str:
 # ---------------------------------------------------------------------------
 # Step 5: Run Ansible playbook
 # ---------------------------------------------------------------------------
-def run_playbook(host_profile: str) -> None:
-    run([
+def run_playbook(host_profile: str, sudo_password: str | None = None) -> None:
+    cmd = [
         "ansible-playbook",
         str(DOTFILES_DIR / "site.yml"),
         "--inventory", str(DOTFILES_DIR / "inventory.yml"),
         "--limit", host_profile,
-    ])
+    ]
+    if sudo_password:
+        # Pass the captured sudo password as ANSIBLE_BECOME_PASS, scoped to
+        # this subprocess only — not set in our own os.environ.
+        env = os.environ.copy()
+        env["ANSIBLE_BECOME_PASS"] = sudo_password
+        run(cmd, env=env)
+    else:
+        run(cmd)
+
+
+def capture_sudo_password() -> str | None:
+    """Return the sudo password handed off by install.sh, removing it from
+    our environment so it doesn't leak into Homebrew installer subprocesses,
+    brew, ansible's pre-playbook setup, etc. The returned value is held only
+    in memory and only passed back out via run_playbook's subprocess env."""
+    return os.environ.pop("SUDO_PASSWORD", None) or None
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +311,10 @@ def run_playbook(host_profile: str) -> None:
 def main() -> None:
     args = parse_args()
 
+    # Capture the sudo password (if any) BEFORE running anything else so it's
+    # out of os.environ before brew, the Homebrew installer, etc. can inherit it.
+    sudo_password = capture_sudo_password()
+
     display_kilobyte(select_ascii_art_format())
 
     setup_homebrew()
@@ -299,7 +322,7 @@ def main() -> None:
     host_profile = resolve_host_profile(args.host)
 
     announce(f"Tools ready - Running Playbook")
-    run_playbook(host_profile)
+    run_playbook(host_profile, sudo_password=sudo_password)
 
 
 if __name__ == "__main__":
