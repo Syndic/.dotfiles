@@ -60,16 +60,26 @@ docker run --rm \
 
     # Stage the local checkout as a local git "remote" at /srv/source so
     # install.sh can DOTFILES_REPO-clone from it offline.
+    #
+    # Do all of it as testuser, not as root. A root-extract-then-chown
+    # sequence trips git >=2.35.2'\''s "dubious ownership" check
+    # ("fatal: detected dubious ownership in repository at /srv/source"):
+    # when `tar -xf` runs as root, the tarball'\''s `./` entry can carry the
+    # creating user'\''s uid (UID 501 on macOS — the user who built the
+    # tarball) and tar applies that uid to the extraction target, leaving
+    # /srv/source owned by a non-root uid by the time root runs `git init`.
+    # Doing the extract + commits + install all as testuser sidesteps that
+    # entirely — single uid owns the dir, the .git, and runs every git.
     mkdir -p /srv/source
-    tar -xf /srv/dotfiles.tar -C /srv/source
-    cd /srv/source
-    git init -q -b main
-    git -c user.email=e2e@e2e -c user.name=e2e add -A
-    git -c user.email=e2e@e2e -c user.name=e2e commit -q -m "e2e snapshot"
-    chown -R testuser /srv/source
-
-    # Run install.sh as testuser. DOTFILES_REPO points at the local source.
-    su - testuser -c "DOTFILES_REPO=/srv/source bash /srv/source/install.sh --host $HOST_PROFILE"
+    chown testuser:testuser /srv/source
+    su - testuser -c "
+      cd /srv/source
+      tar -xf /srv/dotfiles.tar
+      git init -q -b main
+      git -c user.email=e2e@e2e -c user.name=e2e add -A
+      git -c user.email=e2e@e2e -c user.name=e2e commit -q -m \"e2e snapshot\"
+      DOTFILES_REPO=/srv/source bash /srv/source/install.sh --host $HOST_PROFILE
+    "
   '
 
 echo "==> e2e-linux: PASS"

@@ -6,19 +6,20 @@
 - name: Configure dotfiles
   hosts: all
   connection: local
-  # gather_facts: true so OS-gated roles below can key off ansible_system /
-  # ansible_os_family. Cheap on connection: local.
+  # gather_facts: true so OS-gated roles below can key off
+  # ansible_facts['system'] / ansible_facts['os_family']. Cheap on
+  # connection: local.
   gather_facts: true
 
   roles:
     - homebrew
     - role: apt
-      when: ansible_os_family == 'Debian'
+      when: ansible_facts['os_family'] == 'Debian'
     - role: flatpak
-      when: ansible_system == 'Linux'
+      when: ansible_facts['system'] == 'Linux'
     - dotfiles
     - role: macos_defaults
-      when: ansible_system == 'Darwin'
+      when: ansible_facts['system'] == 'Darwin'
     - role: certs
       tags: certs
     - role: ssh

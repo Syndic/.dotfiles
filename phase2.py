@@ -151,20 +151,27 @@ def find_brew() -> Path | None:
 
 
 def brew_shellenv(brew: Path) -> None:
-    """Evaluate brew shellenv to add brew to the current process environment."""
-    import os
+    """Make brew (and brew-installed binaries) reachable on PATH for child
+    processes — most importantly the `brew install ansible` call that comes
+    next and brew's own subprocess shell-outs (which use PATH to find
+    `readlink`, `grep`, etc.).
 
-    result = subprocess.run(
-        [str(brew), "shellenv"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    # Parse 'export KEY=VALUE' lines and apply them to the current environment
-    for line in result.stdout.splitlines():
-        if line.startswith("export "):
-            key, _, value = line[len("export "):].partition("=")
-            os.environ[key] = value.strip('"').strip("'")
+    We don't try to parse `brew shellenv` output. Its PATH line is of the
+    form
+
+        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin${PATH+:$PATH}"
+
+    and a naive KEY=VALUE parse stores the literal `${PATH+:$PATH}` as part
+    of PATH, which clobbers /usr/bin etc. and then breaks brew itself when
+    its first internal subprocess can't find `readlink`. Compute the right
+    PATH directly from brew's location instead.
+    """
+    brew_prefix = brew.parent.parent  # .../bin/brew  →  .../
+    brew_dirs = [brew_prefix / "bin", brew_prefix / "sbin"]
+    current_path = os.environ.get("PATH", "").split(os.pathsep)
+    additions = [str(d) for d in brew_dirs if str(d) not in current_path]
+    if additions:
+        os.environ["PATH"] = os.pathsep.join(additions + current_path)
 
 
 def setup_homebrew() -> None:
