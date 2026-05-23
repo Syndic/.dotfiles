@@ -34,7 +34,7 @@
   when:
     - not (brewfile_layer.skipped | default(false))
     - brewfile_layer.stat.exists | default(false)
-  register: homebrew_brew_bundle_result
+  register: homebrew_bundle_result
   changed_when: >-
-    ('Installing' in (homebrew_brew_bundle_result.stdout | default('')))
-    or ('Upgrading' in (homebrew_brew_bundle_result.stdout | default('')))
+    ('Installing' in (homebrew_bundle_result.stdout | default('')))
+    or ('Upgrading' in (homebrew_bundle_result.stdout | default('')))
