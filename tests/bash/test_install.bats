@@ -63,10 +63,52 @@ printf '%s\n' "\$@" >> "$TEST_HOME/apt-get.log"
 exit 0
 STUB
 
-  # sudo: exec the rest of the args so the apt-get stub still runs under PATH.
-  cat > "$STUB_BIN/sudo" <<'STUB'
+  # sudo: stub the flags install.sh actually uses, log every invocation so
+  # tests can assert whether sudo was called and (for -S) what password was
+  # piped in.
+  #   sudo -n CMD              passwordless probe. FAKE_SUDO_PASSWORDLESS=1
+  #                            (the default — see end of setup) makes it
+  #                            exec CMD and return 0; setting it to 0 makes
+  #                            it exit 1 to simulate a box that requires
+  #                            a password for sudo.
+  #   sudo -S [-p P] [-k] CMD  reads one line of stdin (the password),
+  #                            records it to sudo.log, then execs CMD.
+  #   sudo VAR=val CMD ...     sets each VAR=val into CMD's env (real sudo
+  #                            strips most env vars, but propagates these).
+  cat > "$STUB_BIN/sudo" <<STUB
 #!/usr/bin/env bash
-exec "$@"
+printf 'called: %s\n' "\$*" >> "$TEST_HOME/sudo.log"
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    -n)
+      shift
+      if [[ "\${FAKE_SUDO_PASSWORDLESS:-1}" == "1" ]]; then
+        exec "\$@"
+      else
+        exit 1
+      fi
+      ;;
+    -k)
+      shift
+      ;;
+    -S)
+      shift
+      read -r _pwd_line
+      printf 'sudo-S-pwd: %s\n' "\$_pwd_line" >> "$TEST_HOME/sudo.log"
+      ;;
+    -p)
+      shift; shift
+      ;;
+    *=*)
+      export "\$1"
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+exec "\$@"
 STUB
 
   # id: report a non-root UID so install.sh selects the sudo branch.
@@ -80,7 +122,8 @@ else
 fi
 STUB
 
-  # Fake python3: writes the args and stdin tty status to a log file, exit 0.
+  # Fake python3: writes args, stdin tty status, and selected env vars to log
+  # files so tests can assert what install.sh hands off to phase 2.
   cat > "$STUB_BIN/fake_python3" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/python_args.log"
@@ -89,6 +132,7 @@ if [[ -t 0 ]]; then
 else
   echo "pipe" > "$TEST_HOME/python_stdin.log"
 fi
+printf 'SUDO_PASSWORD=%s\n' "\${SUDO_PASSWORD-<unset>}" > "$TEST_HOME/python_env.log"
 exit 0
 STUB
 
@@ -97,6 +141,9 @@ STUB
   export HOME="$TEST_HOME"
   export PATH="$STUB_BIN:$PATH"
   export PYTHON3="$STUB_BIN/fake_python3"
+  # Default: simulate a Linux box with passwordless sudo configured. Tests
+  # that exercise the password-required path override this to 0.
+  export FAKE_SUDO_PASSWORDLESS=1
 }
 
 teardown() {
@@ -312,4 +359,57 @@ STUB
   [ "$status" -ne 0 ]
   [[ "$output" == *"Unsupported OS"* ]]
   [[ "$output" == *"Plan9"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Linux sudo handling: probe → prompt → capture, with explicit handoff
+# ---------------------------------------------------------------------------
+
+@test "Linux passwordless sudo: probe succeeds, no password ever piped" {
+  FAKE_UNAME_S=Linux run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  # sudo was invoked (for the probe and for apt-get), but never with -S/password
+  [ -f "$TEST_HOME/sudo.log" ]
+  ! grep -q "sudo-S-pwd:" "$TEST_HOME/sudo.log"
+}
+
+@test "Linux passwordless sudo: SUDO_PASSWORD is NOT exported to phase 2" {
+  FAKE_UNAME_S=Linux run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_HOME/python_env.log" ]
+  grep -q "SUDO_PASSWORD=<unset>" "$TEST_HOME/python_env.log"
+  ! grep -q "SUDO_PASSWORD=mypass" "$TEST_HOME/python_env.log"
+}
+
+@test "Linux preset SUDO_PASSWORD: validated, piped to sudo -S for apt" {
+  FAKE_UNAME_S=Linux FAKE_SUDO_PASSWORDLESS=0 SUDO_PASSWORD=mypass \
+    run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  # Validation step + apt-get install both piped the password via -S.
+  grep -q "sudo-S-pwd: mypass" "$TEST_HOME/sudo.log"
+  # apt-get install still ran.
+  grep -q "install" "$TEST_HOME/apt-get.log"
+}
+
+@test "Linux preset SUDO_PASSWORD: handed off to phase 2 via env" {
+  FAKE_UNAME_S=Linux FAKE_SUDO_PASSWORDLESS=0 SUDO_PASSWORD=mypass \
+    run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  grep -q "SUDO_PASSWORD=mypass" "$TEST_HOME/python_env.log"
+}
+
+@test "Linux root path: sudo is never invoked" {
+  FAKE_UNAME_S=Linux FAKE_UID=0 run bash "$REPO_ROOT/install.sh"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TEST_HOME/sudo.log" ]
+  # And no SUDO_PASSWORD handoff for root either.
+  grep -q "SUDO_PASSWORD=<unset>" "$TEST_HOME/python_env.log"
+}
+
+@test "Linux non-root + sudo-needs-password + no tty: dies with clear message" {
+  FAKE_UNAME_S=Linux FAKE_SUDO_PASSWORDLESS=0 \
+    run "$NO_TTY" bash "$REPO_ROOT/install.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sudo password required"* ]]
+  [[ "$output" == *"passwordless sudo"* || "$output" == *"SUDO_PASSWORD"* ]]
 }

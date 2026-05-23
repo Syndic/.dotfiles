@@ -78,19 +78,62 @@ case "$OS" in
     # and runs `brew install ansible` before the Ansible playbook (and thus
     # any apt role) ever runs, and the Homebrew installer does not install
     # them itself.
+    #
+    # Sudo strategy: probe once, prompt at most once, never rely on sudo's
+    # timestamp cache to bridge install.sh's apt step and phase 2's later
+    # Ansible become. The captured password (if any) is exported to phase 2
+    # in $SUDO_PASSWORD so phase 2 can hand it to ansible-playbook via the
+    # ANSIBLE_BECOME_PASS env on that subprocess only.
     if [[ "$(id -u)" -eq 0 ]]; then
-      SUDO=""
+      SUDO_NEEDED=false                # running as root; no escalation required
+    elif [[ -n "${SUDO_PASSWORD:-}" ]]; then
+      SUDO_NEEDED=true                 # caller pre-provided (e.g. test harness)
+      # validate the supplied password before continuing
+      printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' -k true 2>/dev/null \
+        || die "Provided SUDO_PASSWORD failed sudo authentication."
+    elif sudo -n true 2>/dev/null; then
+      SUDO_NEEDED=true                 # passwordless sudo configured
+      SUDO_PASSWORD=""
     else
-      SUDO="sudo"
+      SUDO_NEEDED=true
+      # Real open() probe — `[[ -r /dev/tty ]]` lies in tty-less contexts
+      # because the path exists in /dev but open() still fails.
+      if ! (exec < /dev/tty) 2>/dev/null; then
+        die "sudo password required but no tty available. Either configure passwordless sudo for $USER, or pre-export SUDO_PASSWORD, or run from a terminal."
+      fi
+      info "Linux install needs sudo for apt-get and the Ansible playbook."
+      printf '\e[1;37;44m sudo \e[0m  password for %s: ' "$USER" >&2
+      IFS= read -rs SUDO_PASSWORD < /dev/tty
+      printf '\n' >&2
+      printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' -k true 2>/dev/null \
+        || die "sudo authentication failed."
     fi
 
+    # Sudo-aware apt-get wrapper. Always passes DEBIAN_FRONTEND through sudo's
+    # VAR=val argument form (sudo strips most env vars by default).
+    sudo_apt() {
+      if ! $SUDO_NEEDED; then
+        DEBIAN_FRONTEND=noninteractive apt-get "$@"
+      elif [[ -z "${SUDO_PASSWORD:-}" ]]; then
+        sudo DEBIAN_FRONTEND=noninteractive apt-get "$@"
+      else
+        printf '%s\n' "$SUDO_PASSWORD" \
+          | sudo -S -p '' DEBIAN_FRONTEND=noninteractive apt-get "$@"
+      fi
+    }
+
     info "Installing Linux prerequisites via apt-get..."
-    DEBIAN_FRONTEND=noninteractive $SUDO apt-get update \
-      || die "apt-get update failed."
-    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y \
+    sudo_apt update                   || die "apt-get update failed."
+    sudo_apt install -y \
       git python3 curl ca-certificates build-essential procps file \
-      || die "apt-get install failed."
+                                       || die "apt-get install failed."
     info "Linux prerequisites installed."
+
+    # Hand off to phase 2 if we captured a password. (Empty / unset means
+    # passwordless sudo or root, neither of which needs Ansible to know.)
+    if [[ -n "${SUDO_PASSWORD:-}" ]]; then
+      export SUDO_PASSWORD
+    fi
     ;;
   *)
     die "Unsupported OS: $OS (this script supports macOS and Linux)."
