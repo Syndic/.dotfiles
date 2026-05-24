@@ -1,0 +1,52 @@
+# This is Git's per-user configuration file.
+[user]
+	name = Joshua Yanchar
+	email = Syndic@users.noreply.github.com
+[column]
+	ui = auto
+[branch]
+	sort = -committerdate
+[tag]
+	sort = -taggerdate
+[init]
+	defaultBranch = main
+[diff]
+	algorithm = histogram
+	colorMovedWS = allow-indentation-change
+	colorMoved = default
+	mnemonicPrefix = true
+	renames = true
+[push]
+	autoSetupRemote = true
+	followTags = true
+	default = simple
+[fetch]
+	prune = true
+	pruneTags = true
+	all = true
+[help]
+	autocorrect = prompt
+[rerere]
+	enabled = true
+	autoupdate = true
+[rebase]
+	autoStash = true
+	updateRefs = true
+[merge]
+	conflictstyle = zdiff3
+	keepbackup = false
+[pull]
+	ff = only
+[transfer]
+	fsckObjects = true
+[core]
+	autocrlf = input
+[gpg]
+	format = ssh
+[commit]
+	gpgsign = true
+[gpg "ssh"]
+	allowedSignersFile = ~/.ssh/allowed_signers
+	defaultKeyCommand = "sh -c 'KEYS=$(ssh-add -L 2>/dev/null) || exit 1; EMAIL=$(git config user.email); SEL=$(echo \"$KEYS\" | awk -v e=\"$EMAIL\" \"\\$NF==e{print;exit}\"); [ -z \"$SEL\" ] && SEL=$(echo \"$KEYS\" | head -n1); [ -z \"$SEL\" ] && exit 1; printf \"key:: %s\\n\" \"$SEL\"'"
+[advice]
+	forceDeleteBranch = false
