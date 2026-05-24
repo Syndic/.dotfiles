@@ -30,3 +30,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# ── Runtime state ─────────────────────────────────────────────────────────────────────────────────
+# phase2.py writes this after a successful install so uninstall.py can default
+# to the right --host without re-prompting.
+/.installed-host

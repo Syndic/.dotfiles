@@ -19,7 +19,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+from _dotfiles_common import (
+    announce,
+    centered_announce,
+    die,
+    info,
+    is_profile_entry,
+    run,
+    warn,
+)
+from _dotfiles_common import resolve_host_profile as _resolve_host_profile
+
 DOTFILES_DIR = Path.home() / ".dotfiles"
+INSTALLED_HOST_MARKER = DOTFILES_DIR / ".installed-host"
 ASCII_ART_SUBDIR = "ascii_art"
 ASCII_ART_TRUECOLOR_SUBDIR = "truecolor"
 ASCII_ART_256_COLOR_SUBDIR = "256color"
@@ -35,32 +47,9 @@ BREW_PATHS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Output helpers
-# ---------------------------------------------------------------------------
-def announce(msg: str) -> None:
-    print(f"\n[1;37;43m {msg} [0m")
-
-def centered_announce(msg: str) -> None:
-    terminal_cols = shutil.get_terminal_size().columns
-    indent = max(0, (terminal_cols - (len(msg) + 2)) // 2)
-    print(f"\n{' ' * indent}\u001b[1;37;43m {msg} \u001b[0m")
-
-def info(msg: str) -> None:
-    print(f"[1;37;44m info [0m  {msg}")
-
-
-def warn(msg: str) -> None:
-    print(f"[1;37;43m warn [0m  {msg}", file=sys.stderr)
-
-
-def die(msg: str) -> None:
-    print(f"[1;37;101m error [0m {msg}", file=sys.stderr)
-    sys.exit(1)
-
-def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Run a command, raising CalledProcessError on non-zero exit."""
-    return subprocess.run(args, check=True, **kwargs)
+# Output helpers (announce, info, warn, die, run, centered_announce) and the
+# host-profile helpers (is_profile_entry, resolve_host_profile) live in
+# _dotfiles_common.py so uninstall.py can share them.
 
 # ---------------------------------------------------------------------------
 # Step 0: Argument parsing
@@ -218,70 +207,11 @@ def setup_ansible() -> None:
 # ---------------------------------------------------------------------------
 # Step 4: Select host profile
 # ---------------------------------------------------------------------------
-def is_profile_entry(p: Path) -> bool:
-    """Return True if `p` looks like an Ansible host_vars entry: either a
-    YAML file (host_vars/<name>.yml) or a directory (host_vars/<name>/).
-    Skips dotfiles and anything else (READMEs, .bak files, etc.)."""
-    if p.name.startswith("."):
-        return False
-    if p.is_file():
-        return p.suffix in (".yml", ".yaml")
-    if p.is_dir():
-        return True
-    return False
-
-
 def resolve_host_profile(host_arg: str | None) -> str:
-    if host_arg:
-        info(f"Using host profile: {host_arg}")
-        return host_arg
-
-    profiles_dir = DOTFILES_DIR / "host_vars"
-    profiles: list[str] = []
-    if profiles_dir.is_dir():
-        profiles = sorted(
-            p.stem if p.is_file() else p.name
-            for p in profiles_dir.iterdir()
-            if is_profile_entry(p)
-        )
-
-    if not profiles:
-        die("No --host given and no host_vars/ profiles found to choose from.")
-
-    if not sys.stdin.isatty():
-        die("No --host given and no terminal available - pass --host PROFILE explicitly.")
-
-    print("\nAvailable host profiles:")
-    for i, p in enumerate(profiles, start=1):
-        print(f"  {i}) {p}")
-
-    prompt = f"Choose [1-{len(profiles)}] or name: "
-    while True:
-        try:
-            choice = input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            die("No host profile specified.")
-
-        if not choice:
-            continue
-
-        # Numeric selection
-        if choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(profiles):
-                profile = profiles[idx - 1]
-                info(f"Using host profile: {profile}")
-                return profile
-            print(f"  -> {idx} is out of range. Try again.")
-            continue
-
-        # Exact name match
-        if choice in profiles:
-            info(f"Using host profile: {choice}")
-            return choice
-
-        print(f"  -> '{choice}' is not a valid profile. Try again.")
+    """Thin wrapper over _dotfiles_common.resolve_host_profile that supplies
+    this script's notion of where host_vars/ lives. Kept here so tests can
+    monkeypatch phase2.DOTFILES_DIR and get the expected behavior."""
+    return _resolve_host_profile(host_arg, DOTFILES_DIR / "host_vars")
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +270,18 @@ def main() -> None:
 
     announce(f"Tools ready - Running Playbook")
     run_playbook(host_profile, sudo_password=sudo_password)
+
+    # Record the profile so uninstall.py can default to it without re-prompting.
+    record_installed_host(host_profile)
+
+
+def record_installed_host(host_profile: str) -> None:
+    """Persist the host profile used for this install. Best-effort: a write
+    failure here doesn't undo a successful playbook run, so warn and move on."""
+    try:
+        INSTALLED_HOST_MARKER.write_text(host_profile + "\n")
+    except OSError as exc:
+        warn(f"Could not record installed host profile at {INSTALLED_HOST_MARKER}: {exc}")
 
 
 if __name__ == "__main__":
