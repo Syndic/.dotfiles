@@ -37,4 +37,9 @@
   when:
     - not (brewfile_layer.skipped | default(false))
     - brewfile_layer.stat.exists | default(false)
-  changed_when: true
+  register: homebrew_uninstall_result
+  # `brew uninstall` prints "Uninstalling /opt/homebrew/Cellar/<name>/..." to
+  # stdout when it actually removes something, and only an "Error: No such
+  # keg" (swallowed by `|| true`) when the package is already gone. Mirrors
+  # the install side, which keys off "Installing"/"Upgrading" in stdout.
+  changed_when: "'Uninstalling' in (homebrew_uninstall_result.stdout | default(''))"
