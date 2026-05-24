@@ -74,13 +74,19 @@ docker run --rm \
     # entirely — single uid owns the dir, the .git, and runs every git.
     mkdir -p /srv/source
     chown testuser:testuser /srv/source
+    # `su -` resets the env (only TERM survives by default — see man su,
+    # --whitelist-environment), which would otherwise eat the COLORTERM /
+    # COLUMNS hints docker run injects, and phase2.py would fall back to
+    # 256-color / 80 cols when picking the kilobyte splash. Re-inject the
+    # values inline on the install.sh command — same pattern we use for
+    # DOTFILES_REPO.
     su - testuser -c "
       cd /srv/source
       tar -xf /srv/dotfiles.tar
       git init -q -b main
       git -c user.email=e2e@e2e -c user.name=e2e add -A
       git -c user.email=e2e@e2e -c user.name=e2e commit -q -m \"e2e snapshot\"
-      DOTFILES_REPO=/srv/source bash /srv/source/install.sh --host $HOST_PROFILE
+      COLORTERM=$COLORTERM COLUMNS=$COLUMNS DOTFILES_REPO=/srv/source bash /srv/source/install.sh --host $HOST_PROFILE
     "
   '
 
