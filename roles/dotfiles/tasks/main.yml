@@ -100,7 +100,7 @@
             (dotfiles_directory_backup_actions | default([])) + [{
               'backup_index': (directory_backup_result.stdout | from_json).index,
               'backup_path': (directory_backup_result.stdout | from_json).path,
-              'dest': directory_backup_result.item.dest
+              'dest': directory_backup_result.directory_target.dest
             }]
           }}
       loop: "{{ dotfiles_target_directory_backups.results | default([]) }}"
@@ -216,7 +216,7 @@
             (dotfiles_file_backup_actions | default([])) + [{
               'backup_index': (file_backup_result.stdout | from_json).index,
               'backup_path': (file_backup_result.stdout | from_json).path,
-              'dest': file_backup_result.item.dest
+              'dest': file_backup_result.file_target.dest
             }]
           }}
       loop: "{{ dotfiles_target_link_backups.results | default([]) }}"
