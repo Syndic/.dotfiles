@@ -5,9 +5,6 @@ else
   alias ls='ls --color=auto'
 fi
 
-# Open the Antigravity IDE (macOS-only — `open -a` and Antigravity itself).
-[[ $OSTYPE == darwin* ]] && alias ag='open -a Antigravity'
-
 export OMP_DEFAULT_USER=$(logname)
 export EDITOR=nano
 export PATH="$HOME/.local/bin:$PATH"
