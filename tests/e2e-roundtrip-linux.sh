@@ -167,9 +167,6 @@ LOG6=/tmp/uninstall-step6.log
 $PY "$HOME/.dotfiles/uninstall.py" --host "$HOST_PROFILE" --all --yes 2>&1 | tee "$LOG6"
 
 $ASSERT group-d --host "$HOST_PROFILE" --marker-name "$MARKER_NAME" --log "$LOG6"
-
-echo
-echo "==> e2e-roundtrip-linux: PASS"
 PAYLOAD_EOF
 
 echo "==> Running install ↔ uninstall round-trip inside $IMAGE (host profile: $HOST_PROFILE) ..."
