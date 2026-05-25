@@ -56,7 +56,14 @@ trap 'rm -f "$PAYLOAD"; [[ -n "$e2e_TMP_DIR" ]] && rm -rf "$e2e_TMP_DIR"' EXIT
 cat > "$PAYLOAD" <<'PAYLOAD_EOF'
 set -euo pipefail
 
-ASSERT="python3 /srv/assertions.py"
+# Pin Python to the system interpreter installed by install.sh's apt step.
+# After step 6's `uninstall.py --all` deletes Homebrew, /home/linuxbrew/...
+# /bin/python3 is gone — but load_brew_shellenv put that path at the front
+# of $PATH earlier, so a bare `python3` would resolve to the dead path and
+# exit 127. /usr/bin/python3 is always there in Debian and is what
+# uninstall.py is designed to run under anyway (project's 3.9 pin).
+PY=/usr/bin/python3
+ASSERT="$PY /srv/assertions.py"
 MARKER_NAME=".dotfiles-e2e-marker"
 MARKER_SRC="/srv/source/home_source/common/$MARKER_NAME"
 MARKER_DST="$HOME/$MARKER_NAME"
@@ -128,7 +135,7 @@ $ASSERT group-a --host "$HOST_PROFILE" --marker-name "$MARKER_NAME"
 # ---------------------------------------------------------------------------
 phase "Step 3: uninstall.py --yes (no --host, default flags)"
 LOG3=/tmp/uninstall-step3.log
-python3 "$HOME/.dotfiles/uninstall.py" --yes 2>&1 | tee "$LOG3"
+$PY "$HOME/.dotfiles/uninstall.py" --yes 2>&1 | tee "$LOG3"
 
 $ASSERT group-b --host "$HOST_PROFILE" --marker-name "$MARKER_NAME" --log "$LOG3"
 
@@ -157,7 +164,7 @@ phase "Step 6: uninstall.py --host $HOST_PROFILE --all --yes"
 # Linuxbrew's bin, so they need shellenv loaded.
 load_brew_shellenv
 LOG6=/tmp/uninstall-step6.log
-python3 "$HOME/.dotfiles/uninstall.py" --host "$HOST_PROFILE" --all --yes 2>&1 | tee "$LOG6"
+$PY "$HOME/.dotfiles/uninstall.py" --host "$HOST_PROFILE" --all --yes 2>&1 | tee "$LOG6"
 
 $ASSERT group-d --host "$HOST_PROFILE" --marker-name "$MARKER_NAME" --log "$LOG6"
 
