@@ -68,6 +68,21 @@ phase() {
   echo "============================================================"
 }
 
+# Source Homebrew's shellenv so brew + brew-installed tools (ansible) land
+# on PATH. install.sh + phase2.py have brew on PATH while they run, but our
+# post-install payload is a fresh bash subshell that doesn't source
+# .zprofile. Mirrors the prefix probe in home_source/common/.zprofile.
+load_brew_shellenv() {
+  local prefix
+  for prefix in /home/linuxbrew/.linuxbrew "$HOME/.linuxbrew" /opt/homebrew /usr/local; do
+    if [[ -x "$prefix/bin/brew" ]]; then
+      eval "$("$prefix/bin/brew" shellenv)"
+      return 0
+    fi
+  done
+  return 0  # brew may legitimately be absent after --homebrew teardown
+}
+
 # ---------------------------------------------------------------------------
 # Fixture injection.
 #
@@ -96,6 +111,7 @@ echo "  pre-existing content at $MARKER_DST"
 # ---------------------------------------------------------------------------
 phase "Step 2: install.sh --host $HOST_PROFILE"
 bash /srv/source/install.sh --host "$HOST_PROFILE"
+load_brew_shellenv
 
 $ASSERT group-a --host "$HOST_PROFILE" --marker-name "$MARKER_NAME"
 
@@ -124,6 +140,7 @@ $ASSERT group-b --host "$HOST_PROFILE" --marker-name "$MARKER_NAME" --log "$LOG3
 # ---------------------------------------------------------------------------
 phase "Step 5: install.sh --host $HOST_PROFILE (re-run)"
 bash /srv/source/install.sh --host "$HOST_PROFILE"
+load_brew_shellenv
 
 $ASSERT group-c --host "$HOST_PROFILE" --marker-name "$MARKER_NAME"
 
@@ -135,6 +152,10 @@ $ASSERT group-c --host "$HOST_PROFILE" --marker-name "$MARKER_NAME"
 # print-only (uninstall.py prints `rm -rf ~/.dotfiles` rather than executing).
 # ---------------------------------------------------------------------------
 phase "Step 6: uninstall.py --host $HOST_PROFILE --all --yes"
+# uninstall.py --all shells out to ansible-playbook (package removal) and
+# brew (ansible teardown + the Homebrew uninstall script). Both live in
+# Linuxbrew's bin, so they need shellenv loaded.
+load_brew_shellenv
 LOG6=/tmp/uninstall-step6.log
 python3 "$HOME/.dotfiles/uninstall.py" --host "$HOST_PROFILE" --all --yes 2>&1 | tee "$LOG6"
 
