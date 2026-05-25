@@ -1,0 +1,55 @@
+language = en
+font-family = "RobotoMono Nerd Font Propo"
+notify-on-command-finish = unfocused
+notify-on-command-finish-action = bell,notify
+notify-on-command-finish-after = 5s
+macos-option-as-alt = true
+
+# --- Base Canvas ---
+background = #202020
+foreground = #c0c0c0
+cursor-color = #ffffff
+cursor-text = #000000
+
+# --- Previous choices for Normal Colors (ANSI 0-7) ---
+#palette = 0=#2c2c2c
+#palette = 1=#e66653
+#palette = 2=#76bf62
+#palette = 3=#ebb856
+#palette = 4=#6ba4e8
+#palette = 5=#9d7cd8
+#palette = 6=#65c2ba
+#palette = 7=#c0c0c0
+
+# --- Normal Colors (ANSI 0-7) ---
+palette = 0=#2c2c2c
+palette = 1=#c4392c
+palette = 2=#76bf62
+palette = 3=#c08a1e
+palette = 4=#3a6cb0
+palette = 5=#7a4ab0
+palette = 6=#3d8e87
+palette = 7=#c0c0c0
+
+# --- Vibrant Brights (ANSI 8-15) ---
+palette = 8=#666666
+palette = 9=#ff4d3d
+palette = 10=#4ded3e
+palette = 11=#ffca1a
+palette = 12=#429bff
+palette = 13=#b059f0
+palette = 14=#33e6d4
+palette = 15=#ffffff
+
+selection-background = #484848
+selection-foreground = cell-foreground
+
+bold-color = #ffffff
+
+# custom-shader = ~/crt.shader
+
+# background-opacity = .9
+background-blur = macos-glass-regular
+
+# scrollback-limit defaults to 10000000 (10M)
+scrollback-limit = 100000000

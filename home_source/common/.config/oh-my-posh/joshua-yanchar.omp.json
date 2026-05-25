@@ -1,0 +1,290 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "version": 4,
+  "final_space": true,
+  "palette": {
+    "bazelText": "#ffffff",
+    "bazelBackground": "#45a047",
+    "dockerText": "#d9e5fc",
+    "dockerBackground": "#2560ff",
+    "goText": "#ffffff",
+    "goBackground": "#367b99",
+    "helmText": "#ffffff",
+    "helmBackground": "#0f1689",
+    "javaText": "#ed8b00",
+    "javaBackground": "#007396",
+    "kubernetesText": "#ffffff",
+    "kubernetesBackground": "#326CE5",
+    "pythonBackground": "#ffd43b",
+    "pythonText": "#306998",
+    "swiftText": "#ffffff",
+    "swiftBackground": "#f05138",
+    "talosText": "#f7152b",
+    "talosBackground": "#281d48",
+    "terraformText": "#ffffff",
+    "terraformBackground": "#5c4ee5",
+    "commandBackground": "#f3ae35",
+    "commandText": "#000000",
+    "gitText": "black",
+    "gitChangedBackground": "yellow",
+    "gitConflictBackground": "lightRed",
+    "gitStagedBackground": "lightGreen",
+    "gitUnchangedBackground": "darkGray",
+    "gitUntrackedBackground": "cyan",
+    "exit0": "green",
+    "exitNot0": "lightRed",
+    "exitText": "black",
+    "pathText": "white",
+    "pathBackground": "blue",
+    "pathGitRepoText": "yellow",
+    "sessionText": "lightWhite",
+    "sessionBackground": "magenta",
+    "timeText": "white",
+    "timeBackground": "darkGray",
+    "upgradeText": "yellow",
+    "upgradeBackground": "black"
+  },
+  "blocks": [
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "segments": [
+        {
+          "type": "executiontime",
+          "style": "diamond",
+          "leading_diamond": "\ue0be",
+          "trailing_diamond": "\ue0bc\n",
+          "foreground": "p:exitText",
+          "background_templates": [
+            "{{ if gt .Code 0 }}p:exitNot0{{ else }}p:exit0{{ end }}"
+          ],
+          "template": "{{ if gt .Code 0 }}Exit Code:{{ .Code }} {{ end }}{{ .FormattedMs }}",
+          "options": {
+            "threshold": 0
+          }
+        }
+      ]
+    },
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "newline": true,
+      "segments": [
+        {
+          "type": "bazel",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4 ",
+          "foreground": "p:bazelText",
+          "background": "p:bazelBackground",
+          "template": "{{ if .Error }}{{ .Icon }} {{ .Error }}{{ else }}{{ url (print .Icon \" \" .Full) \"https://bazel.build/\" }}{{ end }}",
+          "options": {
+            "display_mode": "context"
+          }
+        },
+        {
+          "type": "docker",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4 ",
+          "foreground": "p:dockerText",
+          "background": "p:dockerBackground",
+          "template": "{{ url (print \"\uf308 \" .Context) \"https://docs.docker.com/\" }}"
+        },
+        {
+          "type": "helm",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4 ",
+          "foreground": "p:helmText",
+          "background": "p:helmBackground",
+          "template": "{{ url (print \"\ue7fb \" .Version) \"https://helm.sh/docs/\" }}",
+          "options": {
+            "display_mode": "files"
+          }
+        },
+        {
+          "type": "kubectl",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4 ",
+          "foreground": "p:kubernetesText",
+          "background": "p:kubernetesBackground",
+          "template": "{{ $ns := \"default\" }}{{ if .Namespace }}{{ $ns = .Namespace }}{{ end }}{{ url (print \"\udb84\udcfe \" .Context \" :: \" $ns) \"https://kubernetes.io/docs/reference/kubectl/\" }}"
+        },
+        {
+          "type": "talosctl",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4 ",
+          "foreground": "p:talosText",
+          "background": "p:talosBackground",
+          "template": "{{ url (print \"talos: \" .Context) \"https://docs.siderolabs.com/talos/v1.12/reference/cli\" }}"
+        },
+        {
+          "type": "terraform",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "p:terraformText",
+          "background": "p:terraformBackground",
+          "template": "{{ $text := print \"\ue69a \" .WorkspaceName }}{{ if .Version }}{{ $text = print $text \" \" .Version }}{{ end }}{{ url $text \"https://developer.hashicorp.com/terraform/docs\" }}"
+        }
+      ]
+    },
+    {
+      "type": "prompt",
+      "alignment": "right",
+      "segments": [
+        {
+          "type": "java",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "p:javaText",
+          "background": "p:javaBackground",
+          "template": "{{ if .Error }}\uf0f4 {{ .Error }}{{ else }}{{ url (print \"\uf0f4  \" .Full) \"https://dev.java/learn/\" }}{{ end }}",
+          "cache": {
+            "duration": "1h",
+            "strategy": "folder"
+          }
+        },
+        {
+          "type": "swift",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "p:swiftText",
+          "background": "p:swiftBackground",
+          "template": "{{ if .Error }}\udb81\udee5 {{ .Error }}{{ else }}{{ url (print \"\udb81\udee5 \" .Full) \"https://swift.org/documentation/\" }}{{ end }}",
+          "cache": {
+            "duration": "1h",
+            "strategy": "folder"
+          }
+        },
+        {
+          "type": "python",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "p:pythonText",
+          "background": "p:pythonBackground",
+          "template": "{{ if .Error }}\ue235 {{ .Error }}{{ else }}{{ url (print \"\ue235  \" .Full) \"https://docs.python.org/\" }}{{ end }}",
+          "cache": {
+            "duration": "1h",
+            "strategy": "folder"
+          }
+        },
+        {
+          "type": "go",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "p:goText",
+          "background": "p:goBackground",
+          "template": "{{ if .Error }}Go {{ .Error }}{{ else }}{{ url (print \"Go \" .Full) \"https://go.dev/doc/\" }}{{ end }}",
+          "cache": {
+            "duration": "1h",
+            "strategy": "folder"
+          }
+        }
+      ]
+    },
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "newline": true,
+      "segments": [
+        {
+          "type": "session",
+          "style": "diamond",
+          "leading_diamond": "",
+          "trailing_diamond": "\ue0b0",
+          "foreground": "p:sessionText",
+          "background": "p:sessionBackground",
+          "template": "{{ if or (ne .UserName .Env.OMP_DEFAULT_USER) (.Env.SSH_TTY) }}{{ if ne .UserName .Env.OMP_DEFAULT_USER }}{{ .UserName }}{{ end }}{{ if .Env.SSH_TTY }}@{{ .HostName }}{{ end }}{{ end }}"
+        },
+        {
+          "type": "path",
+          "style": "diamond",
+          "leading_diamond": "",
+          "trailing_diamond": "\ue0b0",
+          "foreground": "p:pathText",
+          "background": "p:pathBackground",
+          "options": {
+            "gitdir_format": "<p:pathGitRepoText><i>%s</i></>",
+            "style": "full",
+            "home_icon": "~"
+          },
+          "template": " {{ .Path }}"
+        },
+        {
+          "type": "git",
+          "style": "diamond",
+          "leading_diamond": "",
+          "trailing_diamond": "\ue0b0",
+          "foreground": "p:gitText",
+          "background": "p:gitUnchangedBackground",
+          "background_templates": [
+            "{{ if .Working.Unmerged }}p:gitConflictBackground{{ end }}",
+            "{{ if or .Working.Modified .Working.Deleted }}p:gitChangedBackground{{ end }}",
+            "{{ if .Working.Untracked }}p:gitUntrackedBackground{{ end }}",
+            "{{ if .Working.Changed }}p:gitChangedBackground{{ end }}",
+            "{{ if .Staging.Changed }}p:gitStagedBackground{{ end }}"
+          ],
+          "options": {
+            "branch_icon": "\ue702",
+            "status_formats": {
+              "Modified": " %d\ueb43",
+              "Untracked": " %d\uf128"
+            },
+            "mapped_branches": {
+              "main": " \uf013",
+              "release*": " \ud83d\udce6 release"
+            },
+            "fetch_status": true
+          },
+          "template": " {{ .HEAD }}{{ if .Commit.Refs.Tags }} (\uf02b: {{ join \", \" .Commit.Refs.Tags }}){{ end }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uF044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uF046 {{ .Staging.String }}{{ end }}{{ if gt .StashCount 0 }} {{ .StashCount }}${{ end }}"
+        }
+      ]
+    },
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "newline": true,
+      "segments": [
+        {
+          "type": "upgrade",
+          "style": "diamond",
+          "leading_diamond": "",
+          "trailing_diamond": "\ue0b0",
+          "foreground": "p:upgradeText",
+          "background": "p:upgradeBackground",
+          "template": "{{ url (print \" \uf071 Oh My Posh Upgrade available: \" .Version) \"https://ohmyposh.dev/docs/installation/macos#:~:text=brew%20update%20%26%26%20brew%20upgrade%20oh%2Dmy%2Dposh\" }}"
+        },
+        {
+          "type": "text",
+          "style": "diamond",
+          "leading_diamond": "",
+          "trailing_diamond": "\ue0b0",
+          "foreground": "p:commandText",
+          "background": "p:commandBackground",
+          "template": " {{ if or .Root (eq .Env.SUDO_CACHE_ACTIVE \"1\") }}<f>\uf013 </f>{{ end }}\udb80\udd42\udb80\udd42\udb80\udd42"
+        }
+      ]
+    }
+  ],
+  "secondary_prompt": {
+    "style": "plain",
+    "foreground": "p:commandText",
+    "background": "p:commandBackground",
+    "template": " \udb80\udd42\udb80\udd42\udb80\udd42<background,transparent>\ue0b0 </>"
+  },
+  "transient_prompt": {
+    "foreground": "p:exitText",
+    "background_templates": [
+      "{{ if gt .Code 0 }}p:exitNot0{{ else }}p:exit0{{ end }}"
+    ],
+    "template": "<background,transparent>\ue0be</>{{ .Segments.Executiontime.Text }}<background,transparent>\ue0bc</>\n\n<p:timeBackground,transparent>\ue0ba</><p:timeText,p:timeBackground>{{ now | date \"Jan 2 - 15:04:05\" }}</>{{ if .Segments.Session.Text }}<p:sessionBackground,p:timeBackground>\ue0ba</><p:sessionText,p:sessionBackground>{{ .Segments.Session.Text }}</><p:pathBackground,p:sessionBackground>\ue0ba</>{{ else }}<p:pathBackground,p:timeBackground>\ue0ba</>{{ end }}<p:pathText,p:pathBackground>{{ .Segments.Path.Text }}</><p:pathBackground,transparent>\ue0b8</>\n<p:commandText,p:commandBackground>{{ .Segments.Text.Text }}</><p:commandBackground,transparent>\ue0b0 </>"
+  }
+}
