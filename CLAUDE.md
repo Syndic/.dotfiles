@@ -238,15 +238,33 @@ brew bundle --file=tests/Brewfile   # one-time: installs bats-core + pytest
 CI runs both suites on Ubuntu. Linux is fine because nothing tested is macOS-
 specific (we deliberately don't test the xcode-select / softwareupdate paths).
 
-A separate end-to-end harness, `tests/e2e-linux.sh`, runs the full
-`install.sh` → `phase2.py` → playbook chain inside a fresh Debian container
-as a non-root sudo user. It's **slow** (real Homebrew install + real
-`brew install ansible` + full playbook), so it's never wired to `push` or
-`pull_request`. Runs locally with just Docker; runs in CI via the manual
-`workflow_dispatch` job at `.github/workflows/e2e-linux.yml`. Same script
-in both contexts. The harness re-injects `COLORTERM` / `COLUMNS` across the
-`su - testuser` boundary because login-mode `su` clears the env by default —
-leave that alone.
+Two end-to-end harnesses live under `tests/`, both running inside a fresh
+Debian container as a non-root sudo user. They share Docker plumbing via
+`tests/lib/e2e-common.sh` — the shared library handles the tarball
+snapshot, the `useradd testuser` + sudoers, the testuser-side `git init` /
+commit (root-extract-then-chown would trip `git`'s dubious-ownership
+check on macOS-built tarballs), and the `COLORTERM` / `COLUMNS`
+re-injection across the `su - testuser` boundary because login-mode `su`
+clears the env by default — leave that alone.
+
+- **`tests/e2e-linux.sh`** (install-only). Runs `install.sh` → `phase2.py`
+  → playbook end-to-end. ~5-10 min.
+- **`tests/e2e-roundtrip-linux.sh`** (install ↔ uninstall ↔ install ↔
+  `uninstall --all`). Catches regressions where `uninstall.py` /
+  `uninstall.yml` fall out of sync with the install path. ~10-20 min.
+  Assertion logic lives in `tests/lib/e2e_assertions.py`, which imports
+  `dotfiles_manager.find_stale_managed_symlinks` from the installed repo
+  so the managed-link manifest is enumerated by the same code production
+  uses (no parallel bash reimplementation that could drift). The harness
+  injects a synthetic fixture (`home_source/common/.dotfiles-e2e-marker`)
+  inside the container — not in the host repo — so backup-restore is
+  exercised deterministically regardless of what `home_source/` ships.
+
+Both are **slow** (real Homebrew + `brew install ansible` + full
+playbook, twice for the round-trip plus a `--homebrew` teardown), so
+neither is wired to `push` or `pull_request`. Runs locally with just
+Docker; runs in CI via the manual `workflow_dispatch` jobs at
+`.github/workflows/e2e-linux.yml`. Same scripts in both contexts.
 
 **Out-of-scope for tests** — change these with extra care since there's no
 automated check:
@@ -254,14 +272,19 @@ automated check:
 - `xcode-select` and `softwareupdate` paths in `install.sh`.
 - The tty *success* path of `install.sh` (only the no-tty fallback is tested).
 - `setup_homebrew`, `setup_ansible`, `run_playbook` in `phase2.py` — untested
-  at the unit level, but exercised end-to-end by `tests/e2e-linux.sh` on
-  Linux. The macOS-side equivalents are still genuinely untested.
+  at the unit level, but exercised end-to-end by `tests/e2e-linux.sh` and
+  `tests/e2e-roundtrip-linux.sh` on Linux. The macOS-side equivalents are
+  still genuinely untested.
 - Package-removal Ansible tasks (`roles/{apt,flatpak,homebrew}/tasks/uninstall.yml`)
-  and the `--homebrew` / `--ansible` shell-outs in `uninstall.py`. Same
-  subprocess-heavy character as install; verify by hand on a host. The
+  and the `--homebrew` / `--ansible` shell-outs in `uninstall.py` are
+  exercised end-to-end on Linux by `tests/e2e-roundtrip-linux.sh`
+  (`--all` teardown), but not at the unit level. The
   symlink/backup-restore core and the action planner *are* unit-tested.
-- There is no install-then-uninstall round-trip harness today.
-  `tests/e2e-linux.sh` only runs install. Worth adding eventually.
+  macOS-side equivalents are untested.
+- macOS round-trip (install ↔ uninstall). The Linux round-trip harness
+  covers the cross-cutting symmetry, but `xcode-select`,
+  `softwareupdate`, the Homebrew uninstall script on Darwin, and macOS
+  defaults rollback all run zero CI checks.
 
 ## CI
 
@@ -270,11 +293,13 @@ automated check:
 pass before merge to main." If a feature branch shows no CI run, that's
 expected, not broken.
 
-A second workflow, `.github/workflows/e2e-linux.yml`, runs
-`tests/e2e-linux.sh` end-to-end. It's **`workflow_dispatch`-only** — fires
-nothing automatically; trigger it from the Actions tab when you want a
-real-Linux check. Kept in its own file so its manual trigger doesn't
-entangle the `tests.yml` gate.
+A second workflow, `.github/workflows/e2e-linux.yml`, holds two
+**`workflow_dispatch`-only** jobs: `e2e` (wraps `tests/e2e-linux.sh`) and
+`e2e-roundtrip` (wraps `tests/e2e-roundtrip-linux.sh`). Both fire nothing
+automatically; trigger from the Actions tab when you want a real-Linux
+check — a single dispatch runs both jobs in parallel. Kept in its own
+workflow file so the manual trigger doesn't entangle the `tests.yml`
+gate.
 
 ## Conventions
 

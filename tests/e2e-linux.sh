@@ -14,80 +14,31 @@
 # This test is intentionally slow — it does a real Homebrew (Linuxbrew)
 # install, a real `brew install ansible`, and a real playbook run. Expect
 # several minutes on first invocation.
+#
+# The companion harness tests/e2e-roundtrip-linux.sh runs install ↔
+# uninstall ↔ install ↔ uninstall to catch regressions where the uninstall
+# path falls out of sync with the install path. Both scripts share the
+# Docker plumbing in tests/lib/e2e-common.sh.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/e2e-common.sh
+source "$REPO_ROOT/tests/lib/e2e-common.sh"
+
 IMAGE="${E2E_IMAGE:-debian:stable}"
 HOST_PROFILE="${E2E_HOST:-devbox}"
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "error: docker not found in PATH. Install Docker Desktop / Colima first." >&2
-  exit 2
-fi
+e2e_require_docker
 
-if ! docker info >/dev/null 2>&1; then
-  echo "error: docker daemon not reachable. Start Docker Desktop / Colima first." >&2
-  exit 2
-fi
+PAYLOAD="$(mktemp)"
+trap 'rm -f "$PAYLOAD"; [[ -n "$e2e_TMP_DIR" ]] && rm -rf "$e2e_TMP_DIR"' EXIT
 
-# Snapshot the local checkout as a tarball; the container re-inits it as a
-# git repo so install.sh can clone from it without any network access.
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
-TARBALL="$TMP_DIR/dotfiles.tar"
-tar --exclude='./.git' --exclude='./.claude' -cf "$TARBALL" -C "$REPO_ROOT" .
+cat > "$PAYLOAD" <<'PAYLOAD_EOF'
+set -euo pipefail
+bash /srv/source/install.sh --host "$HOST_PROFILE"
+PAYLOAD_EOF
 
 echo "==> Running install.sh end-to-end inside $IMAGE (host profile: $HOST_PROFILE) ..."
-
-docker run --rm \
-  -v "$TARBALL:/srv/dotfiles.tar:ro" \
-  -e HOST_PROFILE="$HOST_PROFILE" \
-  -e COLORTERM=truecolor \
-  -e COLUMNS=160 \
-  "$IMAGE" \
-  bash -euo pipefail -c '
-    # Phase 0 (test harness, not install.sh): bring up enough tooling to
-    # stage a local "remote" and create the non-root sudo user. install.sh
-    # does its own apt install for its real prerequisites.
-    apt-get update >/dev/null
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      sudo tar git ca-certificates >/dev/null
-
-    # Linuxbrew refuses to run as root, so install.sh + phase2.py execute as
-    # a non-root user with passwordless sudo.
-    useradd -m -s /bin/bash testuser
-    echo "testuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/testuser
-    chmod 0440 /etc/sudoers.d/testuser
-
-    # Stage the local checkout as a local git "remote" at /srv/source so
-    # install.sh can DOTFILES_REPO-clone from it offline.
-    #
-    # Do all of it as testuser, not as root. A root-extract-then-chown
-    # sequence trips git >=2.35.2'\''s "dubious ownership" check
-    # ("fatal: detected dubious ownership in repository at /srv/source"):
-    # when `tar -xf` runs as root, the tarball'\''s `./` entry can carry the
-    # creating user'\''s uid (UID 501 on macOS — the user who built the
-    # tarball) and tar applies that uid to the extraction target, leaving
-    # /srv/source owned by a non-root uid by the time root runs `git init`.
-    # Doing the extract + commits + install all as testuser sidesteps that
-    # entirely — single uid owns the dir, the .git, and runs every git.
-    mkdir -p /srv/source
-    chown testuser:testuser /srv/source
-    # `su -` resets the env (only TERM survives by default — see man su,
-    # --whitelist-environment), which would otherwise eat the COLORTERM /
-    # COLUMNS hints docker run injects, and phase2.py would fall back to
-    # 256-color / 80 cols when picking the kilobyte splash. Re-inject the
-    # values inline on the install.sh command — same pattern we use for
-    # DOTFILES_REPO.
-    su - testuser -c "
-      cd /srv/source
-      tar -xf /srv/dotfiles.tar
-      git init -q -b main
-      git -c user.email=e2e@e2e -c user.name=e2e add -A
-      git -c user.email=e2e@e2e -c user.name=e2e commit -q -m \"e2e snapshot\"
-      COLORTERM=$COLORTERM COLUMNS=$COLUMNS DOTFILES_REPO=/srv/source bash /srv/source/install.sh --host $HOST_PROFILE
-    "
-  '
-
+e2e_run_in_container "$REPO_ROOT" "$IMAGE" "$HOST_PROFILE" "$PAYLOAD"
 echo "==> e2e-linux: PASS"

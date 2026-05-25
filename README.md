@@ -133,19 +133,26 @@ pre-commit install                  # optional: install repo hooks
 pre-commit run --all-files          # run hooks manually
 ```
 
-The end-to-end Linux test runs the full `install.sh` → `phase2.py` →
-playbook chain inside a fresh Debian container as a non-root sudo user.
-It's slow (real Homebrew install + real `brew install ansible` + full
-playbook), so it's never wired to push/PR — run it manually when you want
-a real-Linux smoke test:
+Two end-to-end Linux harnesses live under `tests/`, both running inside a
+fresh Debian container as a non-root sudo user. Both are slow (real
+Homebrew install + real `brew install ansible` + full playbook), so neither
+is wired to push/PR — run them manually when you want a real-Linux check:
 
 ```bash
-./tests/e2e-linux.sh                # local (requires Docker)
+./tests/e2e-linux.sh                # install only — ~5-10 min
+./tests/e2e-roundtrip-linux.sh      # install ↔ uninstall ↔ install ↔ uninstall --all — ~10-20 min
 ```
 
-The same script runs in CI via the `workflow_dispatch` job at
+The round-trip harness catches regressions where `uninstall.py` /
+`uninstall.yml` fall out of sync with `install.sh` / `phase2.py` /
+`site.yml` — assertion logic lives in
+[`tests/lib/e2e_assertions.py`](tests/lib/e2e_assertions.py). The two
+scripts share Docker plumbing via
+[`tests/lib/e2e-common.sh`](tests/lib/e2e-common.sh).
+
+Both run in CI via the `workflow_dispatch` jobs at
 [`.github/workflows/e2e-linux.yml`](.github/workflows/e2e-linux.yml) —
-trigger it from the Actions tab.
+trigger them from the Actions tab.
 
 ## Dev environment
 
