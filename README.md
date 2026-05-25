@@ -16,6 +16,36 @@ are idempotent.
 If you leave off `--host`, you'll be prompted to pick a profile
 interactively (assuming you have a terminal).
 
+## Uninstall
+
+```bash
+python3 ~/.dotfiles/uninstall.py
+```
+
+By default this removes every symlink under `$HOME` that points into
+`~/.dotfiles` and restores the most-recent `<name>.backup-N` sibling for
+each path. It does **not** touch packages, Homebrew itself, or the
+checkout. The plan is printed first; a single `y/N` covers all actions.
+
+Opt-in flags broaden the teardown:
+
+| Flag | Effect |
+|------|--------|
+| `--brew-packages` | Uninstall packages listed in the layered Brewfiles. |
+| `--apt-packages` | Uninstall apt packages from the layered apt lists (Linux). |
+| `--flatpak-packages` | Uninstall flatpaks from the layered lists (Linux). |
+| `--ansible` | `brew uninstall ansible`. |
+| `--homebrew` | Run the official Homebrew uninstall script. |
+| `--repo` | Print (does not execute) the `rm -rf ~/.dotfiles` command. |
+| `--all` | All of the above. |
+| `--yes` | Skip the confirmation prompt. |
+| `--host PROFILE` | Override the host profile (defaults to the one recorded at install). |
+
+`--host` defaults to the profile recorded in
+`~/.dotfiles/.installed-host` at install time, so you usually don't need
+to pass it. Without a tty and without `--yes`, the plan is printed and
+nothing is done — useful for previewing.
+
 ## What it does
 
 The bootstrap shim:
@@ -44,6 +74,8 @@ load-bearing.
 | Path | What's there |
 |------|--------------|
 | `install.sh`, `phase2.py` | The two-phase bootstrap. |
+| `uninstall.py`, `uninstall.yml` | Inverse of the bootstrap. Symlink/backup removal in Python; package teardown delegated to the companion playbook + `roles/{apt,flatpak,homebrew}/tasks/uninstall.yml`. |
+| `_dotfiles_common.py` | Output helpers + host-profile resolution shared by `phase2.py` and `uninstall.py`. |
 | `site.yml`, `inventory.yml` | Ansible entry point + host inventory. |
 | `group_vars/`, `host_vars/` | Variable scopes for the playbook. |
 | `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`. |

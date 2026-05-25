@@ -7,6 +7,9 @@ Ansible playbook that does the actual work — package installs (brew, apt,
 flatpak), macOS defaults, dotfile symlinks, certs, SSH config. The bash +
 Python layers are just bootstrap; most behavior belongs in Ansible roles.
 
+The inverse is `uninstall.py` + the companion `uninstall.yml` playbook —
+see "Uninstall" below.
+
 Phase 1 (`install.sh`) detects the OS and installs phase-2 prereqs (Xcode
 Command Line Tools on macOS; `git`, `python3`, `curl`, `ca-certificates`,
 and Homebrew's Linux build deps `build-essential procps file` on
@@ -144,6 +147,62 @@ back in `os.environ` for convenience. Don't lean on sudo's timestamp cache
 to bridge install.sh's apt step and Ansible's later become — phase 2's
 Homebrew install can easily run longer than sudo's 15-minute default.
 
+## Uninstall
+
+`uninstall.py` reverses what install put on the host. By default it removes
+managed symlinks and restores `.backup-N` siblings; opt-in flags broaden the
+teardown to packages, Homebrew itself, and the checkout. See README for the
+flag surface.
+
+The implementation is intentionally split:
+
+- **Symlink removal + backup restore lives in Python** (`uninstall.py`,
+  reusing `dotfiles_manager.find_stale_managed_symlinks`). Two reasons:
+  it must keep working if `--ansible` removed Ansible earlier in the same
+  run, and the existing Python primitive already encodes "any symlink in
+  `$HOME` resolving inside the managed root is ours" — wrapping that in
+  Ansible just to shell back to Python is pure plumbing. `--homebrew`,
+  `--ansible`, `--repo` are in Python for the same standalone-survives
+  reason.
+- **Package removal lives in Ansible** (`uninstall.yml` + per-role
+  `tasks/uninstall.yml`). This keeps the layered `group_vars`/`host_vars`
+  YAML resolution where Ansible already handles it, instead of forcing
+  Python to grow a YAML dependency or duplicate the resolution.
+
+This asymmetry is principled — don't "fix" it by moving symlink removal
+into a `roles/dotfiles/tasks/uninstall.yml`. The cost is ~50 lines of YAML
+duplicating ~30 lines of Python *and* a bootstrapping concern (default
+behavior depending on Ansible being installed).
+
+### The `.installed-host` marker
+
+After a successful playbook run, `phase2.py` writes the chosen profile to
+`~/.dotfiles/.installed-host` (one line, profile name). `uninstall.py` reads
+it as the default for `--host` so the user doesn't have to re-pick during a
+destructive op. The marker is gitignored. The file is durable state and can
+drift — `uninstall.py` validates the recorded value against the current
+`host_vars/` listing and falls back to the interactive picker (with a
+warning naming the stale value and the marker file) if the profile is gone.
+
+### Shared module: `_dotfiles_common.py`
+
+Output helpers (`announce` / `centered_announce` / `info` / `warn` / `die` /
+`run`) and host-profile resolution (`is_profile_entry`, `resolve_host_profile`,
+`list_host_profiles`) live in `_dotfiles_common.py` so install and uninstall
+print identically and prompt identically. Safe because both scripts run *after*
+the repo is on disk — the constraint that keeps phase 1 self-contained (no
+`source`-ing repo files) doesn't apply here. The `install.sh` ↔ `phase2.py`
+split is still the load-bearing one; `_dotfiles_common.py` only spans Python.
+
+### `changed_when` on uninstall tasks
+
+Mirror the install side. The homebrew install task keys `changed_when` off
+`'Installing'` / `'Upgrading'` appearing in the `brew bundle` stdout; the
+uninstall task keys off `'Uninstalling'` in the `brew uninstall` stdout.
+`changed_when: true` was a real bug here — the task is idempotent
+(re-running finds nothing and `|| true` swallows the error), so reporting
+CHANGED forever defeats Ansible's idempotency reporting.
+
 ## Output buffering
 
 Both bash and Python full-buffer stdout when it isn't a tty (CI logs, docker
@@ -197,6 +256,12 @@ automated check:
 - `setup_homebrew`, `setup_ansible`, `run_playbook` in `phase2.py` — untested
   at the unit level, but exercised end-to-end by `tests/e2e-linux.sh` on
   Linux. The macOS-side equivalents are still genuinely untested.
+- Package-removal Ansible tasks (`roles/{apt,flatpak,homebrew}/tasks/uninstall.yml`)
+  and the `--homebrew` / `--ansible` shell-outs in `uninstall.py`. Same
+  subprocess-heavy character as install; verify by hand on a host. The
+  symlink/backup-restore core and the action planner *are* unit-tested.
+- There is no install-then-uninstall round-trip harness today.
+  `tests/e2e-linux.sh` only runs install. Worth adding eventually.
 
 ## CI
 
