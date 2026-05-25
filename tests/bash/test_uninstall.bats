@@ -35,13 +35,19 @@ teardown() {
 }
 
 @test "no tty + no --yes is inert (exit 0, plan printed, no actions)" {
-  # bats subprocess has no controlling tty. Drop a fake managed symlink into
-  # the test home and confirm uninstall does NOT remove it.
+  # Drop a fake managed symlink into the test home and confirm uninstall
+  # does NOT remove it.
   mkdir -p "$TEST_HOME/.dotfiles/home_source"
   printf "managed-target\n" > "$TEST_HOME/.dotfiles/home_source/_bats_fixture"
   ln -s "$TEST_HOME/.dotfiles/home_source/_bats_fixture" "$TEST_HOME/.bats_fixture_link"
 
-  run python3 "$REPO_ROOT/uninstall.py" --host fake
+  # Redirect stdin from /dev/null so the subprocess always sees a non-tty
+  # stdin. Without this, when bats runs in pretty mode (from a real
+  # terminal), `run` inherits bats's controlling tty — sys.stdin.isatty()
+  # inside uninstall.py returns True, the no-tty branch never fires, and
+  # the script blocks on input("Proceed? [y/N]: ") instead of printing the
+  # "Re-run with --yes" message this test is checking for.
+  run python3 "$REPO_ROOT/uninstall.py" --host fake < /dev/null
   [ "$status" -eq 0 ]
   [[ "$output" == *"Uninstall plan"* ]]
   [[ "$output" == *"Re-run with --yes"* ]]
