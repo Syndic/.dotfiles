@@ -61,7 +61,10 @@ e2e_run_in_container() {
   # Cosmetic, but spammy. Skipping the xattrs at write time silences it
   # cleanly; we don't need them in the container either way. Both bsdtar
   # and GNU tar accept --no-xattrs.
-  tar --no-xattrs --exclude='./.git' --exclude='./.claude' \
+  # --exclude='.DS_Store' (no leading ./) matches by basename at any depth,
+  # so nested Finder artifacts don't get bundled into the container either.
+  tar --no-xattrs \
+      --exclude='./.git' --exclude='./.claude' --exclude='.DS_Store' \
       -cf "$tarball" -C "$repo_root" .
 
   # The payload runs as `testuser` inside the container (different UID than
