@@ -1,0 +1,15 @@
+---
+# flatpak role — uninstall path. Inverse of main.yml.
+# Removes the layered apps but leaves the Flathub remote and flatpak itself
+# in place; those are easy to remove by hand and may be wanted by non-dotfile
+# installs.
+
+- name: Remove flatpak apps (common + purpose group + host layers)
+  become: true
+  community.general.flatpak:
+    name: >-
+      {{ (common_flatpak | default([]))
+         + (group_purpose_flatpak | default([]))
+         + (host_flatpak | default([])) }}
+    state: absent
+    method: system

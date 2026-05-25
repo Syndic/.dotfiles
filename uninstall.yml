@@ -1,0 +1,37 @@
+---
+# Companion to site.yml — invoked by uninstall.py when one of the package-
+# removal flags (--brew-packages, --apt-packages, --flatpak-packages) is
+# passed. Each role's tasks/uninstall.yml is the inverse of its tasks/main.yml.
+#
+# Tags scope which removals run:
+#   --tags brew_packages    -> remove packages listed in the layered Brewfiles
+#   --tags apt_packages     -> remove apt packages from the layered apt lists
+#   --tags flatpak_packages -> remove flatpaks from the layered flatpak lists
+#
+# Run via: ansible-playbook uninstall.yml -i inventory.yml --limit <host> --tags <...>
+
+- name: Tear down dotfiles-installed packages
+  hosts: all
+  connection: local
+  gather_facts: true
+
+  tasks:
+    - name: Remove packages listed in the layered Brewfiles
+      ansible.builtin.import_role:
+        name: homebrew
+        tasks_from: uninstall
+      tags: brew_packages
+
+    - name: Remove apt packages from the layered lists
+      ansible.builtin.import_role:
+        name: apt
+        tasks_from: uninstall
+      when: ansible_facts['os_family'] == 'Debian'
+      tags: apt_packages
+
+    - name: Remove flatpaks from the layered lists
+      ansible.builtin.import_role:
+        name: flatpak
+        tasks_from: uninstall
+      when: ansible_facts['system'] == 'Linux'
+      tags: flatpak_packages
