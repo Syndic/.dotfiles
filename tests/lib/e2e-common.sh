@@ -54,7 +54,15 @@ e2e_run_in_container() {
 
   e2e_TMP_DIR="$(mktemp -d)"
   local tarball="$e2e_TMP_DIR/dotfiles.tar"
-  tar --exclude='./.git' --exclude='./.claude' -cf "$tarball" -C "$repo_root" .
+  # --no-xattrs: macOS BSD tar writes com.apple.provenance (and similar
+  # Gatekeeper xattrs) into the tarball as PAX headers, which GNU tar inside
+  # the Debian container then complains about per-file ("Ignoring unknown
+  # extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'").
+  # Cosmetic, but spammy. Skipping the xattrs at write time silences it
+  # cleanly; we don't need them in the container either way. Both bsdtar
+  # and GNU tar accept --no-xattrs.
+  tar --no-xattrs --exclude='./.git' --exclude='./.claude' \
+      -cf "$tarball" -C "$repo_root" .
 
   # The payload runs as `testuser` inside the container (different UID than
   # the host user that created it). `mktemp` creates files mode 0600, so the
