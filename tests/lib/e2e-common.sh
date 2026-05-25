@@ -56,6 +56,13 @@ e2e_run_in_container() {
   local tarball="$e2e_TMP_DIR/dotfiles.tar"
   tar --exclude='./.git' --exclude='./.claude' -cf "$tarball" -C "$repo_root" .
 
+  # The payload runs as `testuser` inside the container (different UID than
+  # the host user that created it). `mktemp` creates files mode 0600, so the
+  # bind-mounted payload would be unreadable to testuser and `bash /srv/payload.sh`
+  # would die with "Permission denied". The payload is just shell commands —
+  # nothing secret — so world-readable is fine.
+  chmod 0644 "$payload_file"
+
   local -a docker_args=(
     run --rm
     -v "$tarball:/srv/dotfiles.tar:ro"
