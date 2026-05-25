@@ -28,6 +28,7 @@ from _dotfiles_common import (
     announce,
     die,
     info,
+    list_host_profiles,
     resolve_host_profile as _resolve_host_profile,
     run,
     warn,
@@ -112,11 +113,22 @@ def resolve_host(host_arg) -> str:
     if host_arg:
         info(f"Using host profile: {host_arg}")
         return host_arg
+    profiles_dir = DOTFILES_DIR / "host_vars"
     recorded = read_recorded_host()
     if recorded:
-        info(f"Using host profile from {INSTALLED_HOST_MARKER.name}: {recorded}")
-        return recorded
-    return _resolve_host_profile(None, DOTFILES_DIR / "host_vars")
+        # The marker may be stale — the recorded profile could have been
+        # renamed or deleted since install. Validate against the current
+        # host_vars/ listing; if it's gone, warn and fall through to the
+        # interactive picker rather than silently passing a bad value to
+        # ansible-playbook (which fails later with a confusing --limit error).
+        if recorded in list_host_profiles(profiles_dir):
+            info(f"Using host profile from {INSTALLED_HOST_MARKER.name}: {recorded}")
+            return recorded
+        warn(
+            f"Recorded host profile {recorded!r} (from {INSTALLED_HOST_MARKER.name}) "
+            f"is no longer in {profiles_dir.name}/; falling back to the picker."
+        )
+    return _resolve_host_profile(None, profiles_dir)
 
 
 # ---------------------------------------------------------------------------

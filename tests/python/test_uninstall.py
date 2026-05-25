@@ -151,6 +151,46 @@ def test_read_recorded_host_returns_none_for_empty_marker(fake_install):
     assert uninstall.read_recorded_host() is None
 
 
+def test_resolve_host_uses_recorded_when_profile_still_exists(fake_install, capsys):
+    _, managed_root = fake_install
+    (managed_root / "host_vars").mkdir()
+    (managed_root / "host_vars" / "mini26.yml").write_text("")
+    (managed_root / ".installed-host").write_text("mini26\n")
+    assert uninstall.resolve_host(None) == "mini26"
+    # The "from .installed-host" info line confirms the marker path was used.
+    out = capsys.readouterr().out
+    assert "from .installed-host" in out
+
+
+def test_resolve_host_warns_and_falls_back_when_recorded_profile_is_gone(
+    fake_install, monkeypatch, capsys
+):
+    """The marker is durable state — the recorded profile may have been
+    renamed or deleted since install. Validating against the current
+    host_vars/ listing keeps us from passing a bad value to ansible-playbook
+    later, where it surfaces as a confusing --limit error."""
+    _, managed_root = fake_install
+    (managed_root / "host_vars").mkdir()
+    # Two real profiles, neither of which matches what the marker recorded.
+    (managed_root / "host_vars" / "laptop24.yml").write_text("")
+    (managed_root / "host_vars" / "mini26.yml").write_text("")
+    (managed_root / ".installed-host").write_text("renamed_away\n")
+
+    # Feed the interactive picker so the fallback can resolve.
+    stream = io.StringIO("mini26\n")
+    stream.isatty = lambda: True
+    monkeypatch.setattr(sys, "stdin", stream)
+
+    chosen = uninstall.resolve_host(None)
+    assert chosen == "mini26"
+    captured = capsys.readouterr()
+    # The warning routes through warn() (stderr) and names both the stale
+    # value and the marker file, so the user can find and fix the drift.
+    assert "renamed_away" in captured.err
+    assert ".installed-host" in captured.err
+    assert "no longer" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # Confirmation gate
 # ---------------------------------------------------------------------------
