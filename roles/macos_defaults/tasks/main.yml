@@ -48,7 +48,12 @@
 # names before importing. set_fact only fires when the gate is true so
 # we don't shadow the role's own defaults on hosts that don't configure
 # the Dock.
-- name: Compose Dock items from the layered lists
+#
+# noqa rationale: ansible-lint wants role-internal vars to carry the
+# role prefix (macos_defaults_dockitems_*). The bare names are the
+# contract with geerlingguy.mac.dock — it reads them under exactly
+# those names — so prefixing here would just break the handoff.
+- name: Compose Dock items from the layered lists  # noqa: var-naming[no-role-prefix]
   ansible.builtin.set_fact:
     dockitems_persist: >-
       {{ (common_dockitems_persist | default([]))

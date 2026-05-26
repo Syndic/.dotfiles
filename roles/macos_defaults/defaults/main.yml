@@ -9,7 +9,14 @@
 # add, nothing to remove). The dock role shells out to `dockutil` when
 # either list has entries; install it via the host's Brewfile if you
 # populate the layers.
-configure_dock: true
+#
+# noqa rationale: ansible-lint wants role-internal vars to carry the
+# role prefix (macos_defaults_configure_dock). This one is deliberately
+# unprefixed because it's the public flag — `--no-dock` on phase2.py
+# injects `-e configure_dock=false`, and host_vars override it by this
+# bare name. Renaming would cascade through the CLI, docs, and every
+# host_vars override.
+configure_dock: true  # noqa: var-naming[no-role-prefix]
 
 # Optional path to a shell script for settings that osx_defaults can't
 # express — `nvram`, `pmset`, `systemsetup`, scripted dockutil sequences
