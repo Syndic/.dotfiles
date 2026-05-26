@@ -27,7 +27,7 @@ def test_default_run_omits_override_flags(monkeypatch):
     assert len(captured) == 1
     cmd = captured[0]
     assert "homebrew_upgrade_outdated=false" not in " ".join(cmd)
-    assert "configure_dock=false" not in " ".join(cmd)
+    assert "macos_defaults_configure_dock=false" not in " ".join(cmd)
     assert "--extra-vars" not in cmd
 
 
@@ -38,7 +38,7 @@ def test_no_upgrade_injects_extra_var(monkeypatch):
     cmd = captured[0]
     extra_vars = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-vars"]
     assert "homebrew_upgrade_outdated=false" in extra_vars
-    assert "configure_dock=false" not in extra_vars
+    assert "macos_defaults_configure_dock=false" not in extra_vars
 
 
 def test_no_dock_injects_extra_var(monkeypatch):
@@ -47,7 +47,7 @@ def test_no_dock_injects_extra_var(monkeypatch):
     assert len(captured) == 1
     cmd = captured[0]
     extra_vars = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-vars"]
-    assert "configure_dock=false" in extra_vars
+    assert "macos_defaults_configure_dock=false" in extra_vars
     assert "homebrew_upgrade_outdated=false" not in extra_vars
 
 
@@ -58,4 +58,4 @@ def test_both_opt_outs_inject_both_extra_vars(monkeypatch):
     cmd = captured[0]
     extra_vars = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-vars"]
     assert "homebrew_upgrade_outdated=false" in extra_vars
-    assert "configure_dock=false" in extra_vars
+    assert "macos_defaults_configure_dock=false" in extra_vars

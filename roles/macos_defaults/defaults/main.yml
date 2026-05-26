@@ -9,7 +9,7 @@
 # add, nothing to remove). The dock role shells out to `dockutil` when
 # either list has entries; install it via the host's Brewfile if you
 # populate the layers.
-configure_dock: true
+macos_defaults_configure_dock: true
 
 # Optional path to a shell script for settings that osx_defaults can't
 # express — `nvram`, `pmset`, `systemsetup`, scripted dockutil sequences
