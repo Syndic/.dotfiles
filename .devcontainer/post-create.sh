@@ -36,6 +36,17 @@ pipx install --python "$latest_python/bin/python3" pre-commit
 # `pipx ensurepath` here. If we did, it would be:
 # pipx ensurepath
 
+# Install the Galaxy collections declared in requirements.yml so
+# `ansible-playbook --syntax-check site.yml` resolves third-party roles
+# (e.g. geerlingguy.mac.dock, used by the macos_defaults role) at parse
+# time without a separate one-off step. Mirrors what
+# `phase2.install_galaxy_requirements()` does on a real host install,
+# but scoped to the devcontainer's pipx-installed ansible. Idempotent —
+# `ansible-galaxy collection install` is a no-op when everything's
+# already at the requested version.
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+"$PIPX_BIN_DIR/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
+
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.
 "$PIPX_BIN_DIR/pre-commit" install

@@ -8,10 +8,12 @@
 ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 # -----------------------------------------------------------------------------
-# Package layering convention
+# Package & settings layering convention
 #
-# For each package backend (brewfile, apt, flatpak), values come from up to
-# three scopes that the role concatenates at run time:
+# For each package backend (brewfile, apt, flatpak) and for the macOS
+# settings inputs (macos_defaults, dockitems_persist, dockitems_remove),
+# values come from up to three scopes that the role concatenates at run
+# time:
 #
 #   common_<thing>              applied to all hosts; lives in this file
 #   group_<set>_<thing>         applied per group within a group set;
@@ -35,3 +37,18 @@ common_apt: []
 
 # flatpak apps (Linux only; the flatpak role is gated to Linux in site.yml).
 common_flatpak: []
+
+# macOS defaults (Darwin only; the macos_defaults role is gated to Darwin
+# in site.yml, so these lists are simply unused on Linux hosts). Each
+# entry is a dict accepted by community.general.osx_defaults:
+#   - { domain: NSGlobalDomain, key: AppleShowAllExtensions, type: bool, value: true }
+# `domain` defaults to NSGlobalDomain, `type` to 'string', `state` to
+# 'present' if omitted. See roles/macos_defaults/tasks/main.yml.
+common_macos_defaults: []
+
+# macOS Dock items (Darwin only; consumed by geerlingguy.mac.dock and
+# gated by `configure_dock: true` per host). `dockitems_persist` entries
+# are dicts ({name, path, pos}); `dockitems_remove` entries are plain
+# strings (e.g. "Launchpad", "TV"). Unused on Linux hosts.
+common_dockitems_persist: []
+common_dockitems_remove: []

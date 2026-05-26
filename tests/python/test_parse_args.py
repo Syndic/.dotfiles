@@ -41,3 +41,25 @@ def test_no_upgrade_composes_with_host(monkeypatch):
     args = phase2.parse_args()
     assert args.host == "laptop24"
     assert args.upgrade is False
+
+
+def test_dock_defaults_true(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["phase2.py"])
+    args = phase2.parse_args()
+    assert args.dock is True
+
+
+def test_no_dock_flips_dock_false(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["phase2.py", "--no-dock"])
+    args = phase2.parse_args()
+    assert args.dock is False
+
+
+def test_no_dock_composes_with_other_flags(monkeypatch):
+    monkeypatch.setattr(
+        sys, "argv", ["phase2.py", "--host", "laptop24", "--no-upgrade", "--no-dock"]
+    )
+    args = phase2.parse_args()
+    assert args.host == "laptop24"
+    assert args.upgrade is False
+    assert args.dock is False

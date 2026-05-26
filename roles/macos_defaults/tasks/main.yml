@@ -1,8 +1,79 @@
 ---
-# macos_defaults role
-# Will apply macOS system preferences via community.general.osx_defaults.
-# Settings are gated by host vars so different machines can have different defaults.
+# macos_defaults role (Darwin only — gated in site.yml).
+#
+# Applies macOS system preferences via three mechanisms, in order:
+#
+#   1. community.general.osx_defaults over the layered list
+#      common_macos_defaults + group_purpose_macos_defaults + host_macos_defaults.
+#      Each entry is a dict: {domain, key, type, value, state?, host?}.
+#      `domain` defaults to NSGlobalDomain; `type` defaults to 'string';
+#      `state` defaults to 'present'. See community.general.osx_defaults
+#      docs for the supported types ('bool', 'int', 'float', 'string',
+#      'array', 'dict', etc.). The module reports CHANGED only when the
+#      stored value actually flips, so re-runs are quiet.
+#
+#   2. geerlingguy.mac.dock, gated by `configure_dock`. Composes the
+#      layered dockitems_persist / dockitems_remove lists and hands them
+#      to the role. Requires `dockutil` on the host (install via Brewfile).
+#
+#   3. An optional shell escape hatch: `macos_defaults_extras_script`. For
+#      settings that osx_defaults can't express (`nvram`, `pmset`,
+#      `systemsetup`, etc.). Always runs (when the var is non-empty) and
+#      reports `changed_when: false` — Ansible has no visibility into
+#      what the script does, so the script itself must be idempotent.
+#
+# See group_vars/all.yml for the layering convention this role plugs into.
 
-- name: Macos_defaults role placeholder
-  ansible.builtin.debug:
-    msg: "macos_defaults role: not yet implemented"
+- name: Compose the layered macOS defaults list
+  ansible.builtin.set_fact:
+    macos_defaults_resolved: >-
+      {{ (common_macos_defaults | default([]))
+         + (group_purpose_macos_defaults | default([]))
+         + (host_macos_defaults | default([])) }}
+
+- name: Apply macOS defaults
+  community.general.osx_defaults:
+    domain: "{{ item.domain | default('NSGlobalDomain') }}"
+    key: "{{ item.key }}"
+    type: "{{ item.type | default('string') }}"
+    value: "{{ item.value }}"
+    state: "{{ item.state | default('present') }}"
+    host: "{{ item.host | default(omit) }}"
+  loop: "{{ macos_defaults_resolved }}"
+  loop_control:
+    label: "{{ item.domain | default('NSGlobalDomain') }}: {{ item.key }}"
+
+# Dock layout (opt-in). The dock role reads `dockitems_persist` /
+# `dockitems_remove` directly, so compose the layered lists into those
+# names before importing. set_fact only fires when the gate is true so
+# we don't shadow the role's own defaults on hosts that don't configure
+# the Dock.
+- name: Compose Dock items from the layered lists
+  ansible.builtin.set_fact:
+    dockitems_persist: >-
+      {{ (common_dockitems_persist | default([]))
+         + (group_purpose_dockitems_persist | default([]))
+         + (host_dockitems_persist | default([])) }}
+    dockitems_remove: >-
+      {{ (common_dockitems_remove | default([]))
+         + (group_purpose_dockitems_remove | default([]))
+         + (host_dockitems_remove | default([])) }}
+  when: configure_dock | bool
+
+# import_role (parse-time resolution) so `ansible-playbook --syntax-check`
+# catches a missing geerlingguy.mac collection up front, rather than letting
+# the playbook get partway through a Darwin run before the include fails.
+# Trade-off: the collection has to be installed locally before any syntax
+# check works — `phase2.install_galaxy_requirements()` handles that for the
+# normal install path, and `.devcontainer/post-create.sh` does it for the
+# dev container so local checks Just Work after a rebuild.
+- name: Configure the Dock via geerlingguy.mac.dock
+  ansible.builtin.import_role:
+    name: geerlingguy.mac.dock
+  when: configure_dock | bool
+
+- name: Run macOS defaults shell escape hatch
+  ansible.builtin.command:
+    cmd: "{{ macos_defaults_extras_script }}"
+  changed_when: false
+  when: macos_defaults_extras_script | length > 0

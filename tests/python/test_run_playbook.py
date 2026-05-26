@@ -1,8 +1,9 @@
-"""Tests for phase2.run_playbook — verify that the `--no-upgrade` flag
-(parsed into args.upgrade=False) actually reaches the ansible-playbook
-invocation as `-e homebrew_upgrade_outdated=false`, and that a stock
-run does NOT inject the override (the role default is true, so the
-implicit case should leave the command line clean)."""
+"""Tests for phase2.run_playbook — verify that the opt-out flags
+(`--no-upgrade` → args.upgrade=False, `--no-dock` → args.dock=False)
+actually reach the ansible-playbook invocation as the matching
+`-e <var>=false` overrides, and that a stock run does NOT inject either
+override (the role defaults are both true, so the implicit case should
+leave the command line clean)."""
 
 from typing import Any
 
@@ -20,12 +21,13 @@ def _capture_run(monkeypatch) -> list[list[str]]:
     return captured
 
 
-def test_default_run_omits_upgrade_override(monkeypatch):
+def test_default_run_omits_override_flags(monkeypatch):
     captured = _capture_run(monkeypatch)
     phase2.run_playbook("laptop24")
     assert len(captured) == 1
     cmd = captured[0]
     assert "homebrew_upgrade_outdated=false" not in " ".join(cmd)
+    assert "configure_dock=false" not in " ".join(cmd)
     assert "--extra-vars" not in cmd
 
 
@@ -34,6 +36,26 @@ def test_no_upgrade_injects_extra_var(monkeypatch):
     phase2.run_playbook("laptop24", upgrade=False)
     assert len(captured) == 1
     cmd = captured[0]
-    assert "--extra-vars" in cmd
-    idx = cmd.index("--extra-vars")
-    assert cmd[idx + 1] == "homebrew_upgrade_outdated=false"
+    extra_vars = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-vars"]
+    assert "homebrew_upgrade_outdated=false" in extra_vars
+    assert "configure_dock=false" not in extra_vars
+
+
+def test_no_dock_injects_extra_var(monkeypatch):
+    captured = _capture_run(monkeypatch)
+    phase2.run_playbook("laptop24", dock=False)
+    assert len(captured) == 1
+    cmd = captured[0]
+    extra_vars = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-vars"]
+    assert "configure_dock=false" in extra_vars
+    assert "homebrew_upgrade_outdated=false" not in extra_vars
+
+
+def test_both_opt_outs_inject_both_extra_vars(monkeypatch):
+    captured = _capture_run(monkeypatch)
+    phase2.run_playbook("laptop24", upgrade=False, dock=False)
+    assert len(captured) == 1
+    cmd = captured[0]
+    extra_vars = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-vars"]
+    assert "homebrew_upgrade_outdated=false" in extra_vars
+    assert "configure_dock=false" in extra_vars

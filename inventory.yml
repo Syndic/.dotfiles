@@ -14,6 +14,28 @@
 #   (3) updating roles to concatenate the new set's contribution alongside
 #       the existing common / group_<existing-set>_* / host layers.
 #
+# Step (3) is where the cost lives — every role that consumes a layered
+# var has to learn about the new set. With one set today, hardcoding
+# `group_purpose_*` in each role is the simplest thing that works. When
+# the *second* set lands, switch to the indirection pattern instead of
+# adding `group_<newset>_*` references role-by-role:
+#
+#   # group_vars/all.yml
+#   group_sets: [purpose, <newset>]
+#
+#   # in each role, replace the explicit `group_purpose_<thing>` reference with
+#   {{ group_sets
+#      | map('regex_replace', '^(.*)$', 'group_\1_<thing>')
+#      | map('extract', vars) | map('default', [], true)
+#      | sum(start=[]) }}
+#
+# Discoverability stays intact (one authoritative list of sets in
+# group_vars/all.yml; explicit `<thing>` name in each role), typos in
+# `group_sets` blow up loudly via `extract`, and adding a third set
+# later is a one-line change. Pattern-matching `vars` directly with a
+# regex over variable names was considered and rejected — too soft a
+# firewall for a repo that otherwise enforces things explicitly.
+#
 # OS-axis gating uses the runtime `ansible_system` / `ansible_os_family`
 # facts (see site.yml), so it does not require an OS group set in inventory.
 #
