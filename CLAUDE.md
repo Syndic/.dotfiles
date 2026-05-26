@@ -335,13 +335,17 @@ gate.
   `brewfiles/` — the latter is what Ansible installs on hosts at runtime.
 - **Homebrew role idempotency gate.** Each per-layer `brew bundle install`
   is gated on `brew bundle check` (cheap, no per-formula network probe);
-  the install only runs when the check exits non-zero. A separate opt-in
-  pass — `homebrew_upgrade_outdated: true`, default off — runs `brew
-  outdated` and then `brew upgrade` only when something's actually
-  outdated. The default-off is deliberate: packages should drift forward
-  only when a Brewfile entry changes, not on every play. There's no
-  `brew bundle cleanup --force` step — removing anything not in a
-  Brewfile would nuke ad-hoc `brew install` packages outside this repo.
+  the install only runs when the check exits non-zero. After all per-layer
+  installs, a single `brew upgrade` pass runs (gated on `brew outdated`
+  having output, so an up-to-date machine reports nothing CHANGED).
+  Controlled by `homebrew_upgrade_outdated`, **default true** — a stock
+  install leaves the machine fully up to date. The opt-out is per-run via
+  `--no-upgrade` on `install.sh` / `phase2.py`, which sets
+  `-e homebrew_upgrade_outdated=false` on the `ansible-playbook` call;
+  there is no host_vars-level opt-out by design, because "skip upgrades"
+  is a transient runtime choice, not a stable property of the host.
+  There's no `brew bundle cleanup --force` step — removing anything not in
+  a Brewfile would nuke ad-hoc `brew install` packages outside this repo.
 - The `home_source/` tree (`common/` plus `hosts/<name>/` overlays) holds
   the files symlinked into `$HOME`. It must contain **only plain files and
   directories** — no symlinks (they'd be linked as a symlink-to-symlink

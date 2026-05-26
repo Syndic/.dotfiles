@@ -40,11 +40,11 @@ common_flatpak: []
 # Role-level toggles
 # -----------------------------------------------------------------------------
 
-# When true, the homebrew role runs `brew upgrade` after the per-layer
-# `brew bundle install` so already-installed packages move to their latest
-# versions. Default false: packages drift forward only when a Brewfile
-# entry changes, which is the intentional stability property. Opt in per
-# host (typically a personal machine that wants unattended upgrades) by
-# setting `homebrew_upgrade_outdated: true` in host_vars/<host>.yml. The
-# role's own default lives in roles/homebrew/defaults/main.yml.
-homebrew_upgrade_outdated: false
+# When true, the homebrew role runs `brew upgrade` once after all
+# per-layer `brew bundle install` passes so already-installed packages
+# move to their latest versions. Default true. Override per run by
+# passing `--no-upgrade` to `install.sh` / `phase2.py`, which sets
+# `-e homebrew_upgrade_outdated=false` on the ansible-playbook
+# invocation. The role's own default lives in
+# roles/homebrew/defaults/main.yml.
+homebrew_upgrade_outdated: true

@@ -110,15 +110,23 @@ specific host without needing a placeholder file.
 
 Full variable-naming convention is in [`group_vars/all.yml`](group_vars/all.yml).
 
-### Upgrade outdated Homebrew packages
+### Skip the `brew upgrade` pass on a run
 
-By default the playbook installs anything new in a Brewfile but does
-**not** upgrade packages that are already installed but outdated —
-packages drift forward only when a Brewfile entry changes. To opt a
-host into a `brew upgrade` pass on every run, set
-`homebrew_upgrade_outdated: true` in that host's
-`host_vars/<hostname>.yml`. The role runs `brew outdated` first and
-only invokes `brew upgrade` when there's something to upgrade.
+After installing anything new in a Brewfile, the playbook runs `brew
+upgrade` once to bring already-installed packages to their latest
+versions. Pass `--no-upgrade` to skip that pass for a single run —
+useful when you want Brewfile-only changes picked up without the
+network cost of refreshing existing packages:
+
+```bash
+curl -fsSL https://install.yanch.ar | bash -s -- --host PROFILE --no-upgrade
+```
+
+The flag is forwarded through `install.sh` → `phase2.py` →
+`ansible-playbook -e homebrew_upgrade_outdated=false`. The underlying
+role variable is documented in
+[`group_vars/all.yml`](group_vars/all.yml) and defaults to true in
+[`roles/homebrew/defaults/main.yml`](roles/homebrew/defaults/main.yml).
 
 ### Add a new host
 

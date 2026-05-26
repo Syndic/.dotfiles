@@ -64,6 +64,15 @@ def parse_args() -> argparse.Namespace:
         help="Use the host profile named PROFILE (in host_vars/). "
         "If omitted, you will be prompted to choose one.",
     )
+    parser.add_argument(
+        "--no-upgrade",
+        dest="upgrade",
+        action="store_false",
+        default=True,
+        help="Skip the `brew upgrade` pass that normally runs after "
+        "`brew bundle install`. Useful for fast re-runs that should "
+        "only pick up Brewfile changes, not refresh existing packages.",
+    )
     return parser.parse_args()
 
 
@@ -217,13 +226,23 @@ def resolve_host_profile(host_arg: str | None) -> str:
 # ---------------------------------------------------------------------------
 # Step 5: Run Ansible playbook
 # ---------------------------------------------------------------------------
-def run_playbook(host_profile: str, sudo_password: str | None = None) -> None:
+def run_playbook(
+    host_profile: str,
+    sudo_password: str | None = None,
+    upgrade: bool = True,
+) -> None:
     cmd = [
         "ansible-playbook",
         str(DOTFILES_DIR / "site.yml"),
         "--inventory", str(DOTFILES_DIR / "inventory.yml"),
         "--limit", host_profile,
     ]
+    # The role default is homebrew_upgrade_outdated=true; only inject the
+    # override when the user passed --no-upgrade. Keeping the default
+    # implicit means a stock install command lines up with whatever the
+    # role defaults say, with no `-e` plumbing to keep in sync.
+    if not upgrade:
+        cmd += ["--extra-vars", "homebrew_upgrade_outdated=false"]
     if sudo_password:
         # Pass the captured sudo password as ANSIBLE_BECOME_PASS, scoped to
         # this subprocess only — not set in our own os.environ.
@@ -269,7 +288,7 @@ def main() -> None:
     host_profile = resolve_host_profile(args.host)
 
     announce(f"Tools ready - Running Playbook")
-    run_playbook(host_profile, sudo_password=sudo_password)
+    run_playbook(host_profile, sudo_password=sudo_password, upgrade=args.upgrade)
 
     # Record the profile so uninstall.py can default to it without re-prompting.
     record_installed_host(host_profile)
