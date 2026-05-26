@@ -19,6 +19,21 @@
   loop_control:
     label: "{{ item }}"
 
+- name: Collect the Brewfile layers that exist on disk
+  # Flattens the stat results into a plain list of paths so the loops
+  # below don't have to chase nested attributes through a registered
+  # loop result. Layers whose variable was empty (the stat above
+  # skipped them via `when`) have no `stat` key, hence the first
+  # selectattr; layers whose path doesn't exist on disk are filtered
+  # by the second.
+  ansible.builtin.set_fact:
+    homebrew_present_brewfiles: >-
+      {{ homebrew_brewfile_stats.results
+         | selectattr('stat', 'defined')
+         | selectattr('stat.exists')
+         | map(attribute='stat.path')
+         | list }}
+
 # `brew bundle check` exits 0 when every entry in the file is already
 # satisfied, non-zero otherwise. It's much cheaper than `brew bundle
 # install` because it skips the per-formula network probe — so use it as
@@ -30,14 +45,8 @@
       - bundle
       - check
       - --file
-      - "{{ brewfile_layer.item }}"
-  loop: "{{ homebrew_brewfile_stats.results | default([]) }}"
-  loop_control:
-    loop_var: brewfile_layer
-    label: "{{ brewfile_layer.item }}"
-  when:
-    - not (brewfile_layer.skipped | default(false))
-    - brewfile_layer.stat.exists | default(false)
+      - "{{ item }}"
+  loop: "{{ homebrew_present_brewfiles }}"
   register: homebrew_bundle_checks
   changed_when: false
   failed_when: false
@@ -50,14 +59,11 @@
       - bundle
       - install
       - --file
-      - "{{ brewfile_check.item.item }}"
+      - "{{ item.item }}"
   loop: "{{ homebrew_bundle_checks.results | default([]) }}"
   loop_control:
-    loop_var: brewfile_check
-    label: "{{ brewfile_check.item.item | default('(skipped)') }}"
-  when:
-    - not (brewfile_check.skipped | default(false))
-    - brewfile_check.rc | default(0) != 0
+    label: "{{ item.item }}"
+  when: item.rc != 0
   register: homebrew_bundle_result
   changed_when: >-
     ('Installing' in (homebrew_bundle_result.stdout | default('')))
