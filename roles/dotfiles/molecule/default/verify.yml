@@ -3,7 +3,8 @@
   hosts: all
   gather_facts: false
   vars:
-    _fixture_root: "{{ lookup('env', 'MOLECULE_SCENARIO_DIRECTORY') }}/fixture/home_source"
+    # Must match converge.yml: where the fixture was staged inside the container.
+    _container_fixture_root: /opt/dotfiles-molecule/home_source
     _test_home: /root/testhome
   tasks:
     - name: Stat the managed .testrc destination
@@ -12,13 +13,13 @@
         follow: false
       register: testrc_stat
 
-    - name: .testrc must be a symlink pointing at the fixture source
+    - name: .testrc must be a symlink pointing at the staged fixture
       ansible.builtin.assert:
         that:
           - testrc_stat.stat.exists
           - testrc_stat.stat.islnk
-          - testrc_stat.stat.lnk_target == _fixture_root ~ '/common/.testrc'
-        fail_msg: ".testrc was not symlinked to the fixture source (stat: {{ testrc_stat.stat }})"
+          - testrc_stat.stat.lnk_target == _container_fixture_root ~ '/common/.testrc'
+        fail_msg: ".testrc was not symlinked to the staged fixture (stat: {{ testrc_stat.stat }})"
 
     - name: Pre-existing .testrc must have been backed up to .backup-1
       ansible.builtin.stat:
@@ -26,7 +27,7 @@
         follow: false
       register: testrc_backup_stat
 
-    - name: Assert backup exists and is a regular file with the original content
+    - name: Assert backup exists and is a regular file
       ansible.builtin.assert:
         that:
           - testrc_backup_stat.stat.exists
@@ -43,18 +44,18 @@
         that:
           - (testrc_backup_content.content | b64decode) == "preexisting user content\n"
 
-    - name: Stat the nested managed directory's symlink
+    - name: Stat the nested managed file's symlink
       ansible.builtin.stat:
         path: "{{ _test_home }}/.config/test/conf.toml"
         follow: false
       register: nested_stat
 
-    - name: Nested file must be a symlink pointing at the fixture source
+    - name: Nested file must be a symlink pointing at the staged fixture
       ansible.builtin.assert:
         that:
           - nested_stat.stat.exists
           - nested_stat.stat.islnk
-          - nested_stat.stat.lnk_target == _fixture_root ~ '/common/.config/test/conf.toml'
+          - nested_stat.stat.lnk_target == _container_fixture_root ~ '/common/.config/test/conf.toml'
 
     - name: .config must be a real directory (not a symlink), so per-file symlinks compose
       ansible.builtin.stat:

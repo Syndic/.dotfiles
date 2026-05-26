@@ -1,9 +1,13 @@
 ---
 # Composition-only converge — see molecule.yml for why we don't include the
-# role's main.yml directly. The set_fact expression below is a *copy* of the
-# role's `name:` expression in roles/flatpak/tasks/main.yml; verify.yml
-# asserts the composed list matches what the layered vars should produce. If
-# the role's expression changes (new layer, renamed var), update both places.
+# role's main.yml directly. The expression below is a *copy* of the role's
+# `name:` expression in roles/flatpak/tasks/main.yml; the assertion confirms
+# it composes correctly across all three scopes. If the role's expression
+# changes (new layer, renamed var), update this file in lockstep.
+#
+# Assertion lives in converge (not verify.yml) because facts don't survive
+# across molecule's separate ansible-playbook invocations. There is no
+# verify.yml in this scenario — molecule will warn-and-skip the verify step.
 - name: Converge — flatpak role (composition-only mock)
   hosts: all
   gather_facts: false
@@ -21,3 +25,13 @@
           {{ (common_flatpak | default([]))
              + (group_purpose_flatpak | default([]))
              + (host_flatpak | default([])) }}
+
+    - name: Composed list must contain every layer's contribution, in order
+      ansible.builtin.assert:
+        that:
+          - flatpak_composed_packages == [
+              'org.example.Common',
+              'org.example.GroupPersonal',
+              'org.example.HostOnly',
+            ]
+        fail_msg: "Layered composition wrong: {{ flatpak_composed_packages }}"

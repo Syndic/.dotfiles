@@ -45,5 +45,12 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install ansible molecule 'molecule-plugins[docker]'
+      # docker + requests are runtime deps for community.docker (the modules
+      # molecule's docker driver uses to create/destroy containers). They're
+      # not pulled in by molecule itself.
+      - run: pip install ansible molecule 'molecule-plugins[docker]' docker requests
+      # The Galaxy collections aren't bundled with ansible-core/molecule;
+      # install explicitly so the docker driver's playbooks resolve their
+      # modules.
+      - run: ansible-galaxy collection install community.docker ansible.posix community.general
       - run: ./tests/run molecule

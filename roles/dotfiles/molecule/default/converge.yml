@@ -1,33 +1,21 @@
 ---
+# Pure role invocation — fixture staging + HOME seeding live in prepare.yml
+# so molecule's idempotence step (which re-runs converge and asserts 0
+# changed) exercises only the role.
 - name: Converge — dotfiles role
   hosts: all
   gather_facts: false
   vars:
-    # Absolute path to the repo root inside the container — matches the volume
-    # mount in molecule.yml (same path inside and outside).
-    _repo_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/../.."
-    _fixture_root: "{{ lookup('env', 'MOLECULE_SCENARIO_DIRECTORY') }}/fixture/home_source"
+    # Container-side staging paths — must match prepare.yml.
+    _container_root: /opt/dotfiles-molecule
+    _container_fixture_root: "{{ _container_root }}/home_source"
     _test_home: /root/testhome
-  pre_tasks:
-    - name: Reset test HOME so converge is deterministic across runs
-      ansible.builtin.file:
-        path: "{{ _test_home }}"
-        state: "{{ item }}"
-        mode: "0755"
-      loop:
-        - absent
-        - directory
-    - name: Seed a pre-existing dotfile to exercise the backup path
-      ansible.builtin.copy:
-        dest: "{{ _test_home }}/.testrc"
-        content: "preexisting user content\n"
-        mode: "0644"
   roles:
     - role: dotfiles
       vars:
-        dotfiles_manager_script: "{{ _repo_root }}/dotfiles_manager.py"
-        dotfiles_managed_root_dir: "{{ _repo_root }}"
-        dotfiles_common_source_dir: "{{ _fixture_root }}/common"
+        dotfiles_manager_script: "{{ _container_root }}/dotfiles_manager.py"
+        dotfiles_managed_root_dir: "{{ _container_root }}"
+        dotfiles_common_source_dir: "{{ _container_fixture_root }}/common"
         # Host overlay intentionally absent — exercises the "common only" branch.
-        dotfiles_host_source_dir: "{{ _fixture_root }}/hosts/nonexistent"
+        dotfiles_host_source_dir: "{{ _container_fixture_root }}/hosts/nonexistent"
         dotfiles_home_dir: "{{ _test_home }}"

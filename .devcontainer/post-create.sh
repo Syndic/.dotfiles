@@ -41,6 +41,11 @@ pipx install --python "$latest_python/bin/python3" pre-commit
 # the `docker` Python SDK molecule shells out to).
 pipx install --include-deps --python "$latest_python/bin/python3" molecule
 pipx inject molecule 'molecule-plugins[docker]'
+# community.docker's container modules (used by molecule's docker driver's
+# create/destroy playbooks) need the `docker` and `requests` Python packages
+# *in the venv whose ansible-playbook executes them*. That's the `ansible`
+# pipx venv (its console scripts win on PATH), not molecule's. Inject there.
+pipx inject ansible docker requests
 # We were getting a warning about the relevant paths already being on PATH, so we don't need to call
 # `pipx ensurepath` here. If we did, it would be:
 # pipx ensurepath
@@ -55,6 +60,13 @@ pipx inject molecule 'molecule-plugins[docker]'
 # already at the requested version.
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 "$PIPX_BIN_DIR/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
+
+# Dev-only Galaxy collections for molecule's docker driver. Kept *out* of
+# requirements.yml because that file is the production dependency list
+# (installed on every host by phase2.install_galaxy_requirements). community.docker
+# + ansible.posix are only needed by molecule's create/destroy playbooks,
+# which never run during a real install.
+"$PIPX_BIN_DIR/ansible-galaxy" collection install community.docker ansible.posix
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.

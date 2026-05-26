@@ -29,9 +29,20 @@ platforms:
 
 provisioner:
   name: ansible
+  env:
+    # Point ansible at the repo's roles/ dir so 'role: <name>' in converge.yml
+    # resolves. MOLECULE_PROJECT_DIRECTORY is the role's own dir (the CWD
+    # when molecule was invoked — see tests/run); its parent is roles/.
+    # We don't rely on molecule's prerun symlinking because the roles in
+    # this repo don't ship meta/main.yml.
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
   config_options:
     defaults:
-      stdout_callback: yaml
+      # 'yaml' as a bare stdout_callback resolves to the removed
+      # community.general.yaml plugin in modern community.general; use the
+      # ansible-core 2.13+ replacement instead (default callback with yaml
+      # result formatting).
+      callback_result_format: yaml
 
 verifier:
   name: ansible

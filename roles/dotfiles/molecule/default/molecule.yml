@@ -2,12 +2,16 @@
 # molecule scenario for the dotfiles role.
 #
 # The role shells out to {{ dotfiles_manager_script }} (defaults to
-# {{ playbook_dir }}/dotfiles_manager.py, which is the repo root in real use).
-# Under molecule, playbook_dir is this scenario dir — so the script lives
-# four levels up. We mount the repo root into the container at the same
-# absolute host path so {{ playbook_dir }}-relative paths resolve identically
-# inside and out, and converge.yml overrides dotfiles_manager_script to point
-# at the real script location.
+# {{ playbook_dir }}/dotfiles_manager.py, the repo root in real use). Under
+# molecule, playbook_dir is this scenario dir — so the script lives four
+# levels up. Rather than bind-mount the repo into the container (which
+# doesn't work when the parent ansible runner is itself in a container —
+# Docker-in-Docker via a shared socket, common locally — because the host
+# daemon doesn't have the parent container's filesystem), converge.yml
+# copies the script and the synthetic fixture into the test container and
+# overrides dotfiles_manager_script + dotfiles_*_source_dir to match. This
+# also keeps the scenario self-contained: nothing here depends on what's
+# present in the repo's real home_source/ tree.
 
 driver:
   name: docker
@@ -21,18 +25,24 @@ platforms:
     cgroupns_mode: host
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
-      # Mount the repo root at the same absolute path inside the container so
-      # the role's {{ playbook_dir }}-derived paths resolve consistently.
-      # MOLECULE_PROJECT_DIRECTORY is the CWD when molecule was invoked —
-      # tests/run cds into roles/<role>/ first, so ../.. is the repo root.
-      - "${MOLECULE_PROJECT_DIRECTORY}/../..:${MOLECULE_PROJECT_DIRECTORY}/../..:rw"
     command: /lib/systemd/systemd
 
 provisioner:
   name: ansible
+  env:
+    # Point ansible at the repo's roles/ dir so 'role: <name>' in converge.yml
+    # resolves. MOLECULE_PROJECT_DIRECTORY is the role's own dir (the CWD
+    # when molecule was invoked — see tests/run); its parent is roles/.
+    # We don't rely on molecule's prerun symlinking because the roles in
+    # this repo don't ship meta/main.yml.
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
   config_options:
     defaults:
-      stdout_callback: yaml
+      # 'yaml' as a bare stdout_callback resolves to the removed
+      # community.general.yaml plugin in modern community.general; use the
+      # ansible-core 2.13+ replacement instead (default callback with yaml
+      # result formatting).
+      callback_result_format: yaml
 
 verifier:
   name: ansible

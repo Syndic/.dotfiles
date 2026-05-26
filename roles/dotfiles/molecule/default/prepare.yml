@@ -1,0 +1,50 @@
+---
+# Runs once after create, before converge. Stages the script + fixture into
+# the container and seeds a pre-existing dotfile so the role's backup path
+# is exercised. Kept separate from converge.yml so molecule's idempotence
+# check (which runs converge twice and asserts 0 changed) sees only the
+# role itself — the destructive setup here doesn't reset on every converge.
+- name: Prepare — stage fixture and seed pre-existing dotfile
+  hosts: all
+  gather_facts: false
+  vars:
+    _scenario_dir: "{{ lookup('env', 'MOLECULE_SCENARIO_DIRECTORY') }}"
+    _project_dir: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+    _repo_root: "{{ _project_dir }}/../.."
+    _controller_fixture_root: "{{ _scenario_dir }}/fixture/home_source"
+    _container_root: /opt/dotfiles-molecule
+    _container_fixture_root: "{{ _container_root }}/home_source"
+    _test_home: /root/testhome
+  tasks:
+    - name: Stage the helper script + fixture root into the container
+      ansible.builtin.file:
+        path: "{{ _container_root }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy dotfiles_manager.py into the container
+      ansible.builtin.copy:
+        src: "{{ _repo_root }}/dotfiles_manager.py"
+        dest: "{{ _container_root }}/dotfiles_manager.py"
+        mode: "0755"
+
+    - name: Copy the synthetic home_source fixture into the container
+      ansible.builtin.copy:
+        src: "{{ _controller_fixture_root }}/"
+        dest: "{{ _container_fixture_root }}/"
+        mode: preserve
+
+    - name: Reset test HOME so prepare is deterministic across re-runs
+      ansible.builtin.file:
+        path: "{{ _test_home }}"
+        state: "{{ item }}"
+        mode: "0755"
+      loop:
+        - absent
+        - directory
+
+    - name: Seed a pre-existing dotfile to exercise the backup path
+      ansible.builtin.copy:
+        dest: "{{ _test_home }}/.testrc"
+        content: "preexisting user content\n"
+        mode: "0644"
