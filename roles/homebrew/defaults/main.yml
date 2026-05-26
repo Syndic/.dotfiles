@@ -1,0 +1,11 @@
+---
+# Role-level defaults. Override per host in host_vars/<host>.yml (or per
+# group in group_vars/<group>.yml) when a machine wants different behavior.
+
+# When true, run `brew upgrade` once after all per-layer
+# `brew bundle install` passes so already-installed packages move to
+# their latest versions. Default true: a stock install should leave the
+# machine fully up-to-date. Override per run by passing `--no-upgrade`
+# to `install.sh` / `phase2.py`, which sets `-e
+# homebrew_upgrade_outdated=false` on the ansible-playbook invocation.
+homebrew_upgrade_outdated: true

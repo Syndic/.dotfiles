@@ -22,3 +22,22 @@ def test_unknown_arg_exits(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         phase2.parse_args()
     assert exc.value.code == 2  # argparse convention for usage errors
+
+
+def test_upgrade_defaults_true(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["phase2.py"])
+    args = phase2.parse_args()
+    assert args.upgrade is True
+
+
+def test_no_upgrade_flips_upgrade_false(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["phase2.py", "--no-upgrade"])
+    args = phase2.parse_args()
+    assert args.upgrade is False
+
+
+def test_no_upgrade_composes_with_host(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["phase2.py", "--host", "laptop24", "--no-upgrade"])
+    args = phase2.parse_args()
+    assert args.host == "laptop24"
+    assert args.upgrade is False

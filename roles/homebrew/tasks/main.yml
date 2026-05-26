@@ -19,12 +19,16 @@
   loop_control:
     label: "{{ item }}"
 
-- name: Run brew bundle for each existing Brewfile
+# `brew bundle check` exits 0 when every entry in the file is already
+# satisfied, non-zero otherwise. It's much cheaper than `brew bundle
+# install` because it skips the per-formula network probe — so use it as
+# an idempotency gate and only run the install when something drifted.
+- name: Check whether each Brewfile layer is already satisfied
   ansible.builtin.command:
     argv:
       - brew
       - bundle
-      - install
+      - check
       - --file
       - "{{ brewfile_layer.item }}"
   loop: "{{ homebrew_brewfile_stats.results | default([]) }}"
@@ -34,7 +38,53 @@
   when:
     - not (brewfile_layer.skipped | default(false))
     - brewfile_layer.stat.exists | default(false)
+  register: homebrew_bundle_checks
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Run brew bundle install for layers that drifted
+  ansible.builtin.command:
+    argv:
+      - brew
+      - bundle
+      - install
+      - --file
+      - "{{ brewfile_check.item.item }}"
+  loop: "{{ homebrew_bundle_checks.results | default([]) }}"
+  loop_control:
+    loop_var: brewfile_check
+    label: "{{ brewfile_check.item.item | default('(skipped)') }}"
+  when:
+    - not (brewfile_check.skipped | default(false))
+    - brewfile_check.rc | default(0) != 0
   register: homebrew_bundle_result
   changed_when: >-
     ('Installing' in (homebrew_bundle_result.stdout | default('')))
     or ('Upgrading' in (homebrew_bundle_result.stdout | default('')))
+
+# Upgrade pass — runs once after all per-layer bundle installs.
+# Controlled by homebrew_upgrade_outdated (default true in
+# roles/homebrew/defaults/main.yml); pass `--no-upgrade` to install.sh /
+# phase2.py for a per-run opt-out (sets the var to false via `-e`).
+# `brew outdated` is cheap and is gated first so the `brew upgrade` task
+# only reports CHANGED when there was actually something to upgrade.
+- name: Find outdated Homebrew packages
+  ansible.builtin.command:
+    argv:
+      - brew
+      - outdated
+  register: homebrew_outdated
+  changed_when: false
+  check_mode: false
+  when: homebrew_upgrade_outdated
+
+- name: Upgrade outdated Homebrew packages
+  ansible.builtin.command:
+    argv:
+      - brew
+      - upgrade
+  when:
+    - homebrew_upgrade_outdated
+    - homebrew_outdated.stdout | default('') | length > 0
+  changed_when: true
