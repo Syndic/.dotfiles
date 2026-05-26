@@ -1,0 +1,23 @@
+---
+# Composition-only converge — see molecule.yml for why we don't include the
+# role's main.yml directly. The set_fact expression below is a *copy* of the
+# role's `name:` expression in roles/flatpak/tasks/main.yml; verify.yml
+# asserts the composed list matches what the layered vars should produce. If
+# the role's expression changes (new layer, renamed var), update both places.
+- name: Converge — flatpak role (composition-only mock)
+  hosts: all
+  gather_facts: false
+  vars:
+    common_flatpak:
+      - org.example.Common
+    group_purpose_flatpak:
+      - org.example.GroupPersonal
+    host_flatpak:
+      - org.example.HostOnly
+  tasks:
+    - name: Compute the layered package list the role would install
+      ansible.builtin.set_fact:
+        flatpak_composed_packages: >-
+          {{ (common_flatpak | default([]))
+             + (group_purpose_flatpak | default([]))
+             + (host_flatpak | default([])) }}

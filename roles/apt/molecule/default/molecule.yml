@@ -1,0 +1,26 @@
+---
+# molecule scenario for the apt role. Linux-only by definition — the role
+# is gated to ansible_os_family == 'Debian' in site.yml, and this scenario
+# uses a Debian container directly.
+
+driver:
+  name: docker
+
+platforms:
+  - name: apt-instance
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    command: /lib/systemd/systemd
+
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      stdout_callback: yaml
+
+verifier:
+  name: ansible

@@ -1,0 +1,38 @@
+---
+# molecule scenario for the dotfiles role.
+#
+# The role shells out to {{ dotfiles_manager_script }} (defaults to
+# {{ playbook_dir }}/dotfiles_manager.py, which is the repo root in real use).
+# Under molecule, playbook_dir is this scenario dir — so the script lives
+# four levels up. We mount the repo root into the container at the same
+# absolute host path so {{ playbook_dir }}-relative paths resolve identically
+# inside and out, and converge.yml overrides dotfiles_manager_script to point
+# at the real script location.
+
+driver:
+  name: docker
+
+platforms:
+  - name: dotfiles-instance
+    # Preconfigured molecule image: debian12 + python3 + sudo + systemd init.
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      # Mount the repo root at the same absolute path inside the container so
+      # the role's {{ playbook_dir }}-derived paths resolve consistently.
+      # MOLECULE_PROJECT_DIRECTORY is the CWD when molecule was invoked —
+      # tests/run cds into roles/<role>/ first, so ../.. is the repo root.
+      - "${MOLECULE_PROJECT_DIRECTORY}/../..:${MOLECULE_PROJECT_DIRECTORY}/../..:rw"
+    command: /lib/systemd/systemd
+
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      stdout_callback: yaml
+
+verifier:
+  name: ansible

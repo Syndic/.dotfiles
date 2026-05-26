@@ -31,7 +31,7 @@
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/dotfiles_manager.py"
+          - "{{ dotfiles_manager_script }}"
           - build-manifest
           - --common-dir
           - "{{ dotfiles_common_source_dir }}"
@@ -84,7 +84,7 @@
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/dotfiles_manager.py"
+          - "{{ dotfiles_manager_script }}"
           - backup-info
           - "{{ directory_target.dest }}"
       loop: "{{ dotfiles_conflicting_directory_targets | default([]) }}"
@@ -200,7 +200,7 @@
       ansible.builtin.command:
         argv:
           - python3
-          - "{{ playbook_dir }}/dotfiles_manager.py"
+          - "{{ dotfiles_manager_script }}"
           - backup-info
           - "{{ file_target.dest }}"
       loop: "{{ dotfiles_conflicting_file_targets | default([]) }}"

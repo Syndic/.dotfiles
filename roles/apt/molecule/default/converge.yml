@@ -1,0 +1,17 @@
+---
+# Exercises the three-scope package layering (common_apt + group_purpose_apt
+# + host_apt) the role concatenates. See group_vars/all.yml for the spec.
+# Each layer ships exactly one tiny package so verify.yml can attribute a
+# specific install back to a specific layer.
+- name: Converge — apt role
+  hosts: all
+  gather_facts: true
+  vars:
+    common_apt:
+      - tree
+    group_purpose_apt:
+      - jq
+    host_apt:
+      - file
+  roles:
+    - role: apt

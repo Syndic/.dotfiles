@@ -1,0 +1,14 @@
+---
+- name: Verify — flatpak role (composition assertions)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Composed package list must contain every layer's contribution, in order
+      ansible.builtin.assert:
+        that:
+          - flatpak_composed_packages == [
+              'org.example.Common',
+              'org.example.GroupPersonal',
+              'org.example.HostOnly',
+            ]
+        fail_msg: "Layered composition wrong: {{ flatpak_composed_packages }}"

@@ -82,7 +82,7 @@ load-bearing.
 | `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` (cross-platform) + `groups/<group>.Brewfile` (per `purpose` and `os` group sets; macOS-only entries live in `groups/macos.Brewfile`) + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew. |
 | `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
 | `home_source/common/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Host files override common files at the same path. |
-| `tests/` | bats + pytest unit suites, plus `tests/e2e-linux.sh` for full end-to-end runs in a fresh Debian container. |
+| `tests/` | bats + pytest unit suites plus per-role molecule scenarios (under `roles/*/molecule/`), and `tests/e2e-linux.sh` for full end-to-end runs in a fresh Debian container. |
 | `.devcontainer/` | Debian devcontainer with ansible / ansible-lint / pytest / pre-commit pre-installed. |
 
 ## Common tasks
@@ -144,12 +144,17 @@ role variable defaults to true in
 
 ```bash
 brew bundle --file=tests/Brewfile   # one-time: bats-core + pytest + pre-commit
-./tests/run                         # both suites
+./tests/run                         # python + bash (the fast suites)
 ./tests/run python                  # pytest only
 ./tests/run bash                    # bats only
+./tests/run molecule                # molecule per-role scenarios (needs docker)
+./tests/run all                     # everything, molecule included
 pre-commit install                  # optional: install repo hooks
 pre-commit run --all-files          # run hooks manually
 ```
+
+Molecule scenarios live under `roles/<role>/molecule/default/` and gate every
+PR alongside pytest/bats. They cover the dotfiles, apt, and flatpak roles.
 
 Two end-to-end Linux harnesses live under `tests/`, both running inside a
 fresh Debian container as a non-root sudo user. Both are slow (real

@@ -32,6 +32,15 @@ export PIPX_BIN_DIR="$HOME/.local/bin"
 pipx install --include-deps --python "$latest_python/bin/python3" ansible
 pipx inject --include-apps ansible ansible-lint
 pipx install --python "$latest_python/bin/python3" pre-commit
+
+# molecule drives per-role Ansible scenarios under tests/run molecule (and the
+# molecule CI job). It needs Python >= 3.10 — same constraint as ansible-core,
+# so it rides the same pipx + latest-Python pattern. --include-deps exposes
+# the `molecule` console script; the docker driver lives in the
+# molecule-plugins[docker] extra and is injected alongside (which also pulls
+# the `docker` Python SDK molecule shells out to).
+pipx install --include-deps --python "$latest_python/bin/python3" molecule
+pipx inject molecule 'molecule-plugins[docker]'
 # We were getting a warning about the relevant paths already being on PATH, so we don't need to call
 # `pipx ensurepath` here. If we did, it would be:
 # pipx ensurepath

@@ -1,0 +1,2 @@
+# molecule fixture — managed .testrc
+export DOTFILES_MOLECULE_FIXTURE=1

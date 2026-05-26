@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Run the full test suite (python + bash).
+# Run the test suites.
 #
-#   ./tests/run            # both suites
-#   ./tests/run python     # just pytest
-#   ./tests/run bash       # just bats
+#   ./tests/run             # python + bash (the fast suites)
+#   ./tests/run python      # just pytest
+#   ./tests/run bash        # just bats
+#   ./tests/run molecule    # just molecule (per-role scenarios; needs docker)
+#   ./tests/run all         # python + bash + molecule
+#
+# molecule is excluded from the bare-arg default because it requires docker
+# and is slower than the python/bash suites. CI runs molecule as its own
+# job — see .github/workflows/tests.yml.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,9 +25,24 @@ run_bash() {
   bats tests/bash
 }
 
-case "${1:-all}" in
-  python) run_python ;;
-  bash)   run_bash ;;
-  all)    run_python; run_bash ;;
-  *)      echo "usage: $0 [python|bash|all]" >&2; exit 2 ;;
+run_molecule() {
+  echo "=== molecule ==="
+  # Each scenario lives under roles/<role>/molecule/<scenario>/. molecule
+  # discovers them via MOLECULE_GLOB and is invoked from the role dir so
+  # `molecule test -s default` resolves correctly.
+  local rc=0
+  for role_dir in roles/dotfiles roles/apt roles/flatpak; do
+    echo "--- molecule: ${role_dir} ---"
+    (cd "${role_dir}" && molecule test -s default) || rc=$?
+  done
+  return $rc
+}
+
+case "${1:-default}" in
+  python)   run_python ;;
+  bash)     run_bash ;;
+  molecule) run_molecule ;;
+  default)  run_python; run_bash ;;
+  all)      run_python; run_bash; run_molecule ;;
+  *)        echo "usage: $0 [python|bash|molecule|default|all]" >&2; exit 2 ;;
 esac

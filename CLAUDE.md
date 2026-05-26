@@ -226,17 +226,35 @@ Homebrew…" lines arrive at the very end of the captured log.
 
 ## Tests
 
-Required for behavior changes. Both bats (bash) and pytest (Python).
+Required for behavior changes. Three suites: bats (bash), pytest (Python),
+and molecule (per-role Ansible scenarios).
 
 ```sh
 brew bundle --file=tests/Brewfile   # one-time: installs bats-core + pytest
-./tests/run                          # full suite
+./tests/run                          # python + bash (the fast suites)
 ./tests/run python                   # pytest only
 ./tests/run bash                     # bats only
+./tests/run molecule                 # molecule only (needs docker)
+./tests/run all                      # everything, molecule included
 ```
 
-CI runs both suites on Ubuntu. Linux is fine because nothing tested is macOS-
-specific (we deliberately don't test the xcode-select / softwareupdate paths).
+CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
+under `roles/<role>/molecule/default/` per role; today the dotfiles, apt, and
+flatpak roles are covered. Molecule is **not** included in the default
+`./tests/run` invocation because it needs Docker and is slower than
+python/bash — surface the `molecule` arg explicitly when you want it locally.
+
+Why molecule on top of the e2e harnesses: the e2e suite is gated to manual
+`workflow_dispatch` because of its runtime, so per-PR coverage of role-level
+behavior would otherwise be zero. The molecule scenarios are fast enough to
+gate every PR. The dotfiles scenario in particular exercises the symlink +
+backup paths that have historically leaked regressions.
+
+The flatpak molecule scenario is intentionally **composition-only** — it
+asserts the layered variable concatenation but mocks the real flatpak
+install, which would blow the per-scenario time budget. If the role's
+layering expression changes, update `roles/flatpak/molecule/default/converge.yml`
+in lockstep with `roles/flatpak/tasks/main.yml`.
 
 Two end-to-end harnesses live under `tests/`, both running inside a fresh
 Debian container as a non-root sudo user. They share Docker plumbing via
