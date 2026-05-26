@@ -47,7 +47,7 @@ common_flatpak: []
 common_macos_defaults: []
 
 # macOS Dock items (Darwin only; consumed by geerlingguy.mac.dock and
-# gated by `configure_dock: true` per host). `dockitems_persist` entries
+# gated by `macos_defaults_configure_dock: true` per host). `dockitems_persist` entries
 # are dicts ({name, path, pos}); `dockitems_remove` entries are plain
 # strings (e.g. "Launchpad", "TV"). Unused on Linux hosts.
 common_dockitems_persist: []

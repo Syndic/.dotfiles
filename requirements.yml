@@ -17,7 +17,7 @@ collections:
   - name: community.general
 
   # Provides `geerlingguy.mac.dock`, used by the macos_defaults role
-  # behind a `configure_dock` toggle to lay out the Dock via dockutil.
+  # behind a `macos_defaults_configure_dock` toggle to lay out the Dock via dockutil.
   # Hosts that opt in must install `dockutil` (via their Brewfile) for
   # the role to succeed.
   - name: geerlingguy.mac

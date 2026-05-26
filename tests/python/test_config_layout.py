@@ -60,7 +60,7 @@ def test_macos_defaults_layering_uses_same_prefix_convention() -> None:
 def test_macos_defaults_role_wires_layered_lists_and_dock() -> None:
     """The role should: (1) concatenate the three layers into
     macos_defaults_resolved, (2) loop osx_defaults over it,
-    (3) import geerlingguy.mac.dock behind configure_dock, and
+    (3) import geerlingguy.mac.dock behind macos_defaults_configure_dock, and
     (4) honor the macos_defaults_extras_script shell escape hatch."""
     tasks = (REPO_ROOT / "roles" / "macos_defaults" / "tasks" / "main.yml").read_text()
 
@@ -69,7 +69,7 @@ def test_macos_defaults_role_wires_layered_lists_and_dock() -> None:
     assert "host_macos_defaults" in tasks
     assert "community.general.osx_defaults" in tasks
     assert "geerlingguy.mac.dock" in tasks
-    assert "configure_dock" in tasks
+    assert "macos_defaults_configure_dock" in tasks
     assert "macos_defaults_extras_script" in tasks
 
 

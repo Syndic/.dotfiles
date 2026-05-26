@@ -351,15 +351,17 @@ gate.
   `community.general.osx_defaults` (one list entry per key, layered via
   `common_macos_defaults` + `group_purpose_macos_defaults` +
   `host_macos_defaults`) so re-runs report CHANGED only when a key
-  actually flips. Dock layout is on by default (`configure_dock: true`
-  in the role's defaults) and delegates to `geerlingguy.mac.dock`,
-  which is a no-op when the layered `dockitems_persist` /
-  `dockitems_remove` lists are empty and shells out to `dockutil` only
-  when either has entries — add `dockutil` to a host's Brewfile when
-  you populate the layers. Per-run opt-out is `--no-dock` on
-  `install.sh` / `phase2.py`, which sets `-e configure_dock=false` on
-  the `ansible-playbook` call (mirrors `--no-upgrade`). For a stable
-  opt-out, set `configure_dock: false` in `host_vars/<host>.yml`.
+  actually flips. Dock layout is on by default
+  (`macos_defaults_configure_dock: true` in the role's defaults) and
+  delegates to `geerlingguy.mac.dock`, which is a no-op when the
+  layered `dockitems_persist` / `dockitems_remove` lists are empty and
+  shells out to `dockutil` only when either has entries — add
+  `dockutil` to a host's Brewfile when you populate the layers.
+  Per-run opt-out is `--no-dock` on `install.sh` / `phase2.py`, which
+  sets `-e macos_defaults_configure_dock=false` on the
+  `ansible-playbook` call (mirrors `--no-upgrade`). For a stable
+  opt-out, set `macos_defaults_configure_dock: false` in
+  `host_vars/<host>.yml`.
   Settings that the module can't express
   (`nvram`, `pmset`, `systemsetup`, scripted dockutil sequences) drop
   into a shell escape hatch — point `macos_defaults_extras_script` at a

@@ -12,7 +12,7 @@
 #      'array', 'dict', etc.). The module reports CHANGED only when the
 #      stored value actually flips, so re-runs are quiet.
 #
-#   2. geerlingguy.mac.dock, gated by `configure_dock`. Composes the
+#   2. geerlingguy.mac.dock, gated by `macos_defaults_configure_dock`. Composes the
 #      layered dockitems_persist / dockitems_remove lists and hands them
 #      to the role. Requires `dockutil` on the host (install via Brewfile).
 #
@@ -63,7 +63,7 @@
       {{ (common_dockitems_remove | default([]))
          + (group_purpose_dockitems_remove | default([]))
          + (host_dockitems_remove | default([])) }}
-  when: configure_dock | bool
+  when: macos_defaults_configure_dock | bool
 
 # import_role (parse-time resolution) so `ansible-playbook --syntax-check`
 # catches a missing geerlingguy.mac collection up front, rather than letting
@@ -75,7 +75,7 @@
 - name: Configure the Dock via geerlingguy.mac.dock
   ansible.builtin.import_role:
     name: geerlingguy.mac.dock
-  when: configure_dock | bool
+  when: macos_defaults_configure_dock | bool
 
 - name: Run macOS defaults shell escape hatch
   ansible.builtin.command:

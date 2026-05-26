@@ -264,14 +264,14 @@ def run_playbook(
         "--limit", host_profile,
     ]
     # The role defaults are homebrew_upgrade_outdated=true and
-    # configure_dock=true; only inject the override when the user passed
-    # --no-upgrade / --no-dock. Keeping the default implicit means a stock
-    # install command lines up with whatever the role defaults say, with no
-    # `-e` plumbing to keep in sync.
+    # macos_defaults_configure_dock=true; only inject the override when the
+    # user passed --no-upgrade / --no-dock. Keeping the default implicit
+    # means a stock install command lines up with whatever the role
+    # defaults say, with no `-e` plumbing to keep in sync.
     if not upgrade:
         cmd += ["--extra-vars", "homebrew_upgrade_outdated=false"]
     if not dock:
-        cmd += ["--extra-vars", "configure_dock=false"]
+        cmd += ["--extra-vars", "macos_defaults_configure_dock=false"]
     if sudo_password:
         # Pass the captured sudo password as ANSIBLE_BECOME_PASS, scoped to
         # this subprocess only — not set in our own os.environ.
