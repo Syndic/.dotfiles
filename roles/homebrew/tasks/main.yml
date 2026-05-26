@@ -63,12 +63,12 @@
     ('Installing' in (homebrew_bundle_result.stdout | default('')))
     or ('Upgrading' in (homebrew_bundle_result.stdout | default('')))
 
-# Optional upgrade pass — opt-in per host via homebrew_upgrade_outdated.
-# Default is OFF (see roles/homebrew/defaults/main.yml): the deliberate
-# stability property is that packages drift forward only when a Brewfile
-# entry changes. `brew outdated` is cheap and is gated first so the
-# `brew upgrade` task only reports CHANGED when there was actually
-# something to upgrade.
+# Upgrade pass — runs once after all per-layer bundle installs.
+# Controlled by homebrew_upgrade_outdated (default true in
+# roles/homebrew/defaults/main.yml); pass `--no-upgrade` to install.sh /
+# phase2.py for a per-run opt-out (sets the var to false via `-e`).
+# `brew outdated` is cheap and is gated first so the `brew upgrade` task
+# only reports CHANGED when there was actually something to upgrade.
 - name: Find outdated Homebrew packages
   ansible.builtin.command:
     argv:

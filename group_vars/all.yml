@@ -35,16 +35,3 @@ common_apt: []
 
 # flatpak apps (Linux only; the flatpak role is gated to Linux in site.yml).
 common_flatpak: []
-
-# -----------------------------------------------------------------------------
-# Role-level toggles
-# -----------------------------------------------------------------------------
-
-# When true, the homebrew role runs `brew upgrade` once after all
-# per-layer `brew bundle install` passes so already-installed packages
-# move to their latest versions. Default true. Override per run by
-# passing `--no-upgrade` to `install.sh` / `phase2.py`, which sets
-# `-e homebrew_upgrade_outdated=false` on the ansible-playbook
-# invocation. The role's own default lives in
-# roles/homebrew/defaults/main.yml.
-homebrew_upgrade_outdated: true

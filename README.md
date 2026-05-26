@@ -124,8 +124,7 @@ curl -fsSL https://install.yanch.ar | bash -s -- --host PROFILE --no-upgrade
 
 The flag is forwarded through `install.sh` → `phase2.py` →
 `ansible-playbook -e homebrew_upgrade_outdated=false`. The underlying
-role variable is documented in
-[`group_vars/all.yml`](group_vars/all.yml) and defaults to true in
+role variable defaults to true in
 [`roles/homebrew/defaults/main.yml`](roles/homebrew/defaults/main.yml).
 
 ### Add a new host
