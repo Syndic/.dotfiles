@@ -11,3 +11,10 @@ group_purpose_brewfile: "{{ playbook_dir }}/brewfiles/groups/work.Brewfile"
 # macOS work hosts (the apt/flatpak roles are gated to Linux in site.yml).
 group_purpose_apt: []
 group_purpose_flatpak: []
+
+# macOS defaults / Dock layers shared by all work macOS machines.
+# Unused on Linux work hosts (the macos_defaults role is gated to
+# Darwin in site.yml). See group_vars/all.yml for entry shape.
+group_purpose_macos_defaults: []
+group_purpose_dockitems_persist: []
+group_purpose_dockitems_remove: []

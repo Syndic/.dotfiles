@@ -1,0 +1,23 @@
+---
+# Ansible Galaxy collection dependencies.
+# Installed by phase2.py's install_galaxy_requirements() step, which runs
+# `ansible-galaxy collection install -r requirements.yml` after Ansible
+# itself is on the box and before the playbook runs.
+#
+# Unpinned by design — matches the Brewfile convention in this repo
+# (no version pins on shared tooling). If a Galaxy update ever breaks a
+# host, pin the offending collection here and let Renovate's
+# ansible-galaxy manager keep it current.
+
+collections:
+  # Provides `community.general.osx_defaults`, used by the macos_defaults
+  # role to apply per-host macOS system preferences. Typically ships
+  # bundled with the `ansible` Homebrew package, but declaring it here
+  # makes the dependency explicit and survives any future split.
+  - name: community.general
+
+  # Provides `geerlingguy.mac.dock`, used by the macos_defaults role
+  # behind a `configure_dock` toggle to lay out the Dock via dockutil.
+  # Hosts that opt in must install `dockutil` (via their Brewfile) for
+  # the role to succeed.
+  - name: geerlingguy.mac

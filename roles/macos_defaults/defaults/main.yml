@@ -1,0 +1,21 @@
+---
+# Role-level defaults. Override per host in host_vars/<host>.yml (or per
+# group in group_vars/<group>.yml).
+
+# When true, the role invokes geerlingguy.mac.dock to lay out the Dock
+# from the layered dockitems_persist / dockitems_remove lists. Default
+# on — Dock management is a first-class part of what this role is for,
+# and the role is a no-op when the layered lists are empty (nothing to
+# add, nothing to remove). The dock role shells out to `dockutil` when
+# either list has entries; install it via the host's Brewfile if you
+# populate the layers.
+configure_dock: true
+
+# Optional path to a shell script for settings that osx_defaults can't
+# express — `nvram`, `pmset`, `systemsetup`, scripted dockutil sequences
+# beyond what geerlingguy.mac.dock covers, etc. When set to a non-empty
+# path, the role runs it once per playbook invocation with
+# `changed_when: false` (the shell layer is opaque to Ansible's idempotency
+# reporting; the script itself should be safe to re-run). Leave unset
+# (the default) to skip the step entirely.
+macos_defaults_extras_script: ""

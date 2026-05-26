@@ -80,6 +80,7 @@ load-bearing.
 | `group_vars/`, `host_vars/` | Variable scopes for the playbook. |
 | `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`. |
 | `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` + `groups/<group>.Brewfile` + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew (casks silently skip on Linux). |
+| `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
 | `home_source/common/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Host files override common files at the same path. |
 | `tests/` | bats + pytest unit suites, plus `tests/e2e-linux.sh` for full end-to-end runs in a fresh Debian container. |
 | `.devcontainer/` | Debian devcontainer with ansible / ansible-lint / pytest / pre-commit pre-installed. |

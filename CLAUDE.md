@@ -319,12 +319,13 @@ gate.
 - The universal Brewfile layer lives at `brewfiles/common.Brewfile`.
 - Group Brewfile layers live in `brewfiles/groups/`.
 - **Package-layering variable naming convention.** Three scopes per backend
-  (brewfile / apt / flatpak), encoded as a name prefix: `common_<thing>`
-  (all hosts; `group_vars/all.yml`), `group_<set>_<thing>` (per-group within
-  a set; `group_vars/<group>.yml`), `host_<thing>`
-  (`host_vars/<host>.yml`). Set-prefixing on the group layer is what lets a
-  second group axis (e.g. an OS axis) compose with `purpose` later instead
-  of colliding. Full spec in `group_vars/all.yml`.
+  (brewfile / apt / flatpak) and per macOS settings input (macos_defaults /
+  dockitems_persist / dockitems_remove), encoded as a name prefix:
+  `common_<thing>` (all hosts; `group_vars/all.yml`),
+  `group_<set>_<thing>` (per-group within a set; `group_vars/<group>.yml`),
+  `host_<thing>` (`host_vars/<host>.yml`). Set-prefixing on the group
+  layer is what lets a second group axis (e.g. an OS axis) compose with
+  `purpose` later instead of colliding. Full spec in `group_vars/all.yml`.
 - **Role gating uses runtime facts, not inventory groups.** `site.yml` keys
   off `ansible_facts['system']` / `ansible_facts['os_family']`, so
   adding/removing OS-axis inventory groups doesn't change what runs. Use
@@ -346,6 +347,36 @@ gate.
   is a transient runtime choice, not a stable property of the host.
   There's no `brew bundle cleanup --force` step — removing anything not in
   a Brewfile would nuke ad-hoc `brew install` packages outside this repo.
+- **macOS defaults role.** Hybrid approach: bulk settings go through
+  `community.general.osx_defaults` (one list entry per key, layered via
+  `common_macos_defaults` + `group_purpose_macos_defaults` +
+  `host_macos_defaults`) so re-runs report CHANGED only when a key
+  actually flips. Dock layout is on by default (`configure_dock: true`
+  in the role's defaults) and delegates to `geerlingguy.mac.dock`,
+  which is a no-op when the layered `dockitems_persist` /
+  `dockitems_remove` lists are empty and shells out to `dockutil` only
+  when either has entries — add `dockutil` to a host's Brewfile when
+  you populate the layers. Per-run opt-out is `--no-dock` on
+  `install.sh` / `phase2.py`, which sets `-e configure_dock=false` on
+  the `ansible-playbook` call (mirrors `--no-upgrade`). For a stable
+  opt-out, set `configure_dock: false` in `host_vars/<host>.yml`.
+  Settings that the module can't express
+  (`nvram`, `pmset`, `systemsetup`, scripted dockutil sequences) drop
+  into a shell escape hatch — point `macos_defaults_extras_script` at a
+  path and the role runs it `changed_when: false`. The script itself
+  must be idempotent; Ansible has no visibility into what it does. The
+  two Galaxy collection deps (`community.general`, `geerlingguy.mac`)
+  are declared in `requirements.yml` at the repo root and installed by
+  `phase2.install_galaxy_requirements()` between `setup_ansible` and
+  the playbook run. The dock task uses `import_role` (parse-time
+  resolution), not `include_role` — so the collection must be installed
+  locally before `ansible-playbook --syntax-check` works. The normal
+  install path handles this automatically; the devcontainer runs the
+  same `ansible-galaxy collection install` in `post-create.sh`; for
+  ad-hoc host invocations of `ansible-playbook` outside phase 2, run
+  the galaxy install once by hand. The trade is deliberate: parse-time
+  resolution catches a missing/renamed/version-skewed collection at
+  syntax-check time rather than partway through a Darwin run.
 - The `home_source/` tree (`common/` plus `hosts/<name>/` overlays) holds
   the files symlinked into `$HOME`. It must contain **only plain files and
   directories** — no symlinks (they'd be linked as a symlink-to-symlink

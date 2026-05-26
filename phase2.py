@@ -73,6 +73,16 @@ def parse_args() -> argparse.Namespace:
         "`brew bundle install`. Useful for fast re-runs that should "
         "only pick up Brewfile changes, not refresh existing packages.",
     )
+    parser.add_argument(
+        "--no-dock",
+        dest="dock",
+        action="store_false",
+        default=True,
+        help="Skip the macOS Dock layout step (geerlingguy.mac.dock) "
+        "during the macos_defaults role. Useful when running on a host "
+        "that doesn't have `dockutil` installed yet, or for a quick "
+        "re-run that shouldn't shuffle the Dock. No effect on Linux.",
+    )
     return parser.parse_args()
 
 
@@ -213,6 +223,21 @@ def setup_ansible() -> None:
         die("Ansible not found after Homebrew install.")
 
 
+def install_galaxy_requirements() -> None:
+    """Install Galaxy collection deps declared in requirements.yml.
+
+    Idempotent: ansible-galaxy verifies already-installed collections
+    and only fetches missing ones, so re-running is cheap. Silently
+    no-ops if requirements.yml is absent — the role layer may not need
+    any external collections at all in some forks."""
+    req = DOTFILES_DIR / "requirements.yml"
+    if not req.exists():
+        return
+
+    info("Installing Ansible Galaxy collections from requirements.yml...")
+    run(["ansible-galaxy", "collection", "install", "-r", str(req)])
+
+
 # ---------------------------------------------------------------------------
 # Step 4: Select host profile
 # ---------------------------------------------------------------------------
@@ -230,6 +255,7 @@ def run_playbook(
     host_profile: str,
     sudo_password: str | None = None,
     upgrade: bool = True,
+    dock: bool = True,
 ) -> None:
     cmd = [
         "ansible-playbook",
@@ -237,12 +263,15 @@ def run_playbook(
         "--inventory", str(DOTFILES_DIR / "inventory.yml"),
         "--limit", host_profile,
     ]
-    # The role default is homebrew_upgrade_outdated=true; only inject the
-    # override when the user passed --no-upgrade. Keeping the default
-    # implicit means a stock install command lines up with whatever the
-    # role defaults say, with no `-e` plumbing to keep in sync.
+    # The role defaults are homebrew_upgrade_outdated=true and
+    # configure_dock=true; only inject the override when the user passed
+    # --no-upgrade / --no-dock. Keeping the default implicit means a stock
+    # install command lines up with whatever the role defaults say, with no
+    # `-e` plumbing to keep in sync.
     if not upgrade:
         cmd += ["--extra-vars", "homebrew_upgrade_outdated=false"]
+    if not dock:
+        cmd += ["--extra-vars", "configure_dock=false"]
     if sudo_password:
         # Pass the captured sudo password as ANSIBLE_BECOME_PASS, scoped to
         # this subprocess only — not set in our own os.environ.
@@ -285,10 +314,16 @@ def main() -> None:
 
     setup_homebrew()
     setup_ansible()
+    install_galaxy_requirements()
     host_profile = resolve_host_profile(args.host)
 
     announce(f"Tools ready - Running Playbook")
-    run_playbook(host_profile, sudo_password=sudo_password, upgrade=args.upgrade)
+    run_playbook(
+        host_profile,
+        sudo_password=sudo_password,
+        upgrade=args.upgrade,
+        dock=args.dock,
+    )
 
     # Record the profile so uninstall.py can default to it without re-prompting.
     record_installed_host(host_profile)
