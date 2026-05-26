@@ -35,3 +35,16 @@ common_apt: []
 
 # flatpak apps (Linux only; the flatpak role is gated to Linux in site.yml).
 common_flatpak: []
+
+# -----------------------------------------------------------------------------
+# Role-level toggles
+# -----------------------------------------------------------------------------
+
+# When true, the homebrew role runs `brew upgrade` after the per-layer
+# `brew bundle install` so already-installed packages move to their latest
+# versions. Default false: packages drift forward only when a Brewfile
+# entry changes, which is the intentional stability property. Opt in per
+# host (typically a personal machine that wants unattended upgrades) by
+# setting `homebrew_upgrade_outdated: true` in host_vars/<host>.yml. The
+# role's own default lives in roles/homebrew/defaults/main.yml.
+homebrew_upgrade_outdated: false

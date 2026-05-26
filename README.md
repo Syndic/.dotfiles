@@ -110,6 +110,16 @@ specific host without needing a placeholder file.
 
 Full variable-naming convention is in [`group_vars/all.yml`](group_vars/all.yml).
 
+### Upgrade outdated Homebrew packages
+
+By default the playbook installs anything new in a Brewfile but does
+**not** upgrade packages that are already installed but outdated —
+packages drift forward only when a Brewfile entry changes. To opt a
+host into a `brew upgrade` pass on every run, set
+`homebrew_upgrade_outdated: true` in that host's
+`host_vars/<hostname>.yml`. The role runs `brew outdated` first and
+only invokes `brew upgrade` when there's something to upgrade.
+
 ### Add a new host
 
 1. Add `host_vars/<hostname>.yml`. For a macOS host: set `host_brewfile`

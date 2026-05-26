@@ -333,6 +333,15 @@ gate.
   and will stop working in 2.24.
 - `tests/Brewfile` is dev-only (bats, pytest). Don't conflate it with
   `brewfiles/` — the latter is what Ansible installs on hosts at runtime.
+- **Homebrew role idempotency gate.** Each per-layer `brew bundle install`
+  is gated on `brew bundle check` (cheap, no per-formula network probe);
+  the install only runs when the check exits non-zero. A separate opt-in
+  pass — `homebrew_upgrade_outdated: true`, default off — runs `brew
+  outdated` and then `brew upgrade` only when something's actually
+  outdated. The default-off is deliberate: packages should drift forward
+  only when a Brewfile entry changes, not on every play. There's no
+  `brew bundle cleanup --force` step — removing anything not in a
+  Brewfile would nuke ad-hoc `brew install` packages outside this repo.
 - The `home_source/` tree (`common/` plus `hosts/<name>/` overlays) holds
   the files symlinked into `$HOME`. It must contain **only plain files and
   directories** — no symlinks (they'd be linked as a symlink-to-symlink

@@ -1,0 +1,11 @@
+---
+# Role-level defaults. Override per host in host_vars/<host>.yml (or per
+# group in group_vars/<group>.yml) when a machine wants different behavior.
+
+# When true, run `brew upgrade` after the per-layer `brew bundle install`
+# so already-installed packages move to their latest versions. Default
+# false: the intentional stability property is that packages drift forward
+# only when explicitly added or replaced in a Brewfile. Opt in per host
+# (typically a personal machine that wants unattended upgrades) by setting
+# `homebrew_upgrade_outdated: true` in host_vars/<host>.yml.
+homebrew_upgrade_outdated: false
