@@ -16,10 +16,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          # Match the macOS system Python (CLT) that install.sh actually
-          # invokes. Pinning here keeps us honest about not using newer
-          # syntax (3.10+ unions, match statements) that would break a
-          # fresh-Mac bootstrap.
+          # Frozen at the macOS CLT version phase2.py runs under. See the
+          # "Python 3.9 pin" section in CLAUDE.md for the rationale.
           python-version: '3.9'
       - run: pip install pytest
       - run: pytest tests/python -v
@@ -35,10 +33,6 @@ jobs:
     # Per-role molecule scenarios (roles/{dotfiles,apt,flatpak}/molecule/default).
     # Faster than the e2e-linux harness so it's safe to gate every PR on;
     # the heavy install↔uninstall round-trip stays manual via workflow_dispatch.
-    # Decoupled from the 3.9 pin above: molecule and modern ansible-core both
-    # require Python >= 3.10. The pin only covers code that phase2.py actually
-    # parses/executes at bootstrap; molecule is a dev tool that never runs on
-    # a fresh-mac host.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -47,9 +41,7 @@ jobs:
           # Match the devcontainer's latest-Python pin (`additionalVersions`
           # in .devcontainer/devcontainer.json) so CI and local dev exercise
           # the same interpreter. Renovate keeps this in step via the
-          # customManager in renovate.json. The 3.9 pin on the python/bash
-          # jobs above is unrelated — that one is frozen at the macOS CLT
-          # version on purpose; see CLAUDE.md.
+          # customManager in renovate.json.
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
       # docker + requests are runtime deps for community.docker (the modules
