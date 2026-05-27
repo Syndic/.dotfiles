@@ -1,13 +1,22 @@
 ---
 # apt role — uninstall path. Inverse of main.yml.
-# Concatenates the same three list layers and sets state: absent.
+# Resolves the same group-set layers and sets state: absent.
 
-- name: Remove apt packages (common + purpose group + host layers)
+- name: Resolve apt group-set layers
+  ansible.builtin.set_fact:
+    apt_group_layer: >-
+      {{ (apt_group_layer | default([]))
+         + lookup('vars', 'group_' ~ item ~ '_apt') }}
+  loop: "{{ group_sets }}"
+  loop_control:
+    label: "group_{{ item }}_apt"
+
+- name: Remove apt packages (common + group-set layers + host)
   become: true
   ansible.builtin.apt:
     name: >-
       {{ (common_apt | default([]))
-         + (group_purpose_apt | default([]))
+         + apt_group_layer
          + (host_apt | default([])) }}
     state: absent
     purge: false

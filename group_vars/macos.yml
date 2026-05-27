@@ -1,0 +1,25 @@
+---
+# Shared variables for all macOS machines (group `macos` in the `os`
+# group set — see inventory.yml).
+# Everything gets group_vars/all.yml.
+# Cross-group-set values (purpose × os) compose; per-host overrides go
+# in host_vars/<hostname>.yml.
+#
+# Defines every `group_os_<thing>` var that a role running on a macOS
+# host might consume. Each role's `lookup('vars', 'group_<set>_<thing>')`
+# raises if the referenced var is missing — so every layered var here
+# needs an explicit declaration (use `[]` or `""` for layers the group
+# doesn't contribute to). Roles that don't run on macOS (apt, flatpak)
+# don't read these from this file, so we don't declare their layered
+# vars here.
+
+# Brewfile layer for the macos group. Anything macOS-only goes here:
+# casks, macOS-only formulae, packages you only want on Macs.
+group_os_brewfile: "{{ playbook_dir }}/brewfiles/groups/macos.Brewfile"
+
+# macOS-system-preference layers, consumed by roles/macos_defaults.
+# Empty by default — populate when you have settings every Mac in your
+# fleet should share. Per-host customization goes in host_vars/<host>.yml.
+group_os_macos_defaults: []
+group_os_dockitems_persist: []
+group_os_dockitems_remove: []

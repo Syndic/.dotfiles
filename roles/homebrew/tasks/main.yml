@@ -1,19 +1,35 @@
 ---
 # homebrew role
 # Run `brew bundle` over the layered Brewfiles
-# (common_brewfile + group_purpose_brewfile + host_brewfile).
-# See group_vars/all.yml for the package-layering convention.
-# Runs on both macOS and Linux (Linuxbrew). On Linux, `brew bundle` silently
-# skips any `cask` lines ("Skipping cask X (requires macOS)"), so the same
-# Brewfiles are valid on both platforms with no per-OS splitting needed.
+# (common_brewfile + (group_<set>_brewfile for set in group_sets) + host_brewfile).
+# See group_vars/all.yml for the package-layering convention (including
+# the `lookup('vars', ...)`-based indirection over `group_sets`).
+# Runs on both macOS and Linux (Linuxbrew). Anything macOS-only
+# (formulae, casks, etc.) lives in the `os`-set's macos Brewfile
+# layer (`brewfiles/groups/macos.Brewfile`), so the common layer
+# stays genuinely cross-platform.
+
+- name: Resolve homebrew group-set Brewfile paths
+  # `lookup('vars', name)` without a default raises on a missing name,
+  # so a typo in `group_sets` or a group_vars file that doesn't declare
+  # its `group_<set>_brewfile` layer fails loudly here. Empty-string
+  # paths (linux.yml's default for no OS-layer Brewfile) get filtered
+  # out by the stat step's `when`.
+  ansible.builtin.set_fact:
+    homebrew_group_brewfile_layer: >-
+      {{ (homebrew_group_brewfile_layer | default([]))
+         + [lookup('vars', 'group_' ~ item ~ '_brewfile')] }}
+  loop: "{{ group_sets }}"
+  loop_control:
+    label: "group_{{ item }}_brewfile"
 
 - name: Stat each Brewfile layer
   ansible.builtin.stat:
     path: "{{ item }}"
-  loop:
-    - "{{ common_brewfile | default('') }}"
-    - "{{ group_purpose_brewfile | default('') }}"
-    - "{{ host_brewfile | default('') }}"
+  loop: >-
+    {{ [common_brewfile | default('')]
+       + homebrew_group_brewfile_layer
+       + [host_brewfile | default('')] }}
   register: homebrew_brewfile_stats
   when: item | length > 0
   loop_control:
