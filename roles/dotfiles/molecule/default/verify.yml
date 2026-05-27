@@ -11,60 +11,60 @@
       ansible.builtin.stat:
         path: "{{ _test_home }}/.testrc"
         follow: false
-      register: testrc_stat
+      register: dotfiles_testrc_stat
 
     - name: .testrc must be a symlink pointing at the staged fixture
       ansible.builtin.assert:
         that:
-          - testrc_stat.stat.exists
-          - testrc_stat.stat.islnk
-          - testrc_stat.stat.lnk_target == _container_fixture_root ~ '/common/.testrc'
-        fail_msg: ".testrc was not symlinked to the staged fixture (stat: {{ testrc_stat.stat }})"
+          - dotfiles_testrc_stat.stat.exists
+          - dotfiles_testrc_stat.stat.islnk
+          - dotfiles_testrc_stat.stat.lnk_target == _container_fixture_root ~ '/common/.testrc'
+        fail_msg: ".testrc was not symlinked to the staged fixture (stat: {{ dotfiles_testrc_stat.stat }})"
 
     - name: Pre-existing .testrc must have been backed up to .backup-1
       ansible.builtin.stat:
         path: "{{ _test_home }}/.testrc.backup-1"
         follow: false
-      register: testrc_backup_stat
+      register: dotfiles_testrc_backup_stat
 
     - name: Assert backup exists and is a regular file
       ansible.builtin.assert:
         that:
-          - testrc_backup_stat.stat.exists
-          - testrc_backup_stat.stat.isreg
+          - dotfiles_testrc_backup_stat.stat.exists
+          - dotfiles_testrc_backup_stat.stat.isreg
         fail_msg: ".testrc.backup-1 missing or not a regular file"
 
     - name: Read backup file content
       ansible.builtin.slurp:
         src: "{{ _test_home }}/.testrc.backup-1"
-      register: testrc_backup_content
+      register: dotfiles_testrc_backup_content
 
     - name: Backup content must match the original pre-existing content
       ansible.builtin.assert:
         that:
-          - (testrc_backup_content.content | b64decode) == "preexisting user content\n"
+          - (dotfiles_testrc_backup_content.content | b64decode) == "preexisting user content\n"
 
     - name: Stat the nested managed file's symlink
       ansible.builtin.stat:
         path: "{{ _test_home }}/.config/test/conf.toml"
         follow: false
-      register: nested_stat
+      register: dotfiles_nested_stat
 
     - name: Nested file must be a symlink pointing at the staged fixture
       ansible.builtin.assert:
         that:
-          - nested_stat.stat.exists
-          - nested_stat.stat.islnk
-          - nested_stat.stat.lnk_target == _container_fixture_root ~ '/common/.config/test/conf.toml'
+          - dotfiles_nested_stat.stat.exists
+          - dotfiles_nested_stat.stat.islnk
+          - dotfiles_nested_stat.stat.lnk_target == _container_fixture_root ~ '/common/.config/test/conf.toml'
 
     - name: .config must be a real directory (not a symlink), so per-file symlinks compose
       ansible.builtin.stat:
         path: "{{ _test_home }}/.config"
         follow: false
-      register: config_dir_stat
+      register: dotfiles_config_dir_stat
 
     - name: Assert .config is a real directory
       ansible.builtin.assert:
         that:
-          - config_dir_stat.stat.isdir
-          - not config_dir_stat.stat.islnk
+          - dotfiles_config_dir_stat.stat.isdir
+          - not dotfiles_config_dir_stat.stat.islnk
