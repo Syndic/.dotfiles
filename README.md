@@ -180,7 +180,7 @@ trigger them from the Actions tab.
 ## Dev environment
 
 A Debian-based devcontainer is set up in [`.devcontainer/`](.devcontainer)
-with Python 3.9.6 (matching the macOS CLT pin), the latest Python (for
+with Python 3.9.6 (the pinned primary), the latest Python (for
 ansible/ansible-lint), bats, pytest, and pre-commit pre-installed. Open
 in VS Code with "Reopen in Container", or drive it from the CLI:
 

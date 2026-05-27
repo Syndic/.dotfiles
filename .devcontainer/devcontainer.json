@@ -11,8 +11,8 @@
       "upgradePackages": false
     },
     "ghcr.io/devcontainers/features/python:1": {
-      // Exact Python that macOS Xcode CLT ships — phase2.py runs under it on a
-      // real bootstrap. Frozen: Renovate is blocked from bumping it (renovate.json).
+      // Frozen primary Python. Renovate is blocked from bumping it (renovate.json).
+      // See CLAUDE.md's "Python 3.9 pin" section for the rationale and pin sites.
       "version": "3.9.6",
       // Latest Python, for the Ansible tooling installed by post-create.sh.
       // Renovate keeps this current via the customManager in renovate.json.
@@ -27,13 +27,11 @@
   "postCreateCommand": ".devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
-      // Pin the Python extension (and its Testing UI) to the 3.9.6 primary:
-      // pytest is installed only there, and the suite must exercise the code
-      // on the same interpreter a real macOS bootstrap uses. The Python
-      // Environments extension is turned off because its auto-discovery picks
-      // the 3.13 Debian system python in this container and ignores
-      // defaultInterpreterPath (verified — it does not honor the pin here);
-      // classic interpreter management does honor it.
+      // Pin the Python extension (and its Testing UI) to the 3.9.6 primary,
+      // where pytest is installed. The Python Environments extension is turned
+      // off because its auto-discovery picks the 3.13 Debian system python in
+      // this container and ignores defaultInterpreterPath (verified — it does
+      // not honor the pin here); classic interpreter management does honor it.
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/python/current/bin/python3",
         "python.useEnvironmentsExtension": false

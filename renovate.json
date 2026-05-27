@@ -6,14 +6,14 @@
   ],
   "packageRules": [
     {
-      "description": "Pin Python to 3.9 to match macOS system Python from Xcode CLT — see CLAUDE.md.",
+      "description": "Disable Renovate's github-actions manager for python in tests.yml; the python/bash jobs' 3.9 pin is frozen. See CLAUDE.md's 'Python 3.9 pin' section.",
       "matchManagers": ["github-actions"],
       "matchDepNames": ["python"],
       "matchFileNames": [".github/workflows/tests.yml"],
       "enabled": false
     },
     {
-      "description": "Freeze the devcontainer's primary Python (the python feature's `version`) at the exact Xcode CLT patch — the built-in devcontainer manager must not bump it. The latest-Python pin (`additionalVersions`) is bumped by the customManager below. See CLAUDE.md.",
+      "description": "Disable Renovate's devcontainer manager for python in devcontainer.json; the primary `version` is frozen. The latest-Python `additionalVersions` is bumped by the customManager below. See CLAUDE.md's 'Python 3.9 pin' section.",
       "matchManagers": ["devcontainer"],
       "matchDepNames": ["python"],
       "matchFileNames": [".devcontainer/devcontainer.json"],
@@ -32,7 +32,7 @@
     },
     {
       "customType": "regex",
-      "description": "Keep the molecule CI job's Python pin (`python-version` under setup-python) current — should track the devcontainer's `additionalVersions` so local dev and CI agree on the interpreter. The 3.9 pin on the python/bash jobs is silenced by the packageRule above and never matched here.",
+      "description": "Keep the molecule CI job's Python pin (`python-version` under setup-python) current — should track the devcontainer's `additionalVersions` so local dev and CI agree on the interpreter.",
       "managerFilePatterns": ["/^\\.github/workflows/tests\\.yml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*python-version: '(?<currentValue>[^']+)'"
