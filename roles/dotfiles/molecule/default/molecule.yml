@@ -27,6 +27,18 @@ platforms:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
     command: /lib/systemd/systemd
 
+dependency:
+  # Skip molecule's Galaxy-collection prerequisite check. It runs *before*
+  # provisioner.env takes effect and uses a fixed search path
+  # (~/.ansible/collections + the molecule venv site-packages), so it
+  # can't see our community.docker / ansible.posix install at
+  # ~/.config/molecule-collections. The collections themselves are
+  # installed by .devcontainer/post-create.sh (devcontainer) or the
+  # molecule CI job (CI), so the prerequisite is met — molecule just
+  # can't see it during this prerun check. The provisioner.env below
+  # routes the actual scenario playbook runs to the right path.
+  enabled: false
+
 provisioner:
   name: ansible
   env:
@@ -36,6 +48,16 @@ provisioner:
     # We don't rely on molecule's prerun symlinking because the roles in
     # this repo don't ship meta/main.yml.
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+    # Look up molecule's docker-driver collections (community.docker,
+    # ansible.posix) in a dedicated dir rather than ~/.ansible/collections.
+    # post-create.sh installs them to ~/.config/molecule-collections in
+    # the devcontainer; ${HOME}/.ansible/collections is left in the list
+    # for CI, where the molecule job installs them at the default path.
+    # Keeping the dedicated path off ansible-lint's view (it uses default
+    # search paths) avoids the 'Another version of X was found installed'
+    # warnings that fire when the same collection sits at both a user
+    # path and the `ansible` venv's bundled site-packages.
+    ANSIBLE_COLLECTIONS_PATH: ${HOME}/.config/molecule-collections:${HOME}/.ansible/collections
   config_options:
     defaults:
       # 'yaml' as a bare stdout_callback resolves to the removed
