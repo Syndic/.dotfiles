@@ -2,7 +2,7 @@
 # If a package is macOS-only, it goes here. Includes:
 #   - macOS-only formulae (e.g. `depends_on :macos`)
 #   - casks (cask is a macOS-only format)
-#   - anything you only want installed on Macs
+#   - anything you only want installed on ALL Macs
 # Installed only on hosts that are members of the `macos` group (per
 # inventory.yml).
 
