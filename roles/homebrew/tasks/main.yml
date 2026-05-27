@@ -10,12 +10,11 @@
 # stays genuinely cross-platform.
 
 - name: Resolve homebrew group-set Brewfile paths
-  # Loop set_fact (rather than a one-liner using `vars` as a dict, which
-  # ansible-core deprecated). lookup('vars', name) without a default
-  # raises on a missing name, so a typo in `group_sets` or a group_vars
-  # file that doesn't declare its `group_<set>_brewfile` layer fails
-  # loudly here. Empty-string paths (linux.yml's default for no
-  # OS-layer Brewfile) get filtered out by the stat step's `when`.
+  # `lookup('vars', name)` without a default raises on a missing name,
+  # so a typo in `group_sets` or a group_vars file that doesn't declare
+  # its `group_<set>_brewfile` layer fails loudly here. Empty-string
+  # paths (linux.yml's default for no OS-layer Brewfile) get filtered
+  # out by the stat step's `when`.
   ansible.builtin.set_fact:
     homebrew_group_brewfile_layer: >-
       {{ (homebrew_group_brewfile_layer | default([]))

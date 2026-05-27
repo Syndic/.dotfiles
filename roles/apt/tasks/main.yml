@@ -5,18 +5,14 @@
 # defined in group_vars/all.yml, group_vars/<group>.yml, and
 # host_vars/<host>.yml respectively. See group_vars/all.yml for the
 # package-layering convention (including the `lookup('vars', ...)`-based
-# indirection over `group_sets` — `vars` as a dict was deprecated in
-# ansible-core, so the lookup plugin is the supported path). The role
-# itself is OS-gated to ansible_os_family == 'Debian' in site.yml, so
-# it's safe to expect apt here.
+# indirection over `group_sets`). The role itself is OS-gated to
+# ansible_os_family == 'Debian' in site.yml, so it's safe to expect
+# apt here.
 
 - name: Resolve apt group-set layers
-  # Loop set_fact (rather than a one-liner using `vars` as a dict)
-  # because lookup() isn't a Jinja filter — it doesn't compose with
-  # map() — and `vars` as a dict is deprecated. `lookup('vars', name)`
-  # without a default raises on a missing name, so a typo in
-  # `group_sets` or a group_vars file that doesn't declare its
-  # `group_<set>_apt` layer fails loudly here rather than silently
+  # `lookup('vars', name)` without a default raises on a missing name,
+  # so a typo in `group_sets` or a group_vars file that doesn't declare
+  # its `group_<set>_apt` layer fails loudly here rather than silently
   # contributing nothing.
   ansible.builtin.set_fact:
     apt_group_layer: >-

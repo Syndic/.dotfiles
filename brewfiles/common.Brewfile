@@ -12,3 +12,6 @@ brew "zsh-autosuggestions"
 brew "zsh-completions"
 # Fish shell like syntax highlighting for zsh
 brew "zsh-syntax-highlighting"
+
+# No `cask "..."` lines here. Cask is a macOS-only format; Linuxbrew
+# doesn't support it. Casks go in brewfiles/groups/macos.Brewfile.

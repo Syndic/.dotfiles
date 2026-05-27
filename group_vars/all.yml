@@ -27,21 +27,24 @@ ansible_python_interpreter: "{{ ansible_playbook_python }}"
 # sets.
 #
 # The group-set list is declared once here as `group_sets`. Roles iterate
-# it via a Jinja `extract`-based indirection over `vars`, so adding a new
-# set is a one-line edit here (plus the per-group_vars files for the new
-# groups) — no per-role edits. The standard role-side expression is:
+# it via a per-set `set_fact` loop using `lookup('vars', ...)`, so adding
+# a new set is a one-line edit here (plus the per-group_vars files for
+# the new groups) — no per-role edits. The standard role-side pattern is:
 #
-#   {{ group_sets
-#      | map('regex_replace', '^(.*)$', 'group_\1_<thing>')
-#      | map('extract', vars) | list
-#      | sum(start=[]) }}    # for list-typed layers; drop sum for path-typed
+#   - name: Resolve <thing> group-set layers
+#     ansible.builtin.set_fact:
+#       <role>_group_layer: >-
+#         {{ (<role>_group_layer | default([]))
+#            + lookup('vars', 'group_' ~ item ~ '_<thing>') }}
+#     loop: "{{ group_sets }}"
 #
-# `extract` raises on missing vars by design — that's what makes typos in
-# `group_sets` or in a `<thing>` name in a role fail loudly. The corollary
-# is that every group_vars/<group>.yml has to define every layered var that
-# any role running on hosts in that group might consume (use `[]` or `""`
-# for layers that the group doesn't actually contribute to). See
-# group_vars/macos.yml and group_vars/linux.yml for examples.
+# `lookup('vars', name)` without a default raises on a missing name —
+# that's what makes typos in `group_sets` or in a `<thing>` name in a
+# role fail loudly. The corollary is that every group_vars/<group>.yml
+# has to define every layered var that any role running on hosts in
+# that group might consume (use `[]` or `""` for layers that the group
+# doesn't actually contribute to). See group_vars/macos.yml and
+# group_vars/linux.yml for examples.
 # -----------------------------------------------------------------------------
 
 # Ordered list of active group sets. Order determines concatenation order in

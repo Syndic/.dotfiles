@@ -334,9 +334,7 @@ gate.
   fail-fast, not silent zero-contributions. The corollary is that
   every `group_vars/<group>.yml` must declare every layered var a role
   running on hosts in that group will consume (use `[]` or `""` for
-  layers the group doesn't actually contribute to). Don't switch to
-  `extract` over a dict-typed `vars` — `vars` as a dict is deprecated
-  in ansible-core and will be removed in 2.24. Full spec in
+  layers the group doesn't actually contribute to). Full spec in
   `group_vars/all.yml`.
 - **Role gating uses runtime facts, not inventory groups.** `site.yml` keys
   off `ansible_facts['system']` / `ansible_facts['os_family']`, so the

@@ -29,11 +29,9 @@
 # (including the `lookup('vars', ...)`-based indirection over `group_sets`).
 
 - name: Resolve macos_defaults group-set layers
-  # Loop set_fact (rather than a one-liner using `vars` as a dict, which
-  # ansible-core deprecated). lookup('vars', name) without a default
-  # raises on a missing name, so a typo in `group_sets` or a group_vars
-  # file that doesn't declare its `group_<set>_macos_defaults` layer
-  # fails loudly here.
+  # `lookup('vars', name)` without a default raises on a missing name,
+  # so a typo in `group_sets` or a group_vars file that doesn't declare
+  # its `group_<set>_macos_defaults` layer fails loudly here.
   ansible.builtin.set_fact:
     macos_defaults_group_layer: >-
       {{ (macos_defaults_group_layer | default([]))

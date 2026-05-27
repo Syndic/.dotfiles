@@ -6,13 +6,12 @@
 # in host_vars/<hostname>.yml.
 #
 # Defines every `group_os_<thing>` var that a role running on a Linux
-# host might consume. The indirection in each role uses the Jinja
-# `extract` filter over `group_sets`, which raises if a referenced var
-# is missing — keeping that strictness lets typos in `group_sets` (or
-# in a layered-var name on a role) fail loudly instead of silently
-# returning empty. Cost: a handful of empty-list declarations here.
-# Roles that don't run on Linux (macos_defaults) don't read these from
-# this file, so we don't have to define their layered vars here.
+# host might consume. Each role's `lookup('vars', 'group_<set>_<thing>')`
+# raises if the referenced var is missing — so every layered var here
+# needs an explicit declaration (use `[]` or `""` for layers the group
+# doesn't contribute to). Roles that don't run on Linux (macos_defaults)
+# don't read these from this file, so we don't declare their layered
+# vars here.
 
 # No Linux-OS-specific Brewfile layer right now. Empty string is filtered
 # out by the homebrew role's stat-and-skip step (`when: item | length > 0`),
