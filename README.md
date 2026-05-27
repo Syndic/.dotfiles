@@ -142,15 +142,17 @@ role variable defaults to true in
 
 ## Tests
 
+Run them from the devcontainer — see [Dev environment](#dev-environment)
+below. `.devcontainer/post-create.sh` installs bats, pytest, pre-commit,
+molecule, and ansible-lint, so no host-side setup is needed.
+
 ```bash
-brew bundle --file=tests/Brewfile   # one-time: bats-core + pytest + pre-commit
 ./tests/run                         # everything (python + bash + molecule)
 ./tests/run fast                    # python + bash (skip molecule — no docker needed)
 ./tests/run python                  # pytest only
 ./tests/run bash                    # bats only
 ./tests/run molecule                # molecule per-role scenarios (needs docker)
-pre-commit install                  # optional: install repo hooks
-pre-commit run --all-files          # run hooks manually
+pre-commit run --all-files          # run hooks manually (installed by post-create.sh)
 ```
 
 Molecule scenarios live under `roles/<role>/molecule/default/` and gate every

@@ -99,10 +99,10 @@ case "$OS" in
       # Real open() probe — `[[ -r /dev/tty ]]` lies in tty-less contexts
       # because the path exists in /dev but open() still fails.
       if ! (exec < /dev/tty) 2>/dev/null; then
-        die "sudo password required but no tty available. Either configure passwordless sudo for $USER, or pre-export SUDO_PASSWORD, or run from a terminal."
+        die "sudo password required but no tty available. Either configure passwordless sudo for ${USER:-$(id -un)}, or pre-export SUDO_PASSWORD, or run from a terminal."
       fi
       info "Linux install needs sudo for apt-get and the Ansible playbook."
-      printf '\e[1;37;44m sudo \e[0m  password for %s: ' "$USER" >&2
+      printf '\e[1;37;44m sudo \e[0m  password for %s: ' "${USER:-$(id -un)}" >&2
       IFS= read -rs SUDO_PASSWORD < /dev/tty
       printf '\n' >&2
       printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' -k true 2>/dev/null \

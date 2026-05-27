@@ -229,8 +229,10 @@ Homebrew…" lines arrive at the very end of the captured log.
 Required for behavior changes. Three suites: bats (bash), pytest (Python),
 and molecule (per-role Ansible scenarios).
 
+Run them from the devcontainer (`.devcontainer/post-create.sh` installs
+bats, pytest, pre-commit, molecule, ansible-lint).
+
 ```sh
-brew bundle --file=tests/Brewfile   # one-time: installs bats-core + pytest
 ./tests/run                          # everything (python + bash + molecule)
 ./tests/run fast                     # python + bash (skip molecule — no docker needed)
 ./tests/run python                   # pytest only
@@ -368,8 +370,6 @@ gate.
   `ansible_facts[...]` form, not bare `ansible_*` — the bare top-level
   facts fire the `INJECT_FACTS_AS_VARS` deprecation in modern
   ansible-core and will stop working in 2.24.
-- `tests/Brewfile` is dev-only (bats, pytest). Don't conflate it with
-  `brewfiles/` — the latter is what Ansible installs on hosts at runtime.
 - **Homebrew role idempotency gate.** Each per-layer `brew bundle install`
   is gated on `brew bundle check` (cheap, no per-formula network probe);
   the install only runs when the check exits non-zero. After all per-layer
