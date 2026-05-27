@@ -231,18 +231,18 @@ and molecule (per-role Ansible scenarios).
 
 ```sh
 brew bundle --file=tests/Brewfile   # one-time: installs bats-core + pytest
-./tests/run                          # python + bash (the fast suites)
+./tests/run                          # everything (python + bash + molecule)
+./tests/run fast                     # python + bash (skip molecule — no docker needed)
 ./tests/run python                   # pytest only
 ./tests/run bash                     # bats only
 ./tests/run molecule                 # molecule only (needs docker)
-./tests/run all                      # everything, molecule included
 ```
 
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
 under `roles/<role>/molecule/default/` per role; today the dotfiles, apt, and
-flatpak roles are covered. Molecule is **not** included in the default
-`./tests/run` invocation because it needs Docker and is slower than
-python/bash — surface the `molecule` arg explicitly when you want it locally.
+flatpak roles are covered. The bare `./tests/run` runs everything; use
+`./tests/run fast` when you don't have Docker (or don't want to pay the
+~5-min molecule cost) and just need the python/bash gates.
 
 Why molecule on top of the e2e harnesses: the e2e suite is gated to manual
 `workflow_dispatch` because of its runtime, so per-PR coverage of role-level

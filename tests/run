@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # Run the test suites.
 #
-#   ./tests/run             # python + bash (the fast suites)
+#   ./tests/run             # everything (python + bash + molecule)
+#   ./tests/run fast        # python + bash (skip molecule — no docker needed)
 #   ./tests/run python      # just pytest
 #   ./tests/run bash        # just bats
 #   ./tests/run molecule    # just molecule (per-role scenarios; needs docker)
-#   ./tests/run all         # python + bash + molecule
 #
-# molecule is excluded from the bare-arg default because it requires docker
-# and is slower than the python/bash suites. CI runs molecule as its own
-# job — see .github/workflows/tests.yml.
+# CI runs each suite as its own job — see .github/workflows/tests.yml.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,11 +36,11 @@ run_molecule() {
   return $rc
 }
 
-case "${1:-default}" in
+case "${1:-all}" in
   python)   run_python ;;
   bash)     run_bash ;;
   molecule) run_molecule ;;
-  default)  run_python; run_bash ;;
+  fast)     run_python; run_bash ;;
   all)      run_python; run_bash; run_molecule ;;
-  *)        echo "usage: $0 [python|bash|molecule|default|all]" >&2; exit 2 ;;
+  *)        echo "usage: $0 [python|bash|molecule|fast|all]" >&2; exit 2 ;;
 esac

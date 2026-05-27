@@ -144,11 +144,11 @@ role variable defaults to true in
 
 ```bash
 brew bundle --file=tests/Brewfile   # one-time: bats-core + pytest + pre-commit
-./tests/run                         # python + bash (the fast suites)
+./tests/run                         # everything (python + bash + molecule)
+./tests/run fast                    # python + bash (skip molecule — no docker needed)
 ./tests/run python                  # pytest only
 ./tests/run bash                    # bats only
 ./tests/run molecule                # molecule per-role scenarios (needs docker)
-./tests/run all                     # everything, molecule included
 pre-commit install                  # optional: install repo hooks
 pre-commit run --all-files          # run hooks manually
 ```
