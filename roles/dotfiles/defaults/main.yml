@@ -5,3 +5,8 @@ dotfiles_host_source_dir: "{{ dotfiles_home_source_dir }}/hosts/{{ inventory_hos
 dotfiles_managed_root_dir: "{{ playbook_dir }}"
 dotfiles_home_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}"
 dotfiles_excludes: []
+# Path to dotfiles_manager.py. Defaults to playbook_dir for real use (the
+# playbook lives at the repo root next to the script). Overridable so molecule
+# scenarios — where playbook_dir is the scenario dir, not the repo root — can
+# point at the script's real location.
+dotfiles_manager_script: "{{ playbook_dir }}/dotfiles_manager.py"

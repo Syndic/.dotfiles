@@ -2,23 +2,21 @@
 set -euo pipefail
 
 # pytest runs the Python suite (tests/python) under the default interpreter —
-# the pinned 3.9.6, matching the macOS CLT Python phase2.py runs under — so the
-# suite exercises the code on the interpreter a real bootstrap uses, and
-# `./tests/run`'s bare `pytest` resolves correctly. CI installs pytest the same
-# way (pip); see .github/workflows/tests.yml. pytest-cov backs the VS Code
-# Testing panel's "Run with Coverage". The 3.9.6 source build bundles a
-# 2021-era pip, so upgrade it first to a current release.
+# the pinned 3.9.6 — so `./tests/run`'s bare `pytest` resolves correctly. CI
+# installs pytest the same way (pip); see .github/workflows/tests.yml.
+# pytest-cov backs the VS Code Testing panel's "Run with Coverage". The 3.9.6
+# source build bundles a 2021-era pip, so upgrade it first to a current release.
 pip install --no-warn-script-location --upgrade pip
 pip install --no-warn-script-location pytest pytest-cov
 
-# Dev tooling that need not match the 3.9.6 runtime, installed into pipx venvs
-# on the latest Python (the python feature's `additionalVersion`). Modern
-# ansible-core/ansible-lint require Python >= 3.10; pre-commit is just a hook
-# runner — the source-guard hook in .pre-commit-config.yaml shells out to the
-# default `python3` regardless of pre-commit's own interpreter. The feature
-# installs additionalVersions under /usr/local/python/<version>/ without
-# exposing them on PATH, so resolve the interpreter by path — the lone version
-# directory that isn't the 3.9.6 primary.
+# Dev tooling installed into pipx venvs on the latest Python (the python
+# feature's `additionalVersion`). Modern ansible-core/ansible-lint require
+# Python >= 3.10; pre-commit is just a hook runner — the source-guard hook
+# in .pre-commit-config.yaml shells out to the default `python3` regardless
+# of pre-commit's own interpreter. The feature installs additionalVersions
+# under /usr/local/python/<version>/ without exposing them on PATH, so
+# resolve the interpreter by path — the lone version directory that isn't
+# the 3.9.6 primary.
 latest_python="$(find /usr/local/python -maxdepth 1 -type d -name '3.*' ! -name 3.9.6)"
 
 # Install into the user's home: the python feature points PIPX_HOME at
@@ -32,6 +30,20 @@ export PIPX_BIN_DIR="$HOME/.local/bin"
 pipx install --include-deps --python "$latest_python/bin/python3" ansible
 pipx inject --include-apps ansible ansible-lint
 pipx install --python "$latest_python/bin/python3" pre-commit
+
+# molecule drives per-role Ansible scenarios under tests/run molecule (and the
+# molecule CI job). It needs Python >= 3.10 — same constraint as ansible-core,
+# so it rides the same pipx + latest-Python pattern. --include-deps exposes
+# the `molecule` console script; the docker driver lives in the
+# molecule-plugins[docker] extra and is injected alongside (which also pulls
+# the `docker` Python SDK molecule shells out to).
+pipx install --include-deps --python "$latest_python/bin/python3" molecule
+pipx inject molecule 'molecule-plugins[docker]'
+# community.docker's container modules (used by molecule's docker driver's
+# create/destroy playbooks) need the `docker` and `requests` Python packages
+# *in the venv whose ansible-playbook executes them*. That's the `ansible`
+# pipx venv (its console scripts win on PATH), not molecule's. Inject there.
+pipx inject ansible docker requests
 # We were getting a warning about the relevant paths already being on PATH, so we don't need to call
 # `pipx ensurepath` here. If we did, it would be:
 # pipx ensurepath
@@ -46,6 +58,13 @@ pipx install --python "$latest_python/bin/python3" pre-commit
 # already at the requested version.
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 "$PIPX_BIN_DIR/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
+
+# Dev-only Galaxy collections for molecule's docker driver. Kept *out* of
+# requirements.yml because that file is the production dependency list
+# (installed on every host by phase2.install_galaxy_requirements). community.docker
+# + ansible.posix are only needed by molecule's create/destroy playbooks,
+# which never run during a real install.
+"$PIPX_BIN_DIR/ansible-galaxy" collection install community.docker ansible.posix
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.

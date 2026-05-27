@@ -1,0 +1,2 @@
+# molecule fixture — nested managed config file
+key = "value"

@@ -1,0 +1,21 @@
+---
+# Pure role invocation — fixture staging + HOME seeding live in prepare.yml
+# so molecule's idempotence step (which re-runs converge and asserts 0
+# changed) exercises only the role.
+- name: Converge — dotfiles role
+  hosts: all
+  gather_facts: false
+  vars:
+    # Container-side staging paths — must match prepare.yml.
+    _container_root: /opt/dotfiles-molecule
+    _container_fixture_root: "{{ _container_root }}/home_source"
+    _test_home: /root/testhome
+  roles:
+    - role: dotfiles
+      vars:
+        dotfiles_manager_script: "{{ _container_root }}/dotfiles_manager.py"
+        dotfiles_managed_root_dir: "{{ _container_root }}"
+        dotfiles_common_source_dir: "{{ _container_fixture_root }}/common"
+        # Host overlay intentionally absent — exercises the "common only" branch.
+        dotfiles_host_source_dir: "{{ _container_fixture_root }}/hosts/nonexistent"
+        dotfiles_home_dir: "{{ _test_home }}"

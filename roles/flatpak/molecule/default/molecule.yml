@@ -1,0 +1,48 @@
+---
+# molecule scenario for the flatpak role.
+#
+# A real flatpak install pulls hundreds of MB of runtimes from flathub and
+# blows past the per-scenario time budget. Per CLAUDE.md guidance ("if a real
+# install fits in ~2 min, do it; otherwise mock"), we mock here: converge.yml
+# computes the same three-layer expression the role uses
+# (common_flatpak + group_purpose_flatpak + host_flatpak) and verify.yml
+# asserts the resulting list. This catches the actual fragile thing — typos
+# in the layered variable names — without paying the network cost.
+#
+# The trade-off: a regression in the community.general.flatpak/flatpak_remote
+# task arguments themselves wouldn't be caught here. Those failure modes are
+# rare and surface immediately on the first real Linux host the playbook
+# touches; the layering convention typos are what historically leak past CI.
+
+driver:
+  name: docker
+
+platforms:
+  - name: flatpak-instance
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    command: /lib/systemd/systemd
+
+provisioner:
+  name: ansible
+  env:
+    # Point ansible at the repo's roles/ dir so 'role: <name>' in converge.yml
+    # resolves. MOLECULE_PROJECT_DIRECTORY is the role's own dir (the CWD
+    # when molecule was invoked — see tests/run); its parent is roles/.
+    # We don't rely on molecule's prerun symlinking because the roles in
+    # this repo don't ship meta/main.yml.
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      # 'yaml' as a bare stdout_callback resolves to the removed
+      # community.general.yaml plugin in modern community.general; use the
+      # ansible-core 2.13+ replacement instead (default callback with yaml
+      # result formatting).
+      callback_result_format: yaml
+
+verifier:
+  name: ansible
