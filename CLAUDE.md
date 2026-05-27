@@ -251,10 +251,12 @@ gate every PR. The dotfiles scenario in particular exercises the symlink +
 backup paths that have historically leaked regressions.
 
 The flatpak molecule scenario is intentionally **composition-only** — it
-asserts the layered variable concatenation but mocks the real flatpak
-install, which would blow the per-scenario time budget. If the role's
-layering expression changes, update `roles/flatpak/molecule/default/converge.yml`
-in lockstep with `roles/flatpak/tasks/main.yml`.
+mirrors the role's per-set `lookup('vars', ...)` resolve loop and the
+final concatenation, then asserts the result, but mocks the real
+flatpak install (which would blow the per-scenario time budget). If
+either the role's resolve loop or its install task `name:` expression
+changes, update `roles/flatpak/molecule/default/converge.yml` in
+lockstep with `roles/flatpak/tasks/main.yml`.
 
 Two end-to-end harnesses live under `tests/`, both running inside a fresh
 Debian container as a non-root sudo user. They share Docker plumbing via

@@ -1,17 +1,28 @@
 ---
-# Exercises the three-scope package layering (common_apt + group_purpose_apt
-# + host_apt) the role concatenates. See group_vars/all.yml for the spec.
-# Each layer ships exactly one tiny package so verify.yml can attribute a
-# specific install back to a specific layer.
+# Exercises the layered list composition the role concatenates:
+#   common_apt + (group_<set>_apt for set in group_sets) + host_apt
+# See group_vars/all.yml for the spec (including the
+# `lookup('vars', ...)`-based indirection over `group_sets`). Each scope
+# ships exactly one tiny package so verify.yml can attribute a specific
+# install back to a specific layer — including one per active group set.
 - name: Converge — apt role
   hosts: all
   gather_facts: true
   vars:
+    # Mirror group_vars/all.yml's active sets. The role's resolve task
+    # iterates this list and `lookup('vars', 'group_<set>_apt')` raises
+    # on any missing layer — so every set listed here must also have a
+    # group_<set>_apt entry below.
+    group_sets:
+      - purpose
+      - os
     common_apt:
       - tree
     group_purpose_apt:
       - jq
-    host_apt:
+    group_os_apt:
       - file
+    host_apt:
+      - bzip2
   roles:
     - role: apt

@@ -12,7 +12,8 @@
       loop:
         - tree   # common_apt
         - jq     # group_purpose_apt
-        - file   # host_apt
+        - file   # group_os_apt
+        - bzip2  # host_apt
 
     - name: Each layer's package must be installed
       ansible.builtin.assert:

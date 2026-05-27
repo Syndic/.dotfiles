@@ -1,9 +1,11 @@
 ---
 # Composition-only converge — see molecule.yml for why we don't include the
-# role's main.yml directly. The expression below is a *copy* of the role's
-# `name:` expression in roles/flatpak/tasks/main.yml; the assertion confirms
-# it composes correctly across all three scopes. If the role's expression
-# changes (new layer, renamed var), update this file in lockstep.
+# role's main.yml directly. The two set_fact blocks below mirror the role's
+# resolve + install expressions in roles/flatpak/tasks/main.yml; the
+# assertion confirms the layered composition is correct across both group
+# sets (purpose × os). If either of the role's expressions changes (new
+# group set added to `group_sets`, new layer, renamed var), update this
+# file in lockstep.
 #
 # Assertion lives in converge (not verify.yml) because facts don't survive
 # across molecule's separate ansible-playbook invocations. There is no
@@ -12,18 +14,32 @@
   hosts: all
   gather_facts: false
   vars:
+    group_sets:
+      - purpose
+      - os
     common_flatpak:
       - org.example.Common
     group_purpose_flatpak:
       - org.example.GroupPersonal
+    group_os_flatpak:
+      - org.example.GroupLinux
     host_flatpak:
       - org.example.HostOnly
   tasks:
-    - name: Compute the layered package list the role would install
+    - name: Resolve flatpak group-set layers (mirrors role's resolve task)
+      ansible.builtin.set_fact:
+        flatpak_group_layer: >-
+          {{ (flatpak_group_layer | default([]))
+             + lookup('vars', 'group_' ~ item ~ '_flatpak') }}
+      loop: "{{ group_sets }}"
+      loop_control:
+        label: "group_{{ item }}_flatpak"
+
+    - name: Compute the full layered list (mirrors role's install task `name:`)
       ansible.builtin.set_fact:
         flatpak_composed_packages: >-
           {{ (common_flatpak | default([]))
-             + (group_purpose_flatpak | default([]))
+             + flatpak_group_layer
              + (host_flatpak | default([])) }}
 
     - name: Composed list must contain every layer's contribution, in order
@@ -32,6 +48,7 @@
           - flatpak_composed_packages == [
               'org.example.Common',
               'org.example.GroupPersonal',
+              'org.example.GroupLinux',
               'org.example.HostOnly',
             ]
         fail_msg: "Layered composition wrong: {{ flatpak_composed_packages }}"
