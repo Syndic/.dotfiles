@@ -61,10 +61,20 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Dev-only Galaxy collections for molecule's docker driver. Kept *out* of
 # requirements.yml because that file is the production dependency list
-# (installed on every host by phase2.install_galaxy_requirements). community.docker
-# + ansible.posix are only needed by molecule's create/destroy playbooks,
-# which never run during a real install.
-"$PIPX_BIN_DIR/ansible-galaxy" collection install community.docker ansible.posix
+# (installed on every host by phase2.install_galaxy_requirements).
+# community.docker + ansible.posix are only needed by molecule's
+# create/destroy playbooks, which never run during a real install.
+#
+# Install via *molecule's* pipx ansible-galaxy, not the `ansible` venv's.
+# The `ansible` pip package bundles these collections inside its own
+# site-packages, so its ansible-galaxy considers the requirement
+# already-satisfied and reports "Nothing to do" — leaving
+# ~/.ansible/collections empty. But molecule runs under its own isolated
+# pipx venv (ansible-core, no bundle), which only sees ~/.ansible/collections
+# and its own site-packages, not the `ansible` venv. Using molecule's
+# ansible-galaxy installs into ~/.ansible/collections where its
+# scenario-time ansible will actually find them.
+"$PIPX_HOME/venvs/molecule/bin/ansible-galaxy" collection install community.docker ansible.posix
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.

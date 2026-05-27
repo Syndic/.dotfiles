@@ -21,7 +21,22 @@
       "installTools": false
     },
     "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    // Runs a self-contained docker daemon inside the container so molecule's
+    // docker driver can spin up child containers for the per-role scenarios
+    // under `./tests/run molecule`. Self-contained (not the host's docker)
+    // because the docker-outside-of-docker / shared-socket path triggers an
+    // apt-module deserialization failure on the geerlingguy debian images
+    // when run from inside another container — likely a namespace/cgroup
+    // interaction with the parent container. Self-contained dockerd dodges
+    // it cleanly.
+    //
+    // `moby: false` selects upstream docker-ce instead of the `moby` package
+    // (the latter doesn't have a Debian trixie build, our base image's
+    // distro).
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": false
+    }
   },
   "remoteUser": "vscode",
   "postCreateCommand": ".devcontainer/post-create.sh",
