@@ -12,21 +12,47 @@ ansible_python_interpreter: "{{ ansible_playbook_python }}"
 #
 # For each package backend (brewfile, apt, flatpak) and for the macOS
 # settings inputs (macos_defaults, dockitems_persist, dockitems_remove),
-# values come from up to three scopes that the role concatenates at run
-# time:
+# values come from three scopes that the role concatenates at run time:
 #
 #   common_<thing>              applied to all hosts; lives in this file
 #   group_<set>_<thing>         applied per group within a group set;
 #                               lives in group_vars/<group>.yml for each
-#                               group in that set
+#                               group in that set, one var per set
 #   host_<thing>                applied to one host; lives in host_vars/<h>.yml
 #
 # Scope is encoded as a *prefix* (common_, group_<set>_, host_) so all vars
 # at the same scope sort together alphabetically. The `group_<set>_<thing>`
 # form additionally names the set, so values from different sets compose
-# rather than collide if we ever add a second set (e.g. an OS axis). See
-# inventory.yml for the list of currently defined sets.
+# rather than collide. See inventory.yml for the list of currently defined
+# sets.
+#
+# The group-set list is declared once here as `group_sets`. Roles iterate
+# it via a Jinja `extract`-based indirection over `vars`, so adding a new
+# set is a one-line edit here (plus the per-group_vars files for the new
+# groups) — no per-role edits. The standard role-side expression is:
+#
+#   {{ group_sets
+#      | map('regex_replace', '^(.*)$', 'group_\1_<thing>')
+#      | map('extract', vars) | list
+#      | sum(start=[]) }}    # for list-typed layers; drop sum for path-typed
+#
+# `extract` raises on missing vars by design — that's what makes typos in
+# `group_sets` or in a `<thing>` name in a role fail loudly. The corollary
+# is that every group_vars/<group>.yml has to define every layered var that
+# any role running on hosts in that group might consume (use `[]` or `""`
+# for layers that the group doesn't actually contribute to). See
+# group_vars/macos.yml and group_vars/linux.yml for examples.
 # -----------------------------------------------------------------------------
+
+# Ordered list of active group sets. Order determines concatenation order in
+# the layered vars (purpose contribution comes before os contribution, etc.).
+# Visual-only for list-typed layers; affects install order for the Brewfile
+# layer. Adding a new set: append it here, define the groups in inventory.yml,
+# create group_vars/<group>.yml for each new group with all relevant
+# `group_<newset>_<thing>` vars declared.
+group_sets:
+  - purpose
+  - os
 
 # Brewfile (used on both macOS and Linux — Linuxbrew silently skips casks).
 common_brewfile: "{{ playbook_dir }}/brewfiles/common.Brewfile"

@@ -79,7 +79,7 @@ load-bearing.
 | `site.yml`, `inventory.yml` | Ansible entry point + host inventory. |
 | `group_vars/`, `host_vars/` | Variable scopes for the playbook. |
 | `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`. |
-| `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` + `groups/<group>.Brewfile` + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew (casks silently skip on Linux). |
+| `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` + `groups/<group>.Brewfile` (per `purpose` and `os` group sets) + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew (casks silently skip on Linux; macOS-only formulae live in `groups/macos.Brewfile`). |
 | `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
 | `home_source/common/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Host files override common files at the same path. |
 | `tests/` | bats + pytest unit suites, plus `tests/e2e-linux.sh` for full end-to-end runs in a fresh Debian container. |
@@ -103,11 +103,12 @@ specific host without needing a placeholder file.
 | Goal | Where it goes |
 |------|---------------|
 | Cross-platform CLI tool via Homebrew (works on macOS and Linuxbrew) | `brewfiles/common.Brewfile` |
-| Group-scoped (personal vs work) | `brewfiles/groups/<group>.Brewfile` |
+| Purpose-scoped (personal vs work) | `brewfiles/groups/<personal\|work>.Brewfile` |
+| macOS-only formula (e.g. `dockutil`, anything with `depends_on :macos`) | `brewfiles/groups/macos.Brewfile` |
 | Host-specific | `brewfiles/hosts/<host>.Brewfile` |
 | macOS-only GUI app | `cask "..."` line in any Brewfile (silently skipped on Linux) |
-| Linux-only system package | `common_apt` in `group_vars/all.yml`, `group_purpose_apt` in `group_vars/<group>.yml`, or `host_apt` in `host_vars/<host>.yml` |
-| Linux GUI app via Flatpak | `common_flatpak` / `group_purpose_flatpak` / `host_flatpak` — same three-layer shape as apt |
+| Linux-only system package | `common_apt` in `group_vars/all.yml`, `group_<set>_apt` in any `group_vars/<group>.yml`, or `host_apt` in `host_vars/<host>.yml` |
+| Linux GUI app via Flatpak | `common_flatpak` / `group_<set>_flatpak` / `host_flatpak` — same three-layer shape as apt |
 
 Full variable-naming convention is in [`group_vars/all.yml`](group_vars/all.yml).
 

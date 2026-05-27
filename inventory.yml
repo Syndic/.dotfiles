@@ -5,39 +5,38 @@
 # group per set. Currently defined sets:
 #
 #   purpose:  personal | work
+#   os:       macos    | linux
 #
-# Per-group values for a given set live in `group_vars/<group>.yml` under
-# variable names of the form `group_<set>_<thing>` (see group_vars/all.yml
-# for the full convention). Adding a new set (e.g. `os: macos | linux`) means:
-#   (1) listing the groups in this file with their hosts,
-#   (2) adding `group_<set>_<thing>` vars to each group's group_vars/<g>.yml,
-#   (3) updating roles to concatenate the new set's contribution alongside
-#       the existing common / group_<existing-set>_* / host layers.
+# Per-group values for a set live in `group_vars/<group>.yml` under variable
+# names of the form `group_<set>_<thing>` (see group_vars/all.yml for the full
+# convention). The list of active sets is declared as `group_sets` in
+# group_vars/all.yml; roles iterate that list via a per-set `set_fact` loop
+# using `lookup('vars', 'group_<set>_<thing>')`. Adding a new set is a
+# one-line edit there (plus the per-group_vars files for the new groups),
+# with no per-role edits.
 #
-# Step (3) is where the cost lives — every role that consumes a layered
-# var has to learn about the new set. With one set today, hardcoding
-# `group_purpose_*` in each role is the simplest thing that works. When
-# the *second* set lands, switch to the indirection pattern instead of
-# adding `group_<newset>_*` references role-by-role:
+# Adding a new set (e.g. `env: prod | staging`) requires:
+#   (1) listing the groups in this file with their hosts (one group per host
+#       within the new set);
+#   (2) adding `group_<newset>_<thing>` vars to each new group's
+#       group_vars/<group>.yml, covering every layered var a role running on
+#       hosts in that group might consume (see existing group_vars/macos.yml
+#       or linux.yml for the shape — `lookup('vars', name)` raises on a
+#       missing name, which is what catches typos in `group_sets` or
+#       in any role's `<thing>` reference);
+#   (3) adding the new set's name to `group_sets` in group_vars/all.yml.
 #
-#   # group_vars/all.yml
-#   group_sets: [purpose, <newset>]
+# No role changes needed at step (3) — the indirection picks the new set up
+# automatically.
 #
-#   # in each role, replace the explicit `group_purpose_<thing>` reference with
-#   {{ group_sets
-#      | map('regex_replace', '^(.*)$', 'group_\1_<thing>')
-#      | map('extract', vars) | map('default', [], true)
-#      | sum(start=[]) }}
-#
-# Discoverability stays intact (one authoritative list of sets in
-# group_vars/all.yml; explicit `<thing>` name in each role), typos in
-# `group_sets` blow up loudly via `extract`, and adding a third set
-# later is a one-line change. Pattern-matching `vars` directly with a
-# regex over variable names was considered and rejected — too soft a
-# firewall for a repo that otherwise enforces things explicitly.
-#
-# OS-axis gating uses the runtime `ansible_system` / `ansible_os_family`
-# facts (see site.yml), so it does not require an OS group set in inventory.
+# OS-axis role gating still uses runtime `ansible_facts['system']` /
+# `ansible_facts['os_family']` (see site.yml), not the `os` group set. The
+# group set is for layered _values_ (which Brewfile, which macOS defaults
+# list, which apt packages...); the role-gating facts decide _whether the
+# role runs at all_. The two could collapse into one if we wanted, but
+# keeping them separate means a misconfigured inventory (host put in the
+# wrong os group) doesn't accidentally run the wrong roles — only loads the
+# wrong layered values.
 #
 # All hosts run Ansible against localhost. The playbook is invoked against
 # exactly one host at a time via `--limit <hostname>`.
@@ -60,3 +59,11 @@ all:
           ansible_host: localhost
     work:
       hosts: {}
+    macos:
+      hosts:
+        laptop24:
+        mini18:
+        mini26:
+    linux:
+      hosts:
+        devbox:

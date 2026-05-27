@@ -1,0 +1,26 @@
+---
+# Shared variables for all Linux machines (group `linux` in the `os`
+# group set — see inventory.yml).
+# Everything gets group_vars/all.yml.
+# Cross-group-set values (purpose × os) compose; per-host overrides go
+# in host_vars/<hostname>.yml.
+#
+# Defines every `group_os_<thing>` var that a role running on a Linux
+# host might consume. The indirection in each role uses the Jinja
+# `extract` filter over `group_sets`, which raises if a referenced var
+# is missing — keeping that strictness lets typos in `group_sets` (or
+# in a layered-var name on a role) fail loudly instead of silently
+# returning empty. Cost: a handful of empty-list declarations here.
+# Roles that don't run on Linux (macos_defaults) don't read these from
+# this file, so we don't have to define their layered vars here.
+
+# No Linux-OS-specific Brewfile layer right now. Empty string is filtered
+# out by the homebrew role's stat-and-skip step (`when: item | length > 0`),
+# so leave this as "" until a Linux-only Linuxbrew package shows up.
+group_os_brewfile: ""
+
+# apt / flatpak layers for the linux group. Empty by default — populate
+# when you have packages every Linux machine in your fleet should share.
+# Per-host customization goes in host_vars/<host>.yml.
+group_os_apt: []
+group_os_flatpak: []

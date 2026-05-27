@@ -4,12 +4,21 @@
 # in place; those are easy to remove by hand and may be wanted by non-dotfile
 # installs.
 
-- name: Remove flatpak apps (common + purpose group + host layers)
+- name: Resolve flatpak group-set layers
+  ansible.builtin.set_fact:
+    flatpak_group_layer: >-
+      {{ (flatpak_group_layer | default([]))
+         + lookup('vars', 'group_' ~ item ~ '_flatpak') }}
+  loop: "{{ group_sets }}"
+  loop_control:
+    label: "group_{{ item }}_flatpak"
+
+- name: Remove flatpak apps (common + group-set layers + host)
   become: true
   community.general.flatpak:
     name: >-
       {{ (common_flatpak | default([]))
-         + (group_purpose_flatpak | default([]))
+         + flatpak_group_layer
          + (host_flatpak | default([])) }}
     state: absent
     method: system
