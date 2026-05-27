@@ -34,7 +34,7 @@
     // `moby: false` selects upstream docker-ce instead of the `moby` package
     // (the latter doesn't have a Debian trixie build, our base image's
     // distro).
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+    "ghcr.io/devcontainers/features/docker-in-docker:3": {
       "moby": false
     }
   },
