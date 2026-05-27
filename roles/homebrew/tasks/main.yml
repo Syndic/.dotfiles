@@ -4,10 +4,10 @@
 # (common_brewfile + (group_<set>_brewfile for set in group_sets) + host_brewfile).
 # See group_vars/all.yml for the package-layering convention (including
 # the `lookup('vars', ...)`-based indirection over `group_sets`).
-# Runs on both macOS and Linux (Linuxbrew). On Linux, `brew bundle`
-# silently skips any `cask` lines ("Skipping cask X (requires macOS)").
-# The `os` group set adds a `macos`-only Brewfile layer for tooling
-# that's macOS-only at the architecture level (`depends_on :macos`).
+# Runs on both macOS and Linux (Linuxbrew). Anything macOS-only
+# (formulae, casks, etc.) lives in the `os`-set's macos Brewfile
+# layer (`brewfiles/groups/macos.Brewfile`), so the common layer
+# stays genuinely cross-platform.
 
 - name: Resolve homebrew group-set Brewfile paths
   # Loop set_fact (rather than a one-liner using `vars` as a dict, which

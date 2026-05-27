@@ -370,10 +370,8 @@ gate.
   delegates to `geerlingguy.mac.dock`, which is a no-op when the
   layered `dockitems_persist` / `dockitems_remove` lists are empty and
   shells out to `dockutil` when either has entries. `dockutil` lives
-  in `brewfiles/groups/macos.Brewfile` (the `os`-set's macos layer) —
-  it's macOS-only at the formula level (`depends_on :macos`), so
-  putting it in the macos-OS Brewfile is the principled place rather
-  than relying on Linuxbrew's graceful-skip.
+  in `brewfiles/groups/macos.Brewfile` (the `os`-set's macos layer),
+  same as anything else that's macOS-only.
   Per-run opt-out is `--no-dock` on `install.sh` / `phase2.py`, which
   sets `-e macos_defaults_configure_dock=false` on the
   `ansible-playbook` call (mirrors `--no-upgrade`). For a stable

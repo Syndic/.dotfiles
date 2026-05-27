@@ -14,9 +14,8 @@
 # Roles that don't run on macOS (apt, flatpak) don't read these from
 # this file, so we don't have to define their layered vars here.
 
-# Brewfile layer for the macos group. Holds tooling that's macOS-only
-# at the architecture level (e.g. depends on macOS frameworks and
-# wouldn't even build on Linuxbrew).
+# Brewfile layer for the macos group. Anything macOS-only goes here:
+# casks, macOS-only formulae, packages you only want on Macs.
 group_os_brewfile: "{{ playbook_dir }}/brewfiles/groups/macos.Brewfile"
 
 # macOS-system-preference layers, consumed by roles/macos_defaults.

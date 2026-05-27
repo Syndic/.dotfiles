@@ -54,7 +54,9 @@ group_sets:
   - purpose
   - os
 
-# Brewfile (used on both macOS and Linux — Linuxbrew silently skips casks).
+# Cross-platform Brewfile layer — entries here apply to every host
+# (macOS and Linux). Anything macOS-only belongs in the `os`-set's
+# macos layer (`brewfiles/groups/macos.Brewfile`), not here.
 common_brewfile: "{{ playbook_dir }}/brewfiles/common.Brewfile"
 
 # apt packages (Linux only; the apt role is gated to Debian in site.yml, so
