@@ -33,11 +33,14 @@ pipx install --python "$latest_python/bin/python3" pre-commit
 
 # molecule drives per-role Ansible scenarios under tests/run molecule (and the
 # molecule CI job). It needs Python >= 3.10 — same constraint as ansible-core,
-# so it rides the same pipx + latest-Python pattern. --include-deps exposes
-# the `molecule` console script; the docker driver lives in the
-# molecule-plugins[docker] extra and is injected alongside (which also pulls
-# the `docker` Python SDK molecule shells out to).
-pipx install --include-deps --python "$latest_python/bin/python3" molecule
+# so it rides the same pipx + latest-Python pattern. No --include-deps here:
+# molecule's only console script *is* `molecule` itself, and exposing its
+# ansible-core dependency's scripts (ansible, ansible-playbook, ...) would
+# conflict with the `ansible` pipx install above (which owns those names on
+# PATH on purpose, because that venv has the full ansible package with all
+# bundled collections). The docker driver lives in the molecule-plugins[docker]
+# extra and is injected next.
+pipx install --python "$latest_python/bin/python3" molecule
 pipx inject molecule 'molecule-plugins[docker]'
 # community.docker's container modules (used by molecule's docker driver's
 # create/destroy playbooks) need the `docker` and `requests` Python packages
