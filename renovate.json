@@ -29,6 +29,15 @@
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*\"additionalVersions\": \"(?<currentValue>[^\"]+)\""
       ],
       "versioningTemplate": "python"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the molecule CI job's Python pin (`python-version` under setup-python) current — should track the devcontainer's `additionalVersions` so local dev and CI agree on the interpreter. The 3.9 pin on the python/bash jobs is silenced by the packageRule above and never matched here.",
+      "managerFilePatterns": ["/^\\.github/workflows/tests\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*python-version: '(?<currentValue>[^']+)'"
+      ],
+      "versioningTemplate": "python"
     }
   ]
 }

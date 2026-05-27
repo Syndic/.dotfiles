@@ -44,7 +44,14 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          # Match the devcontainer's latest-Python pin (`additionalVersions`
+          # in .devcontainer/devcontainer.json) so CI and local dev exercise
+          # the same interpreter. Renovate keeps this in step via the
+          # customManager in renovate.json. The 3.9 pin on the python/bash
+          # jobs above is unrelated — that one is frozen at the macOS CLT
+          # version on purpose; see CLAUDE.md.
+          # renovate: datasource=python-version depName=python
+          python-version: '3.14'
       # docker + requests are runtime deps for community.docker (the modules
       # molecule's docker driver uses to create/destroy containers). They're
       # not pulled in by molecule itself.
