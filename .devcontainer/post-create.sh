@@ -71,13 +71,21 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 # Install via *molecule's* pipx ansible-galaxy, not the `ansible` venv's.
 # The `ansible` pip package bundles these collections inside its own
 # site-packages, so its ansible-galaxy considers the requirement
-# already-satisfied and reports "Nothing to do" — leaving
-# ~/.ansible/collections empty. But molecule runs under its own isolated
-# pipx venv (ansible-core, no bundle), which only sees ~/.ansible/collections
-# and its own site-packages, not the `ansible` venv. Using molecule's
-# ansible-galaxy installs into ~/.ansible/collections where its
-# scenario-time ansible will actually find them.
-"$PIPX_HOME/venvs/molecule/bin/ansible-galaxy" collection install community.docker ansible.posix
+# already-satisfied and reports "Nothing to do" — leaving the install
+# location empty. Molecule's venv has ansible-core only (no bundle),
+# so its ansible-galaxy actually performs the install.
+#
+# Target path is a dedicated dir, not the default ~/.ansible/collections.
+# That dir is on *both* venvs' default search paths, so installing there
+# means the `ansible` venv sees the user copy alongside its bundled copy
+# and emits a "Another version of X was found installed..." warning every
+# time ansible-lint runs. Routing the install to ~/.config/molecule-collections
+# instead — and pointing molecule at it via ANSIBLE_COLLECTIONS_PATH in
+# each scenario's molecule.yml — keeps ansible-lint's view clean while
+# still letting molecule find the collections at scenario time.
+"$PIPX_HOME/venvs/molecule/bin/ansible-galaxy" collection install \
+  -p "$HOME/.config/molecule-collections" \
+  community.docker ansible.posix
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.
