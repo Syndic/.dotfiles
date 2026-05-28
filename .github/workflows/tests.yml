@@ -44,12 +44,11 @@ jobs:
           # customManager in renovate.json.
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      # docker + requests are runtime deps for community.docker (the modules
-      # molecule's docker driver uses to create/destroy containers). They're
-      # not pulled in by molecule itself.
+      # Installing the full `ansible` package (not bare ansible-core) brings
+      # its ~100 bundled collections — including community.docker + ansible.posix
+      # that molecule's docker driver needs — into the same environment molecule
+      # runs in, so there's no separate `ansible-galaxy collection install` step.
+      # docker + requests are the Python libs community.docker's container
+      # modules import; they're not pulled in by molecule itself.
       - run: pip install ansible molecule 'molecule-plugins[docker]' docker requests
-      # The Galaxy collections aren't bundled with ansible-core/molecule;
-      # install explicitly so the docker driver's playbooks resolve their
-      # modules.
-      - run: ansible-galaxy collection install community.docker ansible.posix community.general
       - run: ./tests/run molecule
