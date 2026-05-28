@@ -28,24 +28,28 @@ export PIPX_BIN_DIR="$HOME/.local/bin"
 # ansible-playbook, ...) — the `ansible` package itself ships none.
 pipx install --include-deps --python "$latest_python/bin/python3" ansible
 
-# Everything else that drives Ansible — ansible-lint and molecule — is
+# Everything else that drives Ansible — ansible-lint, yamllint, molecule — is
 # *injected into the same venv* rather than installed standalone. The win:
 # they share the one ansible-core and the one set of bundled collections
 # that the `ansible` package ships (community.docker, ansible.posix,
 # community.general, ... ~100 of them). One venv means no second copy of a
 # collection to shadow-conflict with the bundled one — which is what
 # produced the duplicate-version warnings back when molecule lived in its
-# own venv and we had to install its collections separately.
+# own venv and we had to install its collections separately. ansible-lint in
+# particular resolves playbook imports against those bundled collections, so
+# it has to live alongside ansible; yamllint rides the same venv for symmetry
+# (so `./tests/run lint` finds both on one PATH).
 #
 # Two injects, split by whether the package ships console scripts:
-#   - ansible-lint and molecule DO (`ansible-lint`, `molecule`). --include-apps
-#     surfaces them; their deps' scripts are not exposed, so there's no fight
-#     over the `ansible-*` names the base install already owns.
+#   - ansible-lint, yamllint, and molecule DO (`ansible-lint`, `yamllint`,
+#     `molecule`). --include-apps surfaces them; their deps' scripts are not
+#     exposed, so there's no fight over the `ansible-*` names the base install
+#     already owns.
 #   - molecule-plugins[docker] (the docker driver) and docker + requests (the
 #     Python libs community.docker's container modules import) are libraries
 #     with no console scripts. pipx errors under --include-apps when asked to
 #     expose apps for an app-less package, so inject these without the flag.
-pipx inject --include-apps ansible ansible-lint molecule
+pipx inject --include-apps ansible ansible-lint yamllint molecule
 pipx inject ansible 'molecule-plugins[docker]' docker requests
 
 pipx install --python "$latest_python/bin/python3" pre-commit

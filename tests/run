@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Run the test suites.
 #
-#   ./tests/run             # everything (python + bash + molecule)
-#   ./tests/run fast        # python + bash (skip molecule — no docker needed)
+#   ./tests/run             # everything (python + bash + lint + molecule)
+#   ./tests/run fast        # python + bash + lint (skip molecule — no docker)
 #   ./tests/run python      # just pytest
 #   ./tests/run bash        # just bats
+#   ./tests/run lint        # yamllint + ansible-lint
 #   ./tests/run molecule    # just molecule (per-role scenarios; needs docker)
 #
 # CI runs each suite as its own job — see .github/workflows/tests.yml.
@@ -23,6 +24,12 @@ run_bash() {
   bats tests/bash
 }
 
+run_lint() {
+  echo "=== lint ==="
+  yamllint .
+  ansible-lint
+}
+
 run_molecule() {
   echo "=== molecule ==="
   # Each scenario lives under roles/<role>/molecule/<scenario>/. molecule
@@ -39,8 +46,9 @@ run_molecule() {
 case "${1:-all}" in
   python)   run_python ;;
   bash)     run_bash ;;
+  lint)     run_lint ;;
   molecule) run_molecule ;;
-  fast)     run_python; run_bash ;;
-  all)      run_python; run_bash; run_molecule ;;
-  *)        echo "usage: $0 [python|bash|molecule|fast|all]" >&2; exit 2 ;;
+  fast)     run_python; run_bash; run_lint ;;
+  all)      run_python; run_bash; run_lint; run_molecule ;;
+  *)        echo "usage: $0 [python|bash|lint|molecule|fast|all]" >&2; exit 2 ;;
 esac

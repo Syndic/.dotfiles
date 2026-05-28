@@ -1,0 +1,28 @@
+# ansible-lint config. Starts at the `basic` profile — flags the high-value
+# correctness rules (FQCN, no `command`-where-a-module-exists, syntax-check,
+# yaml validity) without dragging in the noisier production-profile checks
+# (naming conventions, fully-qualified everything, galaxy metadata) on day
+# one. Ratchet up to `moderate` / `safety` once basic is green.
+
+profile: basic
+
+exclude_paths:
+  - .git/
+  - .github/
+  - home_source/
+  - tests/
+  - roles/*/molecule/*/.cache/
+  # Molecule scenarios spin up containers and use module-shaped tasks
+  # under fixtures; they don't need to satisfy production-profile rules.
+  - roles/*/molecule/
+
+# yamllint runs as its own pre-commit / CI step. ansible-lint also ships an
+# embedded yamllint pass; disabling it here avoids double-reporting.
+skip_list:
+  - yaml
+
+# Treat the playbook root as the project root so role discovery matches what
+# `ansible-playbook site.yml` sees at runtime.
+kinds:
+  - playbook: "site.yml"
+  - playbook: "uninstall.yml"

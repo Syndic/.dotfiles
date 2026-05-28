@@ -144,13 +144,14 @@ role variable defaults to true in
 
 Run them from the devcontainer — see [Dev environment](#dev-environment)
 below. `.devcontainer/post-create.sh` installs bats, pytest, pre-commit,
-molecule, and ansible-lint, so no host-side setup is needed.
+molecule, yamllint, and ansible-lint, so no host-side setup is needed.
 
 ```bash
-./tests/run                         # everything (python + bash + molecule)
-./tests/run fast                    # python + bash (skip molecule — no docker needed)
+./tests/run                         # everything (python + bash + lint + molecule)
+./tests/run fast                    # python + bash + lint (skip molecule — no docker)
 ./tests/run python                  # pytest only
 ./tests/run bash                    # bats only
+./tests/run lint                    # yamllint + ansible-lint
 ./tests/run molecule                # molecule per-role scenarios (needs docker)
 pre-commit run --all-files          # run hooks manually (installed by post-create.sh)
 ```

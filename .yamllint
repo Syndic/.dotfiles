@@ -1,0 +1,29 @@
+# yamllint config. Extends the default ruleset; the overrides below are the
+# small set of relaxations this repo needs to stay practical.
+
+extends: default
+
+ignore: |
+  home_source/
+  .git/
+  .ansible/
+  roles/*/molecule/*/.cache/
+
+rules:
+  # Some Brewfile-adjacent / playbook lines run long. Warn rather than error.
+  line-length:
+    max: 120
+    level: warning
+  # Ansible idiom uses both true/false and yes/no; don't fight it.
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: false
+  # `---` at the top of every YAML is noise for short config files.
+  document-start: disable
+  # Comments aligned with `#` immediately followed by text are fine.
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  # Tasks named with sentences run long.
+  braces:
+    max-spaces-inside: 1
