@@ -38,13 +38,16 @@ pipx install --include-deps --python "$latest_python/bin/python3" ansible
 # with the bundled ones (which is what produced the duplicate-version
 # warnings when molecule lived in its own venv).
 #
-# --include-apps surfaces each injected package's own console scripts
-# (`ansible-lint`, `molecule`); their deps' scripts are not exposed, so
-# there's no fight over the `ansible-*` names the base install already owns.
-# molecule-plugins[docker] provides the docker driver; docker + requests
-# are the Python libs community.docker's container modules import.
-pipx inject --include-apps ansible \
-  ansible-lint molecule 'molecule-plugins[docker]' docker requests
+# Two injects, split by whether the package ships console scripts:
+#   - ansible-lint and molecule DO (`ansible-lint`, `molecule`). --include-apps
+#     surfaces them; their deps' scripts are not exposed, so there's no fight
+#     over the `ansible-*` names the base install already owns.
+#   - molecule-plugins[docker] (the docker driver) and docker + requests (the
+#     Python libs community.docker's container modules import) are libraries
+#     with no console scripts. pipx errors under --include-apps when asked to
+#     expose apps for an app-less package, so inject these without the flag.
+pipx inject --include-apps ansible ansible-lint molecule
+pipx inject ansible 'molecule-plugins[docker]' docker requests
 
 pipx install --python "$latest_python/bin/python3" pre-commit
 # We were getting a warning about the relevant paths already being on PATH, so we don't need to call
