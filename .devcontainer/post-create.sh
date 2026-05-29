@@ -32,11 +32,10 @@ pipx install --include-deps --python "$latest_python/bin/python3" ansible
 # *injected into the same venv* rather than installed standalone. The win:
 # they share the one ansible-core and the one set of bundled collections
 # that the `ansible` package ships (community.docker, ansible.posix,
-# community.general, ... ~100 of them). That's what molecule's docker
-# driver needs, so there's nothing extra to `ansible-galaxy install` and
-# no second venv whose separate collection copies would shadow-conflict
-# with the bundled ones (which is what produced the duplicate-version
-# warnings when molecule lived in its own venv).
+# community.general, ... ~100 of them). One venv means no second copy of a
+# collection to shadow-conflict with the bundled one — which is what
+# produced the duplicate-version warnings back when molecule lived in its
+# own venv and we had to install its collections separately.
 #
 # Two injects, split by whether the package ships console scripts:
 #   - ansible-lint and molecule DO (`ansible-lint`, `molecule`). --include-apps
@@ -65,10 +64,17 @@ pipx install --python "$latest_python/bin/python3" pre-commit
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 "$PIPX_BIN_DIR/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
 
-# No separate install for molecule's docker-driver collections
-# (community.docker, ansible.posix): they ship bundled inside the `ansible`
-# pip package, and molecule shares that venv (see the inject above), so it
-# finds them with nothing extra to install.
+# molecule's docker driver needs community.docker (and its dep ansible.posix).
+# These ship bundled in the `ansible` package, which molecule shares (see the
+# inject above), so this is normally a no-op — `ansible-galaxy` finds the
+# bundled copy satisfying the requirement and reports "Nothing to do" without
+# writing a second copy to ~/.ansible/collections (a second copy is exactly
+# what would resurrect the duplicate-version warnings). We install explicitly
+# anyway so the dependency is *stated*, not assumed: if a future `ansible`
+# release trims these out of its bundle, this line fetches them instead of the
+# scenarios silently breaking. No version pin / --upgrade on purpose — those
+# could force a write even when the bundled copy is fine.
+"$PIPX_BIN_DIR/ansible-galaxy" collection install community.docker ansible.posix
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.
