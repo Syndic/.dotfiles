@@ -1,0 +1,28 @@
+# ansible-lint config. Set to the strictest `production` profile — the repo
+# passed it clean on first run, so we lock in the highest bar rather than
+# leave headroom for regressions to slip in under a looser profile. If a
+# future change can't reasonably satisfy a production rule, dial back to
+# `safety` / `moderate` here rather than scattering `# noqa` markers.
+
+profile: production
+
+exclude_paths:
+  - .git/
+  - .github/
+  - home_source/
+  - tests/
+  - roles/*/molecule/*/.cache/
+  # Molecule scenarios spin up containers and use module-shaped tasks
+  # under fixtures; they don't need to satisfy production-profile rules.
+  - roles/*/molecule/
+
+# yamllint runs as its own pre-commit / CI step. ansible-lint also ships an
+# embedded yamllint pass; disabling it here avoids double-reporting.
+skip_list:
+  - yaml
+
+# Treat the playbook root as the project root so role discovery matches what
+# `ansible-playbook site.yml` sees at runtime.
+kinds:
+  - playbook: "site.yml"
+  - playbook: "uninstall.yml"

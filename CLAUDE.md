@@ -20,6 +20,25 @@ picks a host profile, and runs the playbook.
 See [README.md](README.md) for the user-facing install command and project
 overview.
 
+## Use the devcontainer for dev tooling
+
+This repo ships a Debian devcontainer (`.devcontainer/`) that's the
+intended environment for any work that needs dev tools beyond the
+bootstrap path. `post-create.sh` installs ansible, ansible-lint,
+yamllint, bats, pytest, pre-commit, and molecule — pinned and isolated
+under pipx — so contributing requires nothing on the host.
+
+Run dev tooling from inside the devcontainer, not the host. If a tool
+you need isn't there yet, add it to `post-create.sh` rather than
+installing on the host — the devcontainer *is* the local environment
+for this project, and "I can't validate because the tool isn't on the
+host" is the wrong reflex here.
+
+The exceptions are the bootstrap surfaces themselves — `install.sh` and
+`phase2.py` — which by design must run on a clean host with only the
+prereqs they install themselves. Those get exercised end-to-end by
+`tests/e2e-linux.sh` (also containerized).
+
 ## The two-language split is intentional
 
 `install.sh` (bash) and `phase2.py` (Python) are two phases of the same
@@ -227,19 +246,59 @@ describe. Two compensations are in place; don't undo them:
 The symptom of regressing either: the kilobyte splash and "Installing
 Homebrew…" lines arrive at the very end of the captured log.
 
+## Lint
+
+`yamllint` and `ansible-lint` gate every PR via the `lint` job in
+`tests.yml` and run locally as pre-commit hooks. Configs:
+
+- `ansible.cfg` (repo root) — shared pins: `inventory`, `roles_path`,
+  `stdout_callback`. All invocations of `ansible*` / `ansible-lint` pick
+  this up automatically, so devcontainer, CI, and bare-host runs agree.
+- `.yamllint` — deliberately strict: `extends: default` and *tightens* it.
+  Booleans must be `true`/`false` (no `yes`/`no`/`on`/`off`); octal scalars
+  are forbidden outright; line-length is a hard error at 120 (no warning
+  escape hatch — 120 not 80 because Ansible task bodies and Jinja run long).
+  Only two rules are loosened, both forced by the ecosystem: `braces`
+  (`max-spaces-inside: 1`) so Jinja `{{ var }}` isn't flagged, and the
+  `comments` rules (`min-spaces-from-content: 1`, `comments-indentation:
+  disable`) to match ansible-lint's embedded yamllint — diverging there
+  would permanently disable ansible-lint's `--fix` mode. `home_source/` is
+  ignored (user dotfile content, not Ansible YAML).
+- `.ansible-lint` — set to the strictest **`production`** profile. The repo
+  passed it clean on first run, so we lock in the highest bar rather than
+  leave headroom for regressions. If a future change genuinely can't meet a
+  production rule, dial the profile back to `safety` / `moderate` rather than
+  scattering `# noqa` markers. `skip_list: [yaml]` because yamllint runs as
+  its own step; the embedded ansible-lint yaml check would double-report.
+  `home_source/`, `tests/`, `.github/`, and molecule scratch dirs are
+  excluded.
+
+Run locally via `./tests/run lint` (devcontainer; both tools are
+`pipx inject`-ed into the `ansible` venv by `post-create.sh` so they share
+the bundled collections). The pre-commit hooks pin yamllint and
+ansible-lint to specific tags; Renovate's pre-commit manager keeps
+both `rev:` values current.
+
+Adding a new YAML file or role: it'll get linted automatically. If a
+rule flags something genuinely wrong with the *rule* (not the code),
+update `.yamllint` / `.ansible-lint` rather than scattering `# noqa`
+markers.
+
 ## Tests
 
 Required for behavior changes. Three suites: bats (bash), pytest (Python),
-and molecule (per-role Ansible scenarios).
+and molecule (per-role Ansible scenarios). Lint runs as a fourth suite
+(`./tests/run lint`); see the section above.
 
 Run them from the devcontainer (`.devcontainer/post-create.sh` installs
-bats, pytest, pre-commit, molecule, ansible-lint).
+bats, pytest, pre-commit, molecule, ansible-lint, yamllint).
 
 ```sh
-./tests/run                          # everything (python + bash + molecule)
-./tests/run fast                     # python + bash (skip molecule — no docker needed)
+./tests/run                          # everything (python + bash + lint + molecule)
+./tests/run fast                     # python + bash + lint (skip molecule — no docker)
 ./tests/run python                   # pytest only
 ./tests/run bash                     # bats only
+./tests/run lint                     # yamllint + ansible-lint
 ./tests/run molecule                 # molecule only (needs docker)
 ```
 

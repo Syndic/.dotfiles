@@ -1,3 +1,4 @@
+---
 repos:
   - repo: local
     hooks:
@@ -5,5 +6,23 @@ repos:
         name: reject nested .dotfiles dirs and symlinks in home_source
         entry: python3 dotfiles_manager.py check home_source
         language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [--strict]
+
+  # ansible-lint runs against the whole repo (config in .ansible-lint).
+  # The hook installs its own isolated venv on the latest Python — it
+  # does not see the devcontainer's pipx ansible venv, so the Galaxy
+  # collections in requirements.yml are picked up from
+  # ~/.ansible/collections (installed by post-create.sh / phase2.py).
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v26.4.0
+    hooks:
+      - id: ansible-lint
         pass_filenames: false
         always_run: true
