@@ -257,13 +257,14 @@ Homebrew…" lines arrive at the very end of the captured log.
 - `.yamllint` — `extends: default` with the practical relaxations the
   repo needs (line-length warn at 120, allow `yes`/`no` truthy, ignore
   `home_source/` since it's user dotfile content not Ansible YAML).
-- `.ansible-lint` — starts at the **`basic`** profile. Production-profile
-  rules (naming conventions, FQCN-everywhere, galaxy metadata) are
-  intentionally deferred — ratchet to `moderate` once basic is green and
-  the noise/value trade pays out. `skip_list: [yaml]` because yamllint
-  runs as its own step; the embedded ansible-lint yaml check would
-  double-report. `home_source/`, `tests/`, `.github/`, and molecule
-  scratch dirs are excluded.
+- `.ansible-lint` — set to the strictest **`production`** profile. The repo
+  passed it clean on first run, so we lock in the highest bar rather than
+  leave headroom for regressions. If a future change genuinely can't meet a
+  production rule, dial the profile back to `safety` / `moderate` rather than
+  scattering `# noqa` markers. `skip_list: [yaml]` because yamllint runs as
+  its own step; the embedded ansible-lint yaml check would double-report.
+  `home_source/`, `tests/`, `.github/`, and molecule scratch dirs are
+  excluded.
 
 Run locally via `./tests/run lint` (devcontainer; both tools are
 `pipx inject`-ed into the `ansible` venv by `post-create.sh` so they share

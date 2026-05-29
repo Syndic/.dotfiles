@@ -1,10 +1,10 @@
-# ansible-lint config. Starts at the `basic` profile — flags the high-value
-# correctness rules (FQCN, no `command`-where-a-module-exists, syntax-check,
-# yaml validity) without dragging in the noisier production-profile checks
-# (naming conventions, fully-qualified everything, galaxy metadata) on day
-# one. Ratchet up to `moderate` / `safety` once basic is green.
+# ansible-lint config. Set to the strictest `production` profile — the repo
+# passed it clean on first run, so we lock in the highest bar rather than
+# leave headroom for regressions to slip in under a looser profile. If a
+# future change can't reasonably satisfy a production rule, dial back to
+# `safety` / `moderate` here rather than scattering `# noqa` markers.
 
-profile: basic
+profile: production
 
 exclude_paths:
   - .git/
