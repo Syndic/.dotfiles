@@ -38,6 +38,36 @@
       "moby": false
     }
   },
+  // Make git fully resolve inside the container for ANY checkout layout — a
+  // full clone, the main worktree, or a linked worktree living anywhere on
+  // disk — when launched via the `devcontainer` CLI (which, unlike VS Code's
+  // Dev Containers extension, does not special-case worktrees). The three
+  // pieces below work together; see .devcontainer/initialize.sh for the full
+  // rationale and the parse-time-substitution constraint that shapes them.
+  //
+  // 1. initializeCommand runs on the host first and drops two gitignored
+  //    artifacts in .devcontainer/: a symlink `.host-git-common` -> the real
+  //    git common dir, and `.git.env` with GIT_COMMON_DIR / GIT_DIR /
+  //    GIT_WORK_TREE. Both are regenerated every `up`, so they never go stale
+  //    and the host tracks nothing.
+  "initializeCommand": ".devcontainer/initialize.sh",
+  "mounts": [
+    // 2. Bind the symlink (a static, workspace-relative SOURCE) to a static
+    //    container path. Docker follows the symlink host-side, so this resolves
+    //    to wherever the real git common dir lives without the config ever
+    //    naming that dynamic path. No ${localEnv} / no system-wide env var.
+    "source=${localWorkspaceFolder}/.devcontainer/.host-git-common,target=/host-git-common,type=bind"
+  ],
+  // 3. Feed the GIT_* overrides into the container. The mount target
+  //    (/host-git-common) won't match the absolute path baked into a worktree's
+  //    .git file, so these tell git to use the mount directly and ignore that
+  //    stale pointer. --env-file is read at container-run time.
+  "runArgs": ["--env-file", "${localWorkspaceFolder}/.devcontainer/.git.env"],
+  // Mount the workspace at its real host path (not the default /workspaces/<name>)
+  // so the container path matches GIT_WORK_TREE (which initialize.sh writes as
+  // the host workspace path) and the worktree's own files line up verbatim.
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
   "remoteUser": "vscode",
   "postCreateCommand": ".devcontainer/post-create.sh",
   "customizations": {
