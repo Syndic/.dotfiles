@@ -40,16 +40,25 @@ pipx install --include-deps --python "$latest_python/bin/python3" ansible
 # it has to live alongside ansible; yamllint rides the same venv for symmetry
 # (so `./tests/run lint` finds both on one PATH).
 #
-# Two injects, split by whether the package ships console scripts:
-#   - ansible-lint, yamllint, and molecule DO (`ansible-lint`, `yamllint`,
-#     `molecule`). --include-apps surfaces them; their deps' scripts are not
-#     exposed, so there's no fight over the `ansible-*` names the base install
-#     already owns.
+# Three injects, split by how their console scripts (if any) get exposed:
+#   - ansible-lint and molecule ship apps (`ansible-lint`, `molecule`).
+#     --include-apps surfaces them; their deps' scripts are not exposed, so
+#     there's no fight over the `ansible-*` names the base install already owns.
+#   - yamllint ALSO ships an app (`yamllint`) and would seem to belong on the
+#     line above — but yamllint is a *dependency* of ansible-lint. When named
+#     alongside ansible-lint in one inject, pipx pulls it in transitively and
+#     classifies it as a dep, so --include-apps silently skips its console
+#     script (the app never lands in PIPX_BIN_DIR and `yamllint` / `./tests/run
+#     lint` aren't on PATH). Injecting it on its own with --force makes pipx
+#     treat it as a top-level package and symlink the app. --force is required
+#     precisely because ansible-lint already satisfied the requirement: a plain
+#     re-inject reports "already injected" and exposes nothing.
 #   - molecule-plugins[docker] (the docker driver) and docker + requests (the
 #     Python libs community.docker's container modules import) are libraries
 #     with no console scripts. pipx errors under --include-apps when asked to
 #     expose apps for an app-less package, so inject these without the flag.
-pipx inject --include-apps ansible ansible-lint yamllint molecule
+pipx inject --include-apps ansible ansible-lint molecule
+pipx inject --include-apps --force ansible yamllint
 pipx inject ansible 'molecule-plugins[docker]' docker requests
 
 pipx install --python "$latest_python/bin/python3" pre-commit
