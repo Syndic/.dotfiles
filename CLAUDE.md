@@ -56,12 +56,15 @@ CLT patch `3.9.6`, in `.devcontainer/devcontainer.json`). Keep all three in
 step.
 
 The devcontainer *also* installs the latest Python via that feature's
-`additionalVersions` — but that one is not part of the pin. It exists solely
-for the Ansible tooling (`ansible`, `ansible-lint`), which `post-create.sh`
-installs into isolated pipx venvs because modern ansible-core/ansible-lint
-require Python >= 3.10. Renovate keeps that latest pin current while leaving
-`3.9.6` frozen; the wiring is in `renovate.json` (a disabled `devcontainer`
-manager rule for the frozen pin, plus a `customManager` for the latest one).
+`additionalVersions` — but that one is not part of the pin. It exists for the
+Ansible dev tooling (`ansible`, `ansible-lint`, `molecule`), which
+`post-create.sh` installs via pipx on that interpreter because modern
+ansible-core / ansible-lint / molecule all require Python >= 3.10. (ansible-lint
+and molecule are injected into the one `ansible` venv so they share its
+ansible-core and bundled collections; pre-commit gets its own venv.) Renovate
+keeps that latest pin current while leaving `3.9.6` frozen; the wiring is in
+`renovate.json` (a disabled `devcontainer` manager rule for the frozen pin,
+plus a `customManager` for the latest one).
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.

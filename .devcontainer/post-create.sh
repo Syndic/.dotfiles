@@ -25,28 +25,30 @@ export PIPX_HOME="$HOME/.local/share/pipx"
 export PIPX_BIN_DIR="$HOME/.local/bin"
 
 # --include-deps exposes the ansible-core console scripts (ansible,
-# ansible-playbook, ...) — the `ansible` package itself ships none. ansible-lint
-# is injected into the same venv so it lints against the bundled collections.
+# ansible-playbook, ...) — the `ansible` package itself ships none.
 pipx install --include-deps --python "$latest_python/bin/python3" ansible
-pipx inject --include-apps ansible ansible-lint
-pipx install --python "$latest_python/bin/python3" pre-commit
 
-# molecule drives per-role Ansible scenarios under tests/run molecule (and the
-# molecule CI job). It needs Python >= 3.10 — same constraint as ansible-core,
-# so it rides the same pipx + latest-Python pattern. No --include-deps here:
-# molecule's only console script *is* `molecule` itself, and exposing its
-# ansible-core dependency's scripts (ansible, ansible-playbook, ...) would
-# conflict with the `ansible` pipx install above (which owns those names on
-# PATH on purpose, because that venv has the full ansible package with all
-# bundled collections). The docker driver lives in the molecule-plugins[docker]
-# extra and is injected next.
-pipx install --python "$latest_python/bin/python3" molecule
-pipx inject molecule 'molecule-plugins[docker]'
-# community.docker's container modules (used by molecule's docker driver's
-# create/destroy playbooks) need the `docker` and `requests` Python packages
-# *in the venv whose ansible-playbook executes them*. That's the `ansible`
-# pipx venv (its console scripts win on PATH), not molecule's. Inject there.
-pipx inject ansible docker requests
+# Everything else that drives Ansible — ansible-lint and molecule — is
+# *injected into the same venv* rather than installed standalone. The win:
+# they share the one ansible-core and the one set of bundled collections
+# that the `ansible` package ships (community.docker, ansible.posix,
+# community.general, ... ~100 of them). One venv means no second copy of a
+# collection to shadow-conflict with the bundled one — which is what
+# produced the duplicate-version warnings back when molecule lived in its
+# own venv and we had to install its collections separately.
+#
+# Two injects, split by whether the package ships console scripts:
+#   - ansible-lint and molecule DO (`ansible-lint`, `molecule`). --include-apps
+#     surfaces them; their deps' scripts are not exposed, so there's no fight
+#     over the `ansible-*` names the base install already owns.
+#   - molecule-plugins[docker] (the docker driver) and docker + requests (the
+#     Python libs community.docker's container modules import) are libraries
+#     with no console scripts. pipx errors under --include-apps when asked to
+#     expose apps for an app-less package, so inject these without the flag.
+pipx inject --include-apps ansible ansible-lint molecule
+pipx inject ansible 'molecule-plugins[docker]' docker requests
+
+pipx install --python "$latest_python/bin/python3" pre-commit
 # We were getting a warning about the relevant paths already being on PATH, so we don't need to call
 # `pipx ensurepath` here. If we did, it would be:
 # pipx ensurepath
@@ -62,30 +64,17 @@ pipx inject ansible docker requests
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 "$PIPX_BIN_DIR/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
 
-# Dev-only Galaxy collections for molecule's docker driver. Kept *out* of
-# requirements.yml because that file is the production dependency list
-# (installed on every host by phase2.install_galaxy_requirements).
-# community.docker + ansible.posix are only needed by molecule's
-# create/destroy playbooks, which never run during a real install.
-#
-# Install via *molecule's* pipx ansible-galaxy, not the `ansible` venv's.
-# The `ansible` pip package bundles these collections inside its own
-# site-packages, so its ansible-galaxy considers the requirement
-# already-satisfied and reports "Nothing to do" — leaving the install
-# location empty. Molecule's venv has ansible-core only (no bundle),
-# so its ansible-galaxy actually performs the install.
-#
-# Target path is a dedicated dir, not the default ~/.ansible/collections.
-# That dir is on *both* venvs' default search paths, so installing there
-# means the `ansible` venv sees the user copy alongside its bundled copy
-# and emits a "Another version of X was found installed..." warning every
-# time ansible-lint runs. Routing the install to ~/.config/molecule-collections
-# instead — and pointing molecule at it via ANSIBLE_COLLECTIONS_PATH in
-# each scenario's molecule.yml — keeps ansible-lint's view clean while
-# still letting molecule find the collections at scenario time.
-"$PIPX_HOME/venvs/molecule/bin/ansible-galaxy" collection install \
-  -p "$HOME/.config/molecule-collections" \
-  community.docker ansible.posix
+# molecule's docker driver needs community.docker (and its dep ansible.posix).
+# These ship bundled in the `ansible` package, which molecule shares (see the
+# inject above), so this is normally a no-op — `ansible-galaxy` finds the
+# bundled copy satisfying the requirement and reports "Nothing to do" without
+# writing a second copy to ~/.ansible/collections (a second copy is exactly
+# what would resurrect the duplicate-version warnings). We install explicitly
+# anyway so the dependency is *stated*, not assumed: if a future `ansible`
+# release trims these out of its bundle, this line fetches them instead of the
+# scenarios silently breaking. No version pin / --upgrade on purpose — those
+# could force a write even when the bundled copy is fine.
+"$PIPX_BIN_DIR/ansible-galaxy" collection install community.docker ansible.posix
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.

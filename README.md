@@ -83,7 +83,7 @@ load-bearing.
 | `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
 | `home_source/common/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Host files override common files at the same path. |
 | `tests/` | bats + pytest unit suites, per-role molecule scenarios, and Linux e2e harnesses (see [`tests/`](tests/)). |
-| `.devcontainer/` | Debian devcontainer with ansible / ansible-lint / pytest / pre-commit pre-installed. |
+| `.devcontainer/` | Debian devcontainer with ansible / ansible-lint / molecule / pytest / pre-commit pre-installed. |
 
 ## Common tasks
 
@@ -183,8 +183,8 @@ trigger them from the Actions tab.
 
 A Debian-based devcontainer is set up in [`.devcontainer/`](.devcontainer)
 with Python 3.9.6 (the pinned primary), the latest Python (for
-ansible/ansible-lint), bats, pytest, and pre-commit pre-installed. Open
-in VS Code with "Reopen in Container", or drive it from the CLI:
+ansible/ansible-lint/molecule), bats, pytest, and pre-commit pre-installed.
+Open in VS Code with "Reopen in Container", or drive it from the CLI:
 
 ```bash
 devcontainer up --workspace-folder .
