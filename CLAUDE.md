@@ -51,17 +51,25 @@ overrides). It works for any checkout layout — full clone, main worktree, or a
 linked worktree anywhere on disk:
 
 - `.devcontainer/initialize.sh` (wired as `initializeCommand`) runs on the host
-  before the build and drops two gitignored artifacts in `.devcontainer/`: a
-  symlink `.host-git-common` → the real git common dir, and
-  `.host-git-common-path` holding that dir's absolute path. Both regenerate
-  every `up`, so they never go stale and the host tracks nothing.
+  before the build and drops two gitignored artifacts: a symlink
+  `.devcontainer/.host-git-common` → the real git common dir, and
+  `.devcontainer/.git-plumbing/host-git-common-path` holding that dir's
+  absolute path. Both regenerate every `up`, so they never go stale and the
+  host tracks nothing. The `.git-plumbing/` directory itself IS tracked
+  (anchored by its README) so the Dockerfile's COPY of the directory
+  succeeds even when the runtime-written file inside is absent — buildx
+  errors on a COPY whose glob matches zero files, so the classic optional-
+  COPY trick is not portable, and the tracked directory is the buildx-safe
+  workaround. CI's `devcontainer build` never runs `initializeCommand`, so
+  the path file is genuinely absent there; the Dockerfile's `[ -s … ]` shell
+  test keeps that case a clean no-op.
 - `devcontainer.json` binds the symlink (a static, `${localWorkspaceFolder}`-
   relative source — Docker follows it host-side) to a static `/host-git-common`.
-- The `Dockerfile` reads `.host-git-common-path` (it rides in the build context)
-  and recreates that exact host-absolute path inside the image as a symlink to
-  `/host-git-common`. So the worktree's `.git` file — which names the
-  host-absolute path — follows that symlink to the bind-mounted real common dir
-  and git resolves with its real contents, no env overrides.
+- The `Dockerfile` reads `.git-plumbing/host-git-common-path` (it rides in the
+  build context) and recreates that exact host-absolute path inside the image
+  as a symlink to `/host-git-common`. So the worktree's `.git` file — which
+  names the host-absolute path — follows that symlink to the bind-mounted real
+  common dir and git resolves with its real contents, no env overrides.
 - `workspaceFolder`/`workspaceMount` mount the workspace at its real host path
   so the worktree's own files and the `.git` back-pointer line up verbatim.
 

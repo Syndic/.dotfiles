@@ -27,23 +27,40 @@ set -euo pipefail
 #      name a STATIC mount source ("${localWorkspaceFolder}/.devcontainer/
 #      .host-git-common") that resolves to wherever the main repo actually is,
 #      and bind it to a static container path (/host-git-common).
-#   2. Persist the absolute common-dir path to .host-git-common-path. It lands in
-#      the build context (context: "..") so the Dockerfile can read it and
-#      recreate that exact host-absolute path inside the image as a symlink to
-#      /host-git-common. With that in place the worktree's `.git` file resolves
-#      natively — git reads its real contents and follows the host-absolute
-#      pointer, no GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE needed.
+#   2. Persist the absolute common-dir path to
+#      .git-plumbing/host-git-common-path. It lands in the build context
+#      (context: "..") so the Dockerfile can read it and recreate that exact
+#      host-absolute path inside the image as a symlink to /host-git-common.
+#      With that in place the worktree's `.git` file resolves natively — git
+#      reads its real contents and follows the host-absolute pointer, no
+#      GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE needed.
 #
-# Both artifacts are gitignored and regenerated on every `up`, so nothing the
-# host tracks is touched and the values can never go stale. The scheme works for
-# several worktrees concurrently: each carries its own symlink/path file and
-# bakes its own host-absolute symlink into its own image, binding its own
-# /host-git-common — no cross-container collision.
+#      The path file lives inside a tracked .git-plumbing/ dir (anchored by a
+#      committed README.md) rather than as a bare gitignored sibling. Reason:
+#      buildx errors on a COPY whose source glob matches zero files (the
+#      classic .pat[h] optional-COPY trick works on the legacy builder but
+#      not buildx), so the Dockerfile COPYs the *directory* — which always
+#      exists — and treats the file inside as optional via a shell
+#      `[ -s ... ]` test. CI's `devcontainer build` doesn't run
+#      initializeCommand, so the path file is genuinely absent there; the
+#      tracked README makes the COPY a guaranteed no-op in that case.
+#
+# Both runtime artifacts (symlink + path file) are gitignored and regenerated
+# on every `up`, so nothing the host tracks is touched and the values can
+# never go stale. The scheme works for several worktrees concurrently: each
+# carries its own symlink/path file and bakes its own host-absolute symlink
+# into its own image, binding its own /host-git-common — no cross-container
+# collision.
 
 here="$(cd "$(dirname "$0")" && pwd)"        # the .devcontainer dir (host abs)
 workspace="$(cd "$here/.." && pwd)"          # repo/worktree root (host abs)
 link="$here/.host-git-common"
-pathfile="$here/.host-git-common-path"
+pathfile="$here/.git-plumbing/host-git-common-path"
+
+# The .git-plumbing dir is tracked (via its README), so it normally exists
+# already; mkdir -p covers stray cases like a manual deletion without
+# changing behavior.
+mkdir -p "$(dirname "$pathfile")"
 
 cd "$workspace"
 

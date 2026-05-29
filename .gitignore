@@ -33,9 +33,12 @@ __pycache__/
 
 # ── Devcontainer git plumbing ───────────────────────────────────────────────────────────────────
 # Regenerated on every `devcontainer up` by .devcontainer/initialize.sh so git
-# resolves in-container at its real host-absolute path. Host-local, never tracked.
+# resolves in-container at its real host-absolute path. Host-local, never
+# tracked. The .git-plumbing/ directory itself IS tracked (anchored by its
+# README) because the Dockerfile's COPY needs the directory to exist in any
+# checkout; only the runtime-written file inside is ignored.
 /.devcontainer/.host-git-common
-/.devcontainer/.host-git-common-path
+/.devcontainer/.git-plumbing/host-git-common-path
 
 # ── Runtime state ─────────────────────────────────────────────────────────────────────────────────
 # phase2.py writes this after a successful install so uninstall.py can default
