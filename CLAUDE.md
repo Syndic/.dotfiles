@@ -39,6 +39,19 @@ The exceptions are the bootstrap surfaces themselves — `install.sh` and
 prereqs they install themselves. Those get exercised end-to-end by
 `tests/e2e-linux.sh` (also containerized).
 
+**Worktree caveat.** When the devcontainer is brought up on a git
+*worktree* via the `devcontainer` CLI (how this project's containers are
+typically launched), git does not resolve inside the container: the
+worktree's `.git` is a file pointing at `<main-repo>/.git/worktrees/<name>`,
+a host path that isn't mounted. VS Code's Dev Containers extension
+special-cases this and mounts the main git dir; the CLI doesn't. So
+`post-create.sh` guards `pre-commit install` on `git rev-parse` succeeding
+and skips it (with a warning) when git is unreachable — a failing last step
+would otherwise mark the whole build as failed. Consequence in a worktree
+container: `pre-commit install`/`run` don't work, but `./tests/run lint`
+(yamllint + ansible-lint, no git) and `python3 dotfiles_manager.py check
+home_source` (the source guard) do, and the hooks still gate every PR in CI.
+
 ## The two-language split is intentional
 
 `install.sh` (bash) and `phase2.py` (Python) are two phases of the same
