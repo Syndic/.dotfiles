@@ -31,6 +31,12 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# ── Devcontainer git plumbing ───────────────────────────────────────────────────────────────────
+# Regenerated on every `devcontainer up` by .devcontainer/initialize.sh so git
+# resolves in-container at its real host-absolute path. Host-local, never tracked.
+/.devcontainer/.host-git-common
+/.devcontainer/.host-git-common-path
+
 # ── Runtime state ─────────────────────────────────────────────────────────────────────────────────
 # phase2.py writes this after a successful install so uninstall.py can default
 # to the right --host without re-prompting.
