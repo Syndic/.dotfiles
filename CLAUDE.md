@@ -254,9 +254,16 @@ Homebrew…" lines arrive at the very end of the captured log.
 - `ansible.cfg` (repo root) — shared pins: `inventory`, `roles_path`,
   `stdout_callback`. All invocations of `ansible*` / `ansible-lint` pick
   this up automatically, so devcontainer, CI, and bare-host runs agree.
-- `.yamllint` — `extends: default` with the practical relaxations the
-  repo needs (line-length warn at 120, allow `yes`/`no` truthy, ignore
-  `home_source/` since it's user dotfile content not Ansible YAML).
+- `.yamllint` — deliberately strict: `extends: default` and *tightens* it.
+  Booleans must be `true`/`false` (no `yes`/`no`/`on`/`off`); octal scalars
+  are forbidden outright; line-length is a hard error at 120 (no warning
+  escape hatch — 120 not 80 because Ansible task bodies and Jinja run long).
+  Only two rules are loosened, both forced by the ecosystem: `braces`
+  (`max-spaces-inside: 1`) so Jinja `{{ var }}` isn't flagged, and the
+  `comments` rules (`min-spaces-from-content: 1`, `comments-indentation:
+  disable`) to match ansible-lint's embedded yamllint — diverging there
+  would permanently disable ansible-lint's `--fix` mode. `home_source/` is
+  ignored (user dotfile content, not Ansible YAML).
 - `.ansible-lint` — set to the strictest **`production`** profile. The repo
   passed it clean on first run, so we lock in the highest bar rather than
   leave headroom for regressions. If a future change genuinely can't meet a

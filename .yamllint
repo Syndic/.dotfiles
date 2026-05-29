@@ -1,5 +1,8 @@
-# yamllint config. Extends the default ruleset; the overrides below are the
-# small set of relaxations this repo needs to stay practical.
+---
+# yamllint config. Deliberately strict: extends the default ruleset and
+# *tightens* it where the repo can sustain it, rather than relaxing. The only
+# loosened rules are the two the default genuinely gets wrong for this repo
+# (line-length and Jinja braces); everything else is at default or stricter.
 
 extends: default
 
@@ -10,20 +13,32 @@ ignore: |
   roles/*/molecule/*/.cache/
 
 rules:
-  # Some Brewfile-adjacent / playbook lines run long. Warn rather than error.
+  # 120, not the default 80 — Ansible task bodies and Jinja expressions run
+  # long and reflowing them hurts readability. But it's a hard error (no
+  # `level: warning` escape hatch), so nothing creeps past 120.
   line-length:
     max: 120
-    level: warning
-  # Ansible idiom uses both true/false and yes/no; don't fight it.
+  # Booleans must be `true`/`false` — no `yes`/`no`/`on`/`off`/`True`/`False`.
+  # check-keys is off only so GitHub Actions' `on:` key isn't misread as a
+  # truthy value; task/var *values* are still checked.
   truthy:
-    allowed-values: ['true', 'false', 'yes', 'no']
+    allowed-values: ['true', 'false']
     check-keys: false
-  # `---` at the top of every YAML is noise for short config files.
-  document-start: disable
-  # Comments aligned with `#` immediately followed by text are fine.
+  # Forbid octal scalars outright. `mode: 0644` is silently reinterpreted by
+  # YAML; force quoting. Also satisfies ansible-lint's embedded yamllint
+  # expectations, so its `--fix` mode stays available.
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+  # The one unavoidable relaxation: Jinja `{{ var }}` needs spaces inside the
+  # braces, which the default (0) flags as a flow-mapping violation.
+  braces:
+    max-spaces-inside: 1
+  # Comment rules deliberately match ansible-lint's embedded yamllint
+  # expectations (min 1 space before inline comments, indentation check off).
+  # This is the Ansible ecosystem's strict standard; diverging to the stricter
+  # defaults (2 spaces, indentation enforced) would permanently disable
+  # ansible-lint's `--fix` mode for a marginal stylistic gain. Not worth it.
   comments:
     min-spaces-from-content: 1
   comments-indentation: disable
-  # Tasks named with sentences run long.
-  braces:
-    max-spaces-inside: 1
