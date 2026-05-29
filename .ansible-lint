@@ -1,3 +1,4 @@
+---
 # ansible-lint config. Set to the strictest `production` profile — the repo
 # passed it clean on first run, so we lock in the highest bar rather than
 # leave headroom for regressions to slip in under a looser profile. If a
