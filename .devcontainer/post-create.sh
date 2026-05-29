@@ -91,4 +91,23 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.
-"$PIPX_BIN_DIR/pre-commit" install
+#
+# Guarded on git actually resolving the repo. In a git *worktree*, `.git` is a
+# file pointing at `<main-repo>/.git/worktrees/<name>` — a host absolute path.
+# The devcontainer mounts only the worktree folder, so that path doesn't exist
+# in-container and every git command fails ("not a git repository: ..."). The
+# VS Code Dev Containers extension special-cases worktrees and mounts the main
+# git dir; the `devcontainer` CLI (which is what spins this container up here)
+# does not. pre-commit can't install — or run — without a resolvable git dir,
+# so skip rather than abort post-create: a broken last step would mark the
+# whole container build as failed over a convenience hook. The checks are still
+# enforced in CI on every PR, and run locally via `./tests/run lint` (which
+# invokes yamllint + ansible-lint directly, no git needed). Where git *does*
+# resolve (full clone, or VS Code's worktree handling) this runs as before.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  "$PIPX_BIN_DIR/pre-commit" install
+else
+  echo "post-create: skipping 'pre-commit install' — git dir not reachable in-container" >&2
+  echo "post-create: (this is a worktree whose .git points to an unmounted host path)" >&2
+  echo "post-create: lint locally with './tests/run lint'; hooks still gate every PR in CI" >&2
+fi
