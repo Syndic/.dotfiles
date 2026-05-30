@@ -1,0 +1,83 @@
+---
+# Converge — homebrew role, gate verification.
+#
+# Two plays against the same container. The image pre-installs `hello`,
+# so a Brewfile of `brew "hello"` starts in the satisfied state — that's
+# what exercises the install gate. The upgrade gate has two paths
+# (var=true with no outdated; var=false), tested as the two plays.
+#
+# Asserting on the role's internal task results (homebrew_bundle_result,
+# homebrew_outdated) is the cleanest way to distinguish "task ran and
+# did nothing" from "task was gated off entirely" — the former would
+# defeat the install-gate regression-cover for ae021b2, but only the
+# `register:` introspection can tell them apart.
+
+- name: Converge — homebrew role (gates, upgrade=true)
+  hosts: all
+  gather_facts: true
+  vars:
+    group_sets: []
+    common_brewfile: /tmp/molecule-homebrew/common.Brewfile
+    # Default for homebrew_upgrade_outdated is true; left implicit so
+    # this play also exercises that default.
+  pre_tasks:
+    - name: Ensure fixture dir exists
+      ansible.builtin.file:
+        path: /tmp/molecule-homebrew
+        state: directory
+        mode: '0755'
+
+    - name: Write common Brewfile (image pre-installs this formula)
+      ansible.builtin.copy:
+        content: |
+          brew "hello"
+        dest: "{{ common_brewfile }}"
+        mode: '0644'
+  roles:
+    - role: homebrew
+  post_tasks:
+    - name: Install task must skip every layer (brew bundle check passed)
+      ansible.builtin.assert:
+        that:
+          - homebrew_bundle_result.results
+            | selectattr('skipped', 'undefined') | list | length == 0
+        fail_msg: >-
+          Expected every install entry skipped; got
+          {{ homebrew_bundle_result.results }}
+
+    - name: Outdated check must have run (homebrew_upgrade_outdated=true)
+      ansible.builtin.assert:
+        that:
+          - homebrew_outdated is defined
+          - homebrew_outdated.skipped | default(false) is false
+          - homebrew_outdated.stdout | default('') | length == 0
+        fail_msg: >-
+          Expected outdated check to run and report nothing; got
+          {{ homebrew_outdated | default('<undefined>') }}
+
+- name: Converge — homebrew role (gates, upgrade=false)
+  hosts: all
+  gather_facts: false
+  vars:
+    group_sets: []
+    common_brewfile: /tmp/molecule-homebrew/common.Brewfile
+    homebrew_upgrade_outdated: false
+  roles:
+    - role: homebrew
+  post_tasks:
+    - name: Install task must still skip every layer
+      ansible.builtin.assert:
+        that:
+          - homebrew_bundle_result.results
+            | selectattr('skipped', 'undefined') | list | length == 0
+        fail_msg: >-
+          Expected every install entry skipped; got
+          {{ homebrew_bundle_result.results }}
+
+    - name: Outdated check itself must skip (homebrew_upgrade_outdated=false)
+      ansible.builtin.assert:
+        that:
+          - homebrew_outdated.skipped | default(false) is true
+        fail_msg: >-
+          Expected outdated check to skip; got
+          {{ homebrew_outdated | default('<undefined>') }}

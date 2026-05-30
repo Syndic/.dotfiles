@@ -1,0 +1,41 @@
+---
+# molecule scenario for the homebrew role — install gate + upgrade toggle.
+#
+# Two converge plays exercise both gating paths added by ae021b2 against
+# a single container that starts with the test formula already installed
+# (image bakes `brew install hello`; see roles/homebrew/molecule/Dockerfile):
+#
+#   1. upgrade=true (default): `brew bundle check` returns rc=0 → install
+#      task should skip; `brew outdated` runs but returns empty → upgrade
+#      task should skip.
+#   2. upgrade=false: install task still skips; the outdated *check* itself
+#      should also skip (gated by homebrew_upgrade_outdated).
+#
+# The scenario keeps one container across both plays on purpose: it shares
+# the image-install cost, and the second play's pre-state is the first
+# play's post-state (still satisfied, no upgrades happened) — that's
+# exactly what we want to assert against.
+
+driver:
+  name: docker
+
+platforms:
+  - name: homebrew-gates
+    image: dotfiles-homebrew-molecule:local
+    pre_build_image: true
+    command: sleep infinity
+
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      homebrew-gates:
+        ansible_user: linuxbrew
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      callback_result_format: yaml
+
+verifier:
+  name: ansible

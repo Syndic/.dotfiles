@@ -1,0 +1,42 @@
+---
+# Converge — homebrew role, every Brewfile layer populated.
+# One formula per layer so verify.yml can attribute a specific install
+# back to the layer it came from. None of these are pre-baked into the
+# scenario base image, so every layer exercises a real
+# `brew bundle install`.
+- name: Converge — homebrew role (multi-layer)
+  hosts: all
+  gather_facts: true
+  vars:
+    # Mirror production's group_sets exactly (see group_vars/all.yml). The
+    # role's resolve loop iterates this list and `lookup('vars', ...)`
+    # raises on a missing var, so every set listed here must also have a
+    # `group_<set>_brewfile` fixture below.
+    group_sets:
+      - purpose
+      - os
+    common_brewfile: /tmp/molecule-homebrew/common.Brewfile
+    group_purpose_brewfile: /tmp/molecule-homebrew/purpose.Brewfile
+    group_os_brewfile: /tmp/molecule-homebrew/os.Brewfile
+    host_brewfile: /tmp/molecule-homebrew/host.Brewfile
+  pre_tasks:
+    - name: Ensure fixture dir exists
+      ansible.builtin.file:
+        path: /tmp/molecule-homebrew
+        state: directory
+        mode: '0755'
+
+    - name: Write per-layer Brewfile fixtures
+      ansible.builtin.copy:
+        content: "{{ item.content }}"
+        dest: "{{ item.dest }}"
+        mode: '0644'
+      loop:
+        - {dest: "{{ common_brewfile }}", content: "brew \"jq\"\n"}
+        - {dest: "{{ group_purpose_brewfile }}", content: "brew \"wget\"\n"}
+        - {dest: "{{ group_os_brewfile }}", content: "brew \"tree\"\n"}
+        - {dest: "{{ host_brewfile }}", content: "brew \"ripgrep\"\n"}
+      loop_control:
+        label: "{{ item.dest }}"
+  roles:
+    - role: homebrew

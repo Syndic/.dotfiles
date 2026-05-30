@@ -34,11 +34,23 @@ run_molecule() {
   echo "=== molecule ==="
   # Each scenario lives under roles/<role>/molecule/<scenario>/. molecule
   # discovers them via MOLECULE_GLOB and is invoked from the role dir so
-  # `molecule test -s default` resolves correctly.
+  # `molecule test --all` finds every scenario directory.
+
+  # The homebrew scenarios share a Linuxbrew-preinstalled base image. Build
+  # it once before the scenario loop — docker layer caching makes this a
+  # near-no-op on rebuild. Followup: replace this local build with a pull
+  # from a ghcr-published image (see roles/homebrew/molecule/Dockerfile).
+  echo "--- molecule: building roles/homebrew base image ---"
+  docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
+
   local rc=0
-  for role_dir in roles/dotfiles roles/apt roles/flatpak; do
+  # `molecule test --all` runs every scenario under the role's molecule/
+  # dir. Equivalent to `-s default` for roles with just one scenario, and
+  # picks up the multi-scenario homebrew role without per-role special-
+  # casing.
+  for role_dir in roles/dotfiles roles/apt roles/flatpak roles/homebrew; do
     echo "--- molecule: ${role_dir} ---"
-    (cd "${role_dir}" && molecule test -s default) || rc=$?
+    (cd "${role_dir}" && molecule test --all) || rc=$?
   done
   return $rc
 }
