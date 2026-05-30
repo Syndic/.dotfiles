@@ -39,6 +39,57 @@ The exceptions are the bootstrap surfaces themselves — `install.sh` and
 prereqs they install themselves. Those get exercised end-to-end by
 `tests/e2e-linux.sh` (also containerized).
 
+**Worktree git resolution.** When the devcontainer is brought up on a git
+*worktree* via the `devcontainer` CLI (how this project's containers are
+typically launched), git would not resolve inside the container by default:
+the worktree's `.git` is a file pointing at `<main-repo>/.git/worktrees/<name>`,
+a host path that isn't mounted, and the CLI — unlike VS Code's Dev Containers
+extension — doesn't special-case worktrees. The devcontainer closes that gap
+so the git common dir is reachable in-container **at the same absolute path it
+has on the host**, which lets the `.git` file resolve *natively* (no `GIT_*`
+overrides). It works for any checkout layout — full clone, main worktree, or a
+linked worktree anywhere on disk:
+
+- `.devcontainer/initialize.sh` (wired as `initializeCommand`) runs on the host
+  before the build and drops two gitignored artifacts: a symlink
+  `.devcontainer/.host-git-common` → the real git common dir, and
+  `.devcontainer/.git-plumbing/host-git-common-path` holding that dir's
+  absolute path. Both regenerate every `up`, so they never go stale and the
+  host tracks nothing. The `.git-plumbing/` directory itself IS tracked
+  (anchored by its README) so the Dockerfile's COPY of the directory
+  succeeds even when the runtime-written file inside is absent — buildx
+  errors on a COPY whose glob matches zero files, so the classic optional-
+  COPY trick is not portable, and the tracked directory is the buildx-safe
+  workaround. CI's `devcontainer build` never runs `initializeCommand`, so
+  the path file is genuinely absent there; the Dockerfile's `[ -s … ]` shell
+  test keeps that case a clean no-op.
+- `devcontainer.json` binds the symlink (a static, `${localWorkspaceFolder}`-
+  relative source — Docker follows it host-side) to a static `/host-git-common`.
+- The `Dockerfile` reads `.git-plumbing/host-git-common-path` (it rides in the
+  build context) and recreates that exact host-absolute path inside the image
+  as a symlink to `/host-git-common`. So the worktree's `.git` file — which
+  names the host-absolute path — follows that symlink to the bind-mounted real
+  common dir and git resolves with its real contents, no env overrides.
+- `workspaceFolder`/`workspaceMount` mount the workspace at its real host path
+  so the worktree's own files and the `.git` back-pointer line up verbatim.
+
+The constraint that forces this shape: devcontainer.json `mounts`/`runArgs`/
+`build.args` only interpolate `${localEnv}`/`${localWorkspaceFolder}` at parse
+time — never a value an `initializeCommand` computes (a child can't set the
+CLI's env). A literal bind whose `target=` is the dynamically-discovered
+host-absolute path would therefore need a system-wide env var; instead the path
+is reproduced *inside the image* as a symlink to a statically-named mount, with
+no env var of any kind. Multiple worktrees run concurrently: each carries its
+own symlink/path file, bakes its own host-absolute symlink into its own image,
+and binds its own `/host-git-common`.
+
+`post-create.sh` still guards `pre-commit install` on `git rev-parse`
+succeeding (skipping with a warning if git is somehow unreachable) so a failing
+last step can't mark the whole build as failed — but with the above in place
+git *does* resolve, so `pre-commit install`/`run` work in a worktree container,
+as do `./tests/run lint` and `python3 dotfiles_manager.py check home_source`.
+The hooks also still gate every PR in CI.
+
 ## The two-language split is intentional
 
 `install.sh` (bash) and `phase2.py` (Python) are two phases of the same

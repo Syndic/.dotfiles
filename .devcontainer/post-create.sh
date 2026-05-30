@@ -91,4 +91,47 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit lives in
 # PIPX_BIN_DIR, which is not necessarily on PATH yet, so call it by full path.
-"$PIPX_BIN_DIR/pre-commit" install
+#
+# Guarded on git actually resolving the repo. In a git *worktree*, `.git` is a
+# file pointing at `<main-repo>/.git/worktrees/<name>` — a host absolute path.
+# The devcontainer mounts only the worktree folder, so that path doesn't exist
+# in-container and every git command fails ("not a git repository: ..."). The
+# VS Code Dev Containers extension special-cases worktrees and mounts the main
+# git dir; the `devcontainer` CLI (which is what spins this container up here)
+# does not. pre-commit can't install — or run — without a resolvable git dir,
+# so skip rather than abort post-create: a broken last step would mark the
+# whole container build as failed over a convenience hook. The checks are still
+# enforced in CI on every PR, and run locally via `./tests/run lint` (which
+# invokes yamllint + ansible-lint directly, no git needed). Where git *does*
+# resolve (full clone, or VS Code's worktree handling) this runs as before.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  # pre-commit refuses to `install` when core.hooksPath is set — it can't own a
+  # hooks dir it doesn't control. We've observed core.hooksPath set on this repo
+  # to the very path git would use by default ($(git_common_dir)/hooks), making
+  # it a redundant no-op that only serves to block the install. Defensively
+  # clear it, but *only* when it's redundant: if it points somewhere else it was
+  # set deliberately (a custom hooks dir), so leave it and warn rather than
+  # silently clobbering intent. The unset is scoped with --worktree when the
+  # repo has per-worktree config enabled (extensions.worktreeConfig), else it
+  # falls back to the standard --local; either way it never touches global config.
+  hooks_path="$(git config --get core.hooksPath || true)"
+  if [ -n "$hooks_path" ]; then
+    default_hooks_path="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
+    if [ "$hooks_path" = "$default_hooks_path" ]; then
+      if [ "$(git config --get extensions.worktreeConfig || true)" = "true" ]; then
+        git config --worktree --unset core.hooksPath
+      else
+        git config --unset core.hooksPath
+      fi
+      echo "post-create: unset redundant core.hooksPath (equalled git's default $default_hooks_path)" >&2
+    else
+      echo "post-create: core.hooksPath is set to a non-default path ($hooks_path) — leaving it alone" >&2
+      echo "post-create: 'pre-commit install' may fail; clear it manually if that's not intended" >&2
+    fi
+  fi
+  "$PIPX_BIN_DIR/pre-commit" install
+else
+  echo "post-create: skipping 'pre-commit install' — git dir not reachable in-container" >&2
+  echo "post-create: (this is a worktree whose .git points to an unmounted host path)" >&2
+  echo "post-create: lint locally with './tests/run lint'; hooks still gate every PR in CI" >&2
+fi
