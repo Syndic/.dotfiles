@@ -1,11 +1,18 @@
 FROM mcr.microsoft.com/devcontainers/base:debian
 
+# uv provides prebuilt CPython (python-build-standalone) plus fast venv/tool
+# installs. It replaces the devcontainers `python` feature, which compiled both
+# the frozen 3.9.6 and the tooling interpreter from source on every image build
+# — the bulk of the old startup cost. post-create.sh drives uv to build the
+# dev/test venvs. The pinned tag is bumped by Renovate's docker manager.
+COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /uvx /usr/local/bin/
+
 # bats-core for the bash test suite (tests/bash) — CI installs the same apt
-# package, keep in sync with .github/workflows/tests.yml. pipx installs the
-# Ansible tooling into isolated venvs (see post-create.sh).
+# package, keep in sync with .github/workflows/tests.yml. Everything Python
+# (pytest, ansible, ansible-lint, molecule, pre-commit) is installed by
+# post-create.sh via uv, not apt/pipx.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         bats \
-        pipx \
     && rm -rf /var/lib/apt/lists/*
 
 # Make a git worktree's metadata resolve in-container at the SAME absolute path

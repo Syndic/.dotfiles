@@ -24,9 +24,9 @@ overview.
 
 This repo ships a Debian devcontainer (`.devcontainer/`) that's the
 intended environment for any work that needs dev tools beyond the
-bootstrap path. `post-create.sh` installs ansible, ansible-lint,
-yamllint, bats, pytest, pre-commit, and molecule — pinned and isolated
-under pipx — so contributing requires nothing on the host.
+bootstrap path. `bats` is apt-installed in the Dockerfile; `post-create.sh`
+builds uv venvs holding ansible, ansible-lint, yamllint, pytest, pre-commit,
+and molecule — so contributing requires nothing on the host.
 
 Run dev tooling from inside the devcontainer, not the host. If a tool
 you need isn't there yet, add it to `post-create.sh` rather than
@@ -121,20 +121,36 @@ Concrete consequences:
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.
 The pin is enforced in three places: the runtime (`/usr/bin/python3` in
 install.sh), CI (`python-version: '3.9'` in `.github/workflows/tests.yml`),
-and the devcontainer (the `python` feature's `version`, pinned to the exact
-CLT patch `3.9.6`, in `.devcontainer/devcontainer.json`). Keep all three in
+and the devcontainer (`uv venv --python 3.9.6` in `.devcontainer/post-create.sh`,
+pinned to the exact CLT patch). Keep all three in step.
+
+The devcontainer provisions Python with **uv**, not the devcontainers `python`
+feature. uv fetches prebuilt CPython from python-build-standalone — including
+3.9.6 — so the frozen pin costs a download, not a from-source compile (the bulk
+of the old startup time; the feature compiled both interpreters every build).
+uv is baked into the image in `.devcontainer/Dockerfile`
+(`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
+
+`post-create.sh` builds three venvs in parallel: `~/.venv` (the frozen 3.9.6 —
+pytest + the default `python3` on PATH), `~/.venv-ansible` (the Ansible dev
+stack — `ansible`, `ansible-lint`, `molecule`, the docker driver — all in one
+venv so they share the single ansible-core and its bundled collections; a second
+collection copy is what produced the duplicate-version warnings, #46/#48), and a
+`uv tool` venv for `pre-commit`. The Ansible stack is a plain venv rather than
+`uv tool` because only a venv exposes every package's entry points
+(`ansible-playbook`, `ansible-galaxy`, `ansible-lint`, `molecule`); `uv tool`
+exposes the primary package's scripts only. Their bin dirs are put on PATH via
+`remoteEnv` in `devcontainer.json` — keep that layout and `post-create.sh` in
 step.
 
-The devcontainer *also* installs the latest Python via that feature's
-`additionalVersions` — but that one is not part of the pin. It exists for the
-Ansible dev tooling (`ansible`, `ansible-lint`, `molecule`), which
-`post-create.sh` installs via pipx on that interpreter because modern
-ansible-core / ansible-lint / molecule all require Python >= 3.10. (ansible-lint
-and molecule are injected into the one `ansible` venv so they share its
-ansible-core and bundled collections; pre-commit gets its own venv.) Renovate
-keeps that latest pin current while leaving `3.9.6` frozen; the wiring is in
-`renovate.json` (a disabled `devcontainer` manager rule for the frozen pin,
-plus a `customManager` for the latest one).
+The Ansible-tooling interpreter is `tooling_python` in `post-create.sh` (it just
+needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
+`3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
+`tooling_python`, matching only the annotated assignment so the frozen 3.9.6 in
+the same file is never touched, plus a second `customManager` keeping the
+molecule CI job's `python-version` in tests.yml in step). The frozen 3.9.6 lives
+in plain `uv venv --python 3.9.6` / `uv pip install` lines that no Renovate
+manager matches, so it stays put without a disable rule.
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.
@@ -324,10 +340,10 @@ Homebrew…" lines arrive at the very end of the captured log.
   `home_source/`, `tests/`, `.github/`, and molecule scratch dirs are
   excluded.
 
-Run locally via `./tests/run lint` (devcontainer; both tools are
-`pipx inject`-ed into the `ansible` venv by `post-create.sh` so they share
-the bundled collections). The pre-commit hooks pin yamllint and
-ansible-lint to specific tags; Renovate's pre-commit manager keeps
+Run locally via `./tests/run lint` (devcontainer; both tools live in the
+`~/.venv-ansible` uv venv `post-create.sh` builds, alongside ansible itself,
+so they share the bundled collections). The pre-commit hooks pin yamllint
+and ansible-lint to specific tags; Renovate's pre-commit manager keeps
 both `rev:` values current.
 
 Adding a new YAML file or role: it'll get linted automatically. If a
@@ -341,8 +357,9 @@ Required for behavior changes. Three suites: bats (bash), pytest (Python),
 and molecule (per-role Ansible scenarios). Lint runs as a fourth suite
 (`./tests/run lint`); see the section above.
 
-Run them from the devcontainer (`.devcontainer/post-create.sh` installs
-bats, pytest, pre-commit, molecule, ansible-lint, yamllint).
+Run them from the devcontainer (`bats` comes from `.devcontainer/Dockerfile`;
+`.devcontainer/post-create.sh` builds the uv venvs holding pytest, pre-commit,
+molecule, ansible-lint, and yamllint).
 
 ```sh
 ./tests/run                          # everything (python + bash + lint + molecule)
