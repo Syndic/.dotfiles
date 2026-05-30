@@ -10,16 +10,10 @@
       "configureZshAsDefaultShell": false,
       "upgradePackages": false
     },
-    "ghcr.io/devcontainers/features/python:1": {
-      // Frozen primary Python. Renovate is blocked from bumping it (renovate.json).
-      // See CLAUDE.md's "Python 3.9 pin" section for the rationale and pin sites.
-      "version": "3.9.6",
-      // Latest Python, for the Ansible tooling installed by post-create.sh.
-      // Renovate keeps this current via the customManager in renovate.json.
-      // renovate: datasource=python-version depName=python
-      "additionalVersions": "3.14",
-      "installTools": false
-    },
+    // No `python` feature: post-create.sh provisions both the frozen 3.9.6 and
+    // the tooling Python with uv (prebuilt python-build-standalone binaries),
+    // which is far faster than the feature's from-source compiles. See
+    // CLAUDE.md's "Python 3.9 pin" section for the pin sites.
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
     // Runs a self-contained docker daemon inside the container so molecule's
@@ -73,15 +67,26 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
   "remoteUser": "vscode",
   "postCreateCommand": ".devcontainer/post-create.sh",
+  // post-create.sh builds three uv environments; prepend their bin dirs so the
+  // bare commands tests/run invokes (`pytest`, `ansible*`, `molecule`,
+  // `ansible-lint`, `pre-commit`) resolve, and so `python3` defaults to the
+  // frozen 3.9.6 in ~/.venv:
+  //   ~/.venv/bin         — pytest under the frozen 3.9.6 (and default python3)
+  //   ~/.venv-ansible/bin — the Ansible dev stack under the tooling Python
+  //   ~/.local/bin        — uv tool installs (pre-commit)
+  // Keep this in sync with the env layout in post-create.sh.
+  "remoteEnv": {
+    "PATH": "/home/vscode/.venv/bin:/home/vscode/.venv-ansible/bin:/home/vscode/.local/bin:${containerEnv:PATH}"
+  },
   "customizations": {
     "vscode": {
-      // Pin the Python extension (and its Testing UI) to the 3.9.6 primary,
-      // where pytest is installed. The Python Environments extension is turned
-      // off because its auto-discovery picks the 3.13 Debian system python in
-      // this container and ignores defaultInterpreterPath (verified — it does
-      // not honor the pin here); classic interpreter management does honor it.
+      // Pin the Python extension (and its Testing UI) to ~/.venv, the uv venv
+      // built on the frozen 3.9.6 where pytest lives (see post-create.sh). The
+      // Python Environments extension is turned off because its auto-discovery
+      // ignores defaultInterpreterPath here (verified); classic interpreter
+      // management does honor it.
       "settings": {
-        "python.defaultInterpreterPath": "/usr/local/python/current/bin/python3",
+        "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
         "python.useEnvironmentsExtension": false
       },
       "extensions": [

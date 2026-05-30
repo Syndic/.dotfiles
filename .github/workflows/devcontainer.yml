@@ -2,8 +2,9 @@
 name: Devcontainer
 
 # Build the devcontainer and smoke-test the toolchain it ships. Catches breakage from
-# Renovate-driven bumps to the Debian base, the `features` block (python/git/etc.), or
-# the apt `bats` install in the Dockerfile before someone hits it locally.
+# Renovate-driven bumps to the Debian base, the `features` block (git/docker-in-docker/
+# etc.), the pinned `uv` image, or the apt `bats` install in the Dockerfile before
+# someone hits it locally.
 # The workflow always runs so the status check always reports — a trigger-level `paths:`
 # filter would skip the workflow entirely on unrelated PRs, leaving a required check
 # permanently pending. Path filtering happens inside the job instead.
@@ -55,11 +56,11 @@ jobs:
         uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
         with:
           push: never
-          # Asserts the default interpreter is still the pinned 3.9.x (a Renovate
-          # bump of the frozen pin would fail here). `bats` confirms the Dockerfile
-          # apt install; `pytest`/`pre-commit` confirm post-create.sh ran. `ansible`
-          # /`ansible-lint` confirm the pipx install onto the latest-Python
-          # additionalVersion landed (their `--version` output names that Python).
+          # Asserts the default interpreter is still the pinned 3.9.x (this is
+          # ~/.venv on PATH via remoteEnv; a bump of the frozen pin would fail
+          # here). `bats` confirms the Dockerfile apt install; `pytest`/
+          # `pre-commit`/`ansible`/`ansible-lint` confirm post-create.sh built
+          # the uv venvs and that remoteEnv put their bin dirs on PATH.
           runCmd: |
             set -euo pipefail
             python3 --version

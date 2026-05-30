@@ -11,28 +11,21 @@
       "matchDepNames": ["python"],
       "matchFileNames": [".github/workflows/tests.yml"],
       "enabled": false
-    },
-    {
-      "description": "Disable Renovate's devcontainer manager for python in devcontainer.json; the primary `version` is frozen. The latest-Python `additionalVersions` is bumped by the customManager below. See CLAUDE.md's 'Python 3.9 pin' section.",
-      "matchManagers": ["devcontainer"],
-      "matchDepNames": ["python"],
-      "matchFileNames": [".devcontainer/devcontainer.json"],
-      "enabled": false
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Keep the devcontainer's latest-Python pin (`additionalVersions`) current. Only the annotated line is matched, so the frozen `version` pin is never touched.",
-      "managerFilePatterns": ["/^\\.devcontainer/devcontainer\\.json$/"],
+      "description": "Keep the devcontainer's tooling-Python pin (`tooling_python` in post-create.sh) current. Only the annotated assignment is matched, so the frozen 3.9.6 in the same file is never touched.",
+      "managerFilePatterns": ["/^\\.devcontainer/post-create\\.sh$/"],
       "matchStrings": [
-        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*\"additionalVersions\": \"(?<currentValue>[^\"]+)\""
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*tooling_python='(?<currentValue>[^']+)'"
       ],
       "versioningTemplate": "python"
     },
     {
       "customType": "regex",
-      "description": "Keep the molecule CI job's Python pin (`python-version` under setup-python) current — should track the devcontainer's `additionalVersions` so local dev and CI agree on the interpreter.",
+      "description": "Keep the molecule CI job's Python pin (`python-version` under setup-python) current — should track the devcontainer's `tooling_python` (post-create.sh) so local dev and CI agree on the interpreter.",
       "managerFilePatterns": ["/^\\.github/workflows/tests\\.yml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*python-version: '(?<currentValue>[^']+)'"
