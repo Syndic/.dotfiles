@@ -47,12 +47,16 @@
   // below work together; see .devcontainer/initialize.sh and the Dockerfile for
   // the full rationale and the parse-time-substitution constraint behind them.
   //
-  // initializeCommand runs on the host first and drops two gitignored artifacts
-  // in .devcontainer/: a symlink `.host-git-common` -> the real git common dir,
-  // and `.host-git-common-path` holding that dir's absolute path. Both are
-  // regenerated every `up`, so they never go stale and the host tracks nothing.
-  // The Dockerfile reads the path file (it's in the build context) and recreates
-  // the host-absolute path in the image as a symlink to /host-git-common.
+  // initializeCommand runs on the host first and drops two gitignored artifacts:
+  // a symlink `.devcontainer/.host-git-common` -> the real git common dir, and
+  // `.devcontainer/.git-plumbing/host-git-common-path` holding that dir's
+  // absolute path. Both are regenerated every `up`, so they never go stale and
+  // the host tracks nothing. The `.git-plumbing/` directory itself is tracked
+  // (see its README) so the Dockerfile's COPY of it succeeds even when the
+  // path file inside is absent — buildx errors on COPY globs matching zero
+  // files. The Dockerfile reads the path file from the build context and
+  // recreates the host-absolute path in the image as a symlink to
+  // /host-git-common.
   "initializeCommand": ".devcontainer/initialize.sh",
   "mounts": [
     // Bind the symlink (a static, workspace-relative SOURCE) to the static
