@@ -1,11 +1,6 @@
 """Shared helpers for phase2.py and uninstall.py.
 
-Phase 1 (install.sh) must stay self-contained because the repo isn't on disk
-yet, but both phase2 and uninstall run after the clone — so they can safely
-import from this module.
-
-The goal is identical wording, ANSI styling, and prompt UX across install and
-uninstall: a user shouldn't be able to tell which script printed a line.
+See CLAUDE.md "Shared module: `_dotfiles_common.py`" for the rationale.
 """
 from __future__ import annotations
 

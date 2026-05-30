@@ -116,11 +116,7 @@ def resolve_host(host_arg) -> str:
     profiles_dir = DOTFILES_DIR / "host_vars"
     recorded = read_recorded_host()
     if recorded:
-        # The marker may be stale — the recorded profile could have been
-        # renamed or deleted since install. Validate against the current
-        # host_vars/ listing; if it's gone, warn and fall through to the
-        # interactive picker rather than silently passing a bad value to
-        # ansible-playbook (which fails later with a confusing --limit error).
+        # Marker may be stale (profile renamed/removed); validate before use.
         if recorded in list_host_profiles(profiles_dir):
             info(f"Using host profile from {INSTALLED_HOST_MARKER.name}: {recorded}")
             return recorded
@@ -133,11 +129,8 @@ def resolve_host(host_arg) -> str:
 
 # ---------------------------------------------------------------------------
 # Action planning
-#
-# An "action" is a (label, callable) pair. The callable does the work when
-# the user confirms; the label is printed in the plan preview. Actions
-# are appended in execution order — see the ORDERING section in the plan
-# file for why.
+# Each builder returns (preview_lines, do_callable). Sections are appended in
+# execution order in main(); see the numbered comments there.
 # ---------------------------------------------------------------------------
 def build_symlink_actions(home: Path, managed_root: Path):
     """Return (preview_lines, do_callable) for the symlink + backup-restore step.
@@ -184,8 +177,7 @@ def build_symlink_actions(home: Path, managed_root: Path):
 def _latest_backup(target_path: Path) -> Path | None:
     """Return the highest-indexed <name>.backup-N sibling, or None.
 
-    Uses the same naming convention as dotfiles_manager.backup_path_info — N
-    starts at 1, no zero-padding."""
+    Mirrors dotfiles_manager.backup_path_info's naming."""
     parent = target_path.parent
     prefix = f"{target_path.name}.backup-"
     best = None

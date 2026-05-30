@@ -1,20 +1,7 @@
 #!/usr/bin/env bash
-# ---------------------------------------------------------------------------
-# install.sh — minimal phase 1 bootstrap shim
-#
-# Responsibilities:
-#   1. Ensure prerequisites for phase 2 are installed:
-#        - macOS:  Xcode Command Line Tools (git + /usr/bin/python3).
-#        - Linux:  apt packages git, python3, curl, ca-certificates, plus
-#                  Homebrew's documented Linux build prerequisites
-#                  build-essential, procps, file — phase 2 installs
-#                  Linuxbrew and they must be present beforehand.
-#   2. Clone or update the dotfiles repo into ~/.dotfiles.
-#   3. Hand off to ~/.dotfiles/phase2.py for everything else.
-#
-# Usage (curl | bash):
-#   curl -fsSL https://install.yanch.ar | bash -s -- --host PROFILE
-# ---------------------------------------------------------------------------
+# install.sh — phase 1 bootstrap shim.
+# Usage (curl | bash): curl -fsSL https://install.yanch.ar | bash -s -- --host PROFILE
+# See CLAUDE.md "The two-language split is intentional" for why phase 1 is bash.
 set -euo pipefail
 
 # DOTFILES_REPO is override-able so the e2e harness can point install.sh at
@@ -36,9 +23,7 @@ die()  { printf "[1;37;101m error [0m $*\n" >&2; exit 1; }
 announce "Joshua Yanchar's Dotfile Setup"
 
 # ---------------------------------------------------------------------------
-# Step 1: Install phase-2 prerequisites
-# Must happen in bash — git and a usable python3 may both be missing on a
-# fresh box, and on macOS /usr/bin/python3 is a stub until CLT is installed.
+# Step 1: Install phase-2 prerequisites (macOS CLT or Linux apt packages)
 # ---------------------------------------------------------------------------
 OS="$(uname -s)"
 
@@ -73,17 +58,10 @@ case "$OS" in
     fi
     ;;
   Linux)
-    # build-essential / procps / file are Homebrew's documented Linux build
-    # prerequisites. They MUST be installed here — phase 2 installs Linuxbrew
-    # and runs `brew install ansible` before the Ansible playbook (and thus
-    # any apt role) ever runs, and the Homebrew installer does not install
-    # them itself.
-    #
-    # Sudo strategy: probe once, prompt at most once, never rely on sudo's
-    # timestamp cache to bridge install.sh's apt step and phase 2's later
-    # Ansible become. The captured password (if any) is exported to phase 2
-    # in $SUDO_PASSWORD so phase 2 can hand it to ansible-playbook via the
-    # ANSIBLE_BECOME_PASS env on that subprocess only.
+    # build-essential / procps / file are Homebrew's Linux build prereqs;
+    # the Homebrew installer doesn't pull them itself. Sudo flow (probe
+    # once, prompt at most once, hand off via $SUDO_PASSWORD): see CLAUDE.md
+    # "Sudo / become on Linux".
     if [[ "$(id -u)" -eq 0 ]]; then
       SUDO_NEEDED=false                # running as root; no escalation required
     elif [[ -n "${SUDO_PASSWORD:-}" ]]; then
@@ -142,7 +120,6 @@ esac
 
 # ---------------------------------------------------------------------------
 # Step 2: Clone or update dotfiles repo
-# git is available now that prerequisites are installed.
 # ---------------------------------------------------------------------------
 
 if [[ -d "${DOTFILES_DIR}/.git" ]]; then
@@ -157,23 +134,10 @@ fi
 
 # ---------------------------------------------------------------------------
 # Step 3: Hand off to Python
-# /usr/bin/python3 is the system Python, reliable now that prerequisites are
-# installed (macOS CLT or Linux apt python3 package).
-# phase2.py handles Homebrew, Ansible, host profile selection, and playbook.
-#
-# Reattach stdin to the controlling terminal when available, so phase2.py's
-# interactive prompts work under `curl | bash` (where bash's stdin is the
-# install-script pipe, not the user's keyboard). Skip the redirect in
-# tty-less contexts so non-interactive runs with --host still launch
-# - phase2.py reports the missing-tty case itself.
-#
-# NOTE: `[[ -r /dev/tty ]]` is unreliable — the file exists in /dev but open() fails
-# when the process has no controlling terminal. Probe the redirect in a
-# subshell first, scoping 2>/dev/null to just the probe, then do the real
-# exec with stderr intact so phase2.py's prompts and errors reach the user.
-# (Wrapping the real exec in a 2>/dev/null group would survive into the
-# exec'd process and silently swallow input()'s prompt and any die() output.)
 # ---------------------------------------------------------------------------
+# /dev/tty probe-and-fallback — see CLAUDE.md "The /dev/tty probe-and-fallback".
+# Don't move 2>/dev/null onto the real exec; it would survive into the exec'd
+# Python and swallow input()'s prompts.
 if (exec < /dev/tty) 2>/dev/null; then
   exec "$PYTHON3" "${DOTFILES_DIR}/phase2.py" "$@" < /dev/tty
 else
