@@ -110,10 +110,18 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   # silently clobbering intent. The unset is scoped with --worktree when the
   # repo has per-worktree config enabled (extensions.worktreeConfig), else it
   # falls back to the standard --local; either way it never touches global config.
+  #
+  # Use bash's `-ef` (same-inode) test rather than string equality: in worktree
+  # devcontainers the host-absolute path in `config.worktree` (e.g.
+  # /Users/jjyanchar/.dotfiles/.git/hooks) is symlinked to /host-git-common/hooks
+  # by the Dockerfile + the bind mount from initialize.sh, so the two strings
+  # name the SAME directory through a symlink but compare unequal as text. `-ef`
+  # resolves both and tests inode equality, so the redundant case is recognized
+  # whether or not the worktree-fix symlink layer is in play.
   hooks_path="$(git config --get core.hooksPath || true)"
   if [ -n "$hooks_path" ]; then
     default_hooks_path="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
-    if [ "$hooks_path" = "$default_hooks_path" ]; then
+    if [ "$hooks_path" -ef "$default_hooks_path" ]; then
       if [ "$(git config --get extensions.worktreeConfig || true)" = "true" ]; then
         git config --worktree --unset core.hooksPath
       else
