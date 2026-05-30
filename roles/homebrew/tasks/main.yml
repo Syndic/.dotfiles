@@ -1,20 +1,9 @@
 ---
 # homebrew role
-# Run `brew bundle` over the layered Brewfiles
-# (common_brewfile + (group_<set>_brewfile for set in group_sets) + host_brewfile).
-# See group_vars/all.yml for the package-layering convention (including
-# the `lookup('vars', ...)`-based indirection over `group_sets`).
-# Runs on both macOS and Linux (Linuxbrew). Anything macOS-only
-# (formulae, casks, etc.) lives in the `os`-set's macos Brewfile
-# layer (`brewfiles/groups/macos.Brewfile`), so the common layer
-# stays genuinely cross-platform.
+# Run `brew bundle` over the layered Brewfiles. Layering convention:
+# see group_vars/all.yml. Runs on macOS and Linuxbrew.
 
 - name: Resolve homebrew group-set Brewfile paths
-  # `lookup('vars', name)` without a default raises on a missing name,
-  # so a typo in `group_sets` or a group_vars file that doesn't declare
-  # its `group_<set>_brewfile` layer fails loudly here. Empty-string
-  # paths (linux.yml's default for no OS-layer Brewfile) get filtered
-  # out by the stat step's `when`.
   ansible.builtin.set_fact:
     homebrew_group_brewfile_layer: >-
       {{ (homebrew_group_brewfile_layer | default([]))
@@ -36,12 +25,6 @@
     label: "{{ item }}"
 
 - name: Collect the Brewfile layers that exist on disk
-  # Flattens the stat results into a plain list of paths so the loops
-  # below don't have to chase nested attributes through a registered
-  # loop result. Layers whose variable was empty (the stat above
-  # skipped them via `when`) have no `stat` key, hence the first
-  # selectattr; layers whose path doesn't exist on disk are filtered
-  # by the second.
   ansible.builtin.set_fact:
     homebrew_present_brewfiles: >-
       {{ homebrew_brewfile_stats.results
@@ -50,10 +33,7 @@
          | map(attribute='stat.path')
          | list }}
 
-# `brew bundle check` exits 0 when every entry in the file is already
-# satisfied, non-zero otherwise. It's much cheaper than `brew bundle
-# install` because it skips the per-formula network probe — so use it as
-# an idempotency gate and only run the install when something drifted.
+# Idempotency gate — see CLAUDE.md "Homebrew role idempotency gate".
 - name: Check whether each Brewfile layer is already satisfied
   ansible.builtin.command:
     argv:
@@ -85,12 +65,8 @@
     ('Installing' in (homebrew_bundle_result.stdout | default('')))
     or ('Upgrading' in (homebrew_bundle_result.stdout | default('')))
 
-# Upgrade pass — runs once after all per-layer bundle installs.
-# Controlled by homebrew_upgrade_outdated (default true in
-# roles/homebrew/defaults/main.yml); pass `--no-upgrade` to install.sh /
-# phase2.py for a per-run opt-out (sets the var to false via `-e`).
-# `brew outdated` is cheap and is gated first so the `brew upgrade` task
-# only reports CHANGED when there was actually something to upgrade.
+# Upgrade pass — see CLAUDE.md "Homebrew role idempotency gate". Gated on
+# `brew outdated` having output so CHANGED reflects real work.
 - name: Find outdated Homebrew packages
   ansible.builtin.command:
     argv:

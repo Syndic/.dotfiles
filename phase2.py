@@ -47,10 +47,6 @@ BREW_PATHS = [
 ]
 
 
-# Output helpers (announce, info, warn, die, run, centered_announce) and the
-# host-profile helpers (is_profile_entry, resolve_host_profile) live in
-# _dotfiles_common.py so uninstall.py can share them.
-
 # ---------------------------------------------------------------------------
 # Step 0: Argument parsing
 # ---------------------------------------------------------------------------
@@ -98,15 +94,12 @@ def select_ascii_art_format() -> str:
 
     Currently, the options are ASCII_ART_TRUECOLOR_SUBDIR and ASCII_ART_256_COLOR_SUBDIR.
     """
-    # info("Detecting appropriate ascii art format for the terminal emulator...")
     colorterm = os.environ.get("COLORTERM", "").lower()
     term = os.environ.get("TERM", "")
 
     if colorterm in {"truecolor", "24bit"} or term.endswith("-direct"):
-        # info("Detected truecolor terminal support - using truecolor ascii art.")
         return ASCII_ART_TRUECOLOR_SUBDIR
 
-    # info("Falling back to ANSI 256-color ascii art.")
     return ASCII_ART_256_COLOR_SUBDIR
 
 def display_kilobyte(format_subdir: str) -> None:
@@ -294,20 +287,15 @@ def capture_sudo_password() -> str | None:
 # Entry point
 # ---------------------------------------------------------------------------
 def main() -> None:
-    # Line-buffer our own output so status lines ("Installing Homebrew...",
-    # the kilobyte ASCII art, etc.) flush at each newline. Without this,
-    # Python full-buffers stdout/stderr when they aren't a tty (CI logs,
-    # docker logs, redirects), so our prints sit in Python's buffer until
-    # exit while curl/brew/ansible-playbook write directly to the underlying
-    # fd — and the captured output ends up with our status text appearing
-    # AFTER the subprocess output it was meant to describe.
+    # See CLAUDE.md "Output buffering" — interleaves status lines with
+    # subprocess output in CI/docker logs.
     sys.stdout.reconfigure(line_buffering=True)
     sys.stderr.reconfigure(line_buffering=True)
 
     args = parse_args()
 
-    # Capture the sudo password (if any) BEFORE running anything else so it's
-    # out of os.environ before brew, the Homebrew installer, etc. can inherit it.
+    # Pop SUDO_PASSWORD before anything else can inherit it (Homebrew installer,
+    # brew, etc.). See CLAUDE.md "Sudo / become on Linux".
     sudo_password = capture_sudo_password()
 
     display_kilobyte(select_ascii_art_format())

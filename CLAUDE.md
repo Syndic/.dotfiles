@@ -470,28 +470,15 @@ gate.
   list).
 - The universal Brewfile layer lives at `brewfiles/common.Brewfile`.
 - Group Brewfile layers live in `brewfiles/groups/`.
-- **Package-layering variable naming convention.** Three scopes per backend
-  (brewfile / apt / flatpak) and per macOS settings input (macos_defaults /
-  dockitems_persist / dockitems_remove), encoded as a name prefix:
-  `common_<thing>` (all hosts; `group_vars/all.yml`),
-  `group_<set>_<thing>` (per-group within a set; `group_vars/<group>.yml`),
-  `host_<thing>` (`host_vars/<host>.yml`). Active sets today: `purpose`
-  (personal | work) and `os` (macos | linux). The set list lives in
-  `group_sets` in `group_vars/all.yml`; each role iterates it via
-  `lookup('vars', 'group_' ~ item ~ '_<thing>')` in a per-set
-  `set_fact` loop so adding a new set is a one-line edit there (plus
-  the per-group_vars files for the new groups). `lookup('vars', name)`
-  without a default raises loudly on a missing name — typos in
-  `group_sets` or in a group_vars file's `group_<set>_<thing>` are
-  fail-fast, not silent zero-contributions. The corollary is that
-  every `group_vars/<group>.yml` must declare every layered var a role
-  running on hosts in that group will consume (use `[]` or `""` for
-  layers the group doesn't actually contribute to). Don't switch to
-  `extract` over a dict-typed `vars` for the indirection — `vars` as
-  a dict is deprecated in ansible-core and will be removed in 2.24.
-  The per-set `set_fact` loop with `lookup('vars', ...)` is the
-  supported pattern; it's longer than an `extract` one-liner but
-  doesn't carry deprecation. Full spec in `group_vars/all.yml`.
+- **Package-layering variable naming convention.** Canonical spec lives in
+  `group_vars/all.yml` — the comment block at the top defines the scope
+  prefixes (`common_`, `group_<set>_`, `host_`), the `group_sets`
+  indirection, the standard role-side `set_fact` + `lookup('vars', ...)`
+  pattern, and the fail-loud-on-typo invariant. One non-obvious gotcha
+  worth keeping here so it doesn't drift: don't switch to `extract` over a
+  dict-typed `vars` — `vars` as a dict is deprecated in ansible-core and
+  will be removed in 2.24, so the per-set `set_fact` loop is the
+  supported pattern despite being longer.
 - **Role gating uses runtime facts, not inventory groups.** `site.yml` keys
   off `ansible_facts['system']` / `ansible_facts['os_family']`, so the
   `os` group set (`macos` | `linux`) controls layered _values_, not
