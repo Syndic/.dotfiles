@@ -17,7 +17,7 @@
     path: "{{ item }}"
   loop: >-
     {{ [common_brewfile | default('')]
-       + homebrew_group_brewfile_layer
+       + (homebrew_group_brewfile_layer | default([]))
        + [host_brewfile | default('')] }}
   register: homebrew_brewfile_stats
   when: item | length > 0

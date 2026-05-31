@@ -1,0 +1,28 @@
+---
+- name: Verify — homebrew role (multi-layer)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Query brew for one formula per layer
+      ansible.builtin.command:
+        cmd: "brew list --formula --versions {{ item }}"
+      register: homebrew_multi_results
+      changed_when: false
+      failed_when: false
+      loop:
+        - jq       # common_brewfile
+        - wget     # group_purpose_brewfile
+        - tree     # group_os_brewfile
+        - ripgrep  # host_brewfile
+
+    - name: Each layer's formula must be installed
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - item.stdout is search('^' ~ item.item ~ ' ')
+        fail_msg: >-
+          {{ item.item }} not installed
+          (rc={{ item.rc }}, stdout={{ item.stdout }})
+      loop: "{{ homebrew_multi_results.results }}"
+      loop_control:
+        label: "{{ item.item }}"

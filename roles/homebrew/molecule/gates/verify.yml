@@ -1,0 +1,26 @@
+---
+# The per-play post_tasks in converge.yml carry the introspection on
+# `homebrew_bundle_result` / `homebrew_outdated` — that's where the
+# registered vars are in scope. This file covers the external observable:
+# the image's pre-installed `hello` formula survives both converges
+# (nothing was uninstalled, no surprise upgrade happened on a gated-off
+# path).
+- name: Verify — homebrew role (gates)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: hello formula must still be installed after both gate paths
+      ansible.builtin.command:
+        cmd: brew list --formula --versions hello
+      register: homebrew_gates_hello
+      changed_when: false
+      failed_when: false
+
+    - name: Assert hello is present
+      ansible.builtin.assert:
+        that:
+          - homebrew_gates_hello.rc == 0
+          - homebrew_gates_hello.stdout is search('^hello ')
+        fail_msg: >-
+          hello not installed after gates converge
+          (rc={{ homebrew_gates_hello.rc }}, stdout={{ homebrew_gates_hello.stdout }})

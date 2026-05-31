@@ -1,0 +1,20 @@
+---
+- name: Verify — homebrew role (default)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Query brew for the installed formula
+      ansible.builtin.command:
+        cmd: brew list --formula --versions tree
+      register: homebrew_default_tree
+      changed_when: false
+      failed_when: false
+
+    - name: The common-layer formula must be installed
+      ansible.builtin.assert:
+        that:
+          - homebrew_default_tree.rc == 0
+          - homebrew_default_tree.stdout is search('^tree ')
+        fail_msg: >-
+          tree not installed
+          (rc={{ homebrew_default_tree.rc }}, stdout={{ homebrew_default_tree.stdout }})

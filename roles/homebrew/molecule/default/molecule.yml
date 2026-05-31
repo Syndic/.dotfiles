@@ -1,0 +1,41 @@
+---
+# molecule scenario for the homebrew role — happy path + idempotence.
+#
+# A one-formula common Brewfile drives the role. First converge installs;
+# the idempotence step re-converges and asserts nothing CHANGED. The
+# `brew bundle check` gate (ae021b2) is what makes that second pass clean,
+# so a regression there shows up as an idempotence failure.
+
+driver:
+  name: docker
+
+platforms:
+  - name: homebrew-default
+    # Built locally by ./tests/run molecule from
+    # roles/homebrew/molecule/Dockerfile. See that file's header for why
+    # this isn't pulled from a registry yet.
+    image: dotfiles-homebrew-molecule:local
+    pre_build_image: true
+    # No privileged / systemd / cgroup mount — the homebrew role has no
+    # `become:` and doesn't touch services, so a plain long-lived process
+    # is enough for ansible to docker-exec into.
+    command: sleep infinity
+
+provisioner:
+  name: ansible
+  # Connect as the non-root user that owns the Linuxbrew install. brew
+  # refuses to run as root on Linux.
+  inventory:
+    host_vars:
+      homebrew-default:
+        ansible_user: linuxbrew
+  env:
+    # Point ansible at the repo's roles/ dir so `role: <name>` in
+    # converge.yml resolves. Same trick the other scenarios use.
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      callback_result_format: yaml
+
+verifier:
+  name: ansible

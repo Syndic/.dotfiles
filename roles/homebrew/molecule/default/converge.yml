@@ -1,0 +1,32 @@
+---
+# Converge — homebrew role, single-layer happy path.
+# One formula (`tree`) in the common Brewfile; the image doesn't ship it
+# pre-installed, so the first converge installs it and the idempotence
+# re-converge finds `brew bundle check` satisfied and skips the install.
+- name: Converge — homebrew role (default)
+  hosts: all
+  gather_facts: true
+  vars:
+    # No group layers — the single-layer happy path only needs common.
+    # The role's `lookup('vars', 'group_<set>_brewfile')` raises on a
+    # missing var, so any set listed here must also have a fixture below.
+    group_sets: []
+    common_brewfile: /tmp/molecule-homebrew/common.Brewfile
+  pre_tasks:
+    - name: Ensure fixture dir exists
+      ansible.builtin.file:
+        path: /tmp/molecule-homebrew
+        state: directory
+        mode: '0755'
+
+    - name: Write common Brewfile fixture
+      ansible.builtin.copy:
+        # `tree` is small, fast to install, and not pre-baked into the
+        # scenario base image — so the first converge actually exercises
+        # `brew bundle install`.
+        content: |
+          brew "tree"
+        dest: "{{ common_brewfile }}"
+        mode: '0644'
+  roles:
+    - role: homebrew

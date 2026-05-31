@@ -1,0 +1,36 @@
+---
+# molecule scenario for the homebrew role — multi-layer composition.
+#
+# Drives the role with every Brewfile layer populated (common +
+# group_purpose + group_os + host, mirroring production's
+# `group_sets: [purpose, os]`) and asserts each layer's formula ends
+# up installed. The regression cover is for 0861663: after the
+# `loop_var: <name>` indirection on the registered check results,
+# `item.item` must resolve to the path string, not the stat dict. If
+# that breaks, either the install task errors at Jinja-render time or
+# the wrong file gets installed — either way the per-layer assertions
+# in verify.yml fail.
+
+driver:
+  name: docker
+
+platforms:
+  - name: homebrew-multi-layer
+    image: dotfiles-homebrew-molecule:local
+    pre_build_image: true
+    command: sleep infinity
+
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      homebrew-multi-layer:
+        ansible_user: linuxbrew
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      callback_result_format: yaml
+
+verifier:
+  name: ansible

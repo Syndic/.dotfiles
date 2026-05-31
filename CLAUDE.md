@@ -371,9 +371,11 @@ molecule, ansible-lint, and yamllint).
 ```
 
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
-under `roles/<role>/molecule/default/` per role; today the dotfiles, apt, and
-flatpak roles are covered. The bare `./tests/run` runs everything; use
-`./tests/run fast` when you don't have Docker (or don't want to pay the
+under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,
+flatpak, and homebrew roles are covered. Most roles have a single `default/`
+scenario; **homebrew has three** (`default`, `multi_layer`, `gates`) — see
+"Homebrew molecule scenarios" below. The bare `./tests/run` runs everything;
+use `./tests/run fast` when you don't have Docker (or don't want to pay the
 ~5-min molecule cost) and just need the python/bash gates.
 
 Why molecule on top of the e2e harnesses: the e2e suite is gated to manual
@@ -389,6 +391,63 @@ flatpak install (which would blow the per-scenario time budget). If
 either the role's resolve loop or its install task `name:` expression
 changes, update `roles/flatpak/molecule/default/converge.yml` in
 lockstep with `roles/flatpak/tasks/main.yml`.
+
+### Homebrew molecule scenarios
+
+Three scenarios under `roles/homebrew/molecule/`, all sharing a single
+base image built locally by `./tests/run molecule` from
+`roles/homebrew/molecule/Dockerfile` and tagged
+`dotfiles-homebrew-molecule:local`. The image bakes Linuxbrew + a
+pre-installed `hello` formula; building it cold costs ~5 min, but the
+docker layer cache makes rebuilds near-free locally. CI pays the cold-
+build cost every run today — a followup will bake-and-publish to ghcr so
+CI pulls instead. Each scenario references the tag with
+`pre_build_image: true`.
+
+The image deliberately diverges from the apt/dotfiles/flatpak base
+(`geerlingguy/docker-debian12-ansible`): the homebrew role has no
+`become:` and doesn't manage services, so a plain `debian:bookworm-slim`
+with `python3` and a non-root `linuxbrew` user (brew refuses to run as
+root on Linux) is enough. Scenarios connect ansible via
+`ansible_user: linuxbrew` in `provisioner.inventory.host_vars`.
+
+What each scenario covers:
+
+- **`default/`** — one-formula Brewfile, happy path. The idempotence
+  re-converge is the regression cover for the `brew bundle check` gate
+  in `ae021b2` — without the gate, the install task would always report
+  CHANGED on second run.
+- **`multi_layer/`** — every Brewfile layer populated (common +
+  group_purpose + group_os + host), one distinct formula each. Mirrors
+  production's `group_sets: [purpose, os]`. Asserts every formula ends
+  up installed. Regression cover for `0861663`: the install task's
+  `loop_var` indirection must resolve `item.item` to the path string;
+  if that breaks, the assertions in `verify.yml` fail.
+- **`gates/`** — two converges in one play file against a single
+  container. First play (`homebrew_upgrade_outdated: true`, default)
+  asserts the install task is gated off (image satisfies the Brewfile)
+  and the outdated check runs but returns empty. Second play
+  (`homebrew_upgrade_outdated: false`) asserts the outdated check
+  itself is skipped. Inline `post_tasks` introspect
+  `homebrew_bundle_result` / `homebrew_outdated` — that's where those
+  registered vars are in scope. `verify.yml` carries one external check
+  (the baked formula survives both converges); the gate semantics
+  themselves can only be observed via the registered task results.
+
+The single-container, two-play gates layout shares the image-install
+cost across both gate paths and lets the second play's pre-state inherit
+from the first — exactly the contract under test. Splitting into two
+scenarios would double the setup cost for no additional coverage.
+
+**Pre-test image build is currently inlined in `tests/run`.** The
+`docker build -t dotfiles-homebrew-molecule:local …` step lives at the
+top of `run_molecule()` rather than in any per-role hook, because
+homebrew is the only role today with pre-test setup. If a second role
+ever needs a comparable step, that's the signal to extract a per-role
+convention (e.g., a `molecule/prepare.sh` `tests/run` discovers and runs
+before each role's `molecule test`) rather than adding a second inline
+branch. Until then, the inline path is correct-altitude — generalizing
+on one data point would be premature.
 
 Two end-to-end harnesses live under `tests/`, both running inside a fresh
 Debian container as a non-root sudo user. They share Docker plumbing via
