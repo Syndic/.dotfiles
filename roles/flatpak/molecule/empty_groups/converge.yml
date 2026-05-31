@@ -1,0 +1,53 @@
+---
+# Composition-only mirror with `group_sets: []`. The two set_fact blocks
+# mirror the role's init + resolve + install expressions in
+# roles/flatpak/tasks/main.yml; the assertion confirms that the layered
+# composition is `common + host` (no group contributions) and that
+# flatpak_group_layer is defined as `[]` even though the resolve loop
+# ran zero times. If the role's resolve init step or expressions change,
+# update this file in lockstep — same caveat as the default scenario.
+- name: Converge — flatpak role (empty group_sets, composition-only mock)
+  hosts: all
+  gather_facts: false
+  vars:
+    group_sets: []
+    common_flatpak:
+      - org.example.Common
+    host_flatpak:
+      - org.example.HostOnly
+  tasks:
+    - name: Initialize flatpak_group_layer (mirrors role's init task)
+      ansible.builtin.set_fact:
+        flatpak_group_layer: []
+
+    - name: Resolve flatpak group-set layers (mirrors role's resolve task)
+      ansible.builtin.set_fact:
+        flatpak_group_layer: >-
+          {{ flatpak_group_layer
+             + lookup('vars', 'group_' ~ item ~ '_flatpak') }}
+      loop: "{{ group_sets }}"
+      loop_control:
+        label: "group_{{ item }}_flatpak"
+
+    - name: Compute the full layered list (mirrors role's install task `name:`)
+      ansible.builtin.set_fact:
+        flatpak_composed_packages: >-
+          {{ (common_flatpak | default([]))
+             + flatpak_group_layer
+             + (host_flatpak | default([])) }}
+
+    - name: flatpak_group_layer must be defined and empty
+      ansible.builtin.assert:
+        that:
+          - flatpak_group_layer is defined
+          - flatpak_group_layer == []
+        fail_msg: "flatpak_group_layer not empty: {{ flatpak_group_layer | default('<undef>') }}"
+
+    - name: Composed list must be common + host (no group contributions)
+      ansible.builtin.assert:
+        that:
+          - flatpak_composed_packages == [
+              'org.example.Common',
+              'org.example.HostOnly',
+            ]
+        fail_msg: "Layered composition wrong: {{ flatpak_composed_packages }}"

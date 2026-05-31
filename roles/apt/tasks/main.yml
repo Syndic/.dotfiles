@@ -9,6 +9,12 @@
 # ansible_os_family == 'Debian' in site.yml, so it's safe to expect
 # apt here.
 
+# Init guarantees apt_group_layer is defined even when group_sets is
+# empty (the resolve loop below runs zero times in that case).
+- name: Initialize apt_group_layer
+  ansible.builtin.set_fact:
+    apt_group_layer: []
+
 - name: Resolve apt group-set layers
   # `lookup('vars', name)` without a default raises on a missing name,
   # so a typo in `group_sets` or a group_vars file that doesn't declare
@@ -16,8 +22,7 @@
   # contributing nothing.
   ansible.builtin.set_fact:
     apt_group_layer: >-
-      {{ (apt_group_layer | default([]))
-         + lookup('vars', 'group_' ~ item ~ '_apt') }}
+      {{ apt_group_layer + lookup('vars', 'group_' ~ item ~ '_apt') }}
   loop: "{{ group_sets }}"
   loop_control:
     label: "group_{{ item }}_apt"

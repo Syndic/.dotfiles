@@ -1,0 +1,24 @@
+---
+- name: Verify — apt role (empty group_sets)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Query dpkg for common_apt + host_apt packages
+      ansible.builtin.command:
+        cmd: "dpkg-query -W -f=${Status} {{ item }}"
+      register: apt_dpkg_status
+      changed_when: false
+      failed_when: false
+      loop:
+        - tree   # common_apt
+        - bzip2  # host_apt
+
+    - name: Each layer's package must be installed
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - "'install ok installed' in item.stdout"
+        fail_msg: "{{ item.item }} not installed (rc={{ item.rc }}, stdout={{ item.stdout }})"
+      loop: "{{ apt_dpkg_status.results }}"
+      loop_control:
+        label: "{{ item.item }}"
