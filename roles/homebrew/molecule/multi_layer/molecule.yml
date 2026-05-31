@@ -1,19 +1,15 @@
 ---
 # molecule scenario for the homebrew role — multi-layer composition.
 #
-# Drives the role with all three Brewfile layers populated (common +
-# group_purpose + host) and asserts each layer's formula ends up
-# installed. The regression cover is for 0861663: after the
+# Drives the role with every Brewfile layer populated (common +
+# group_purpose + group_os + host, mirroring production's
+# `group_sets: [purpose, os]`) and asserts each layer's formula ends
+# up installed. The regression cover is for 0861663: after the
 # `loop_var: <name>` indirection on the registered check results,
 # `item.item` must resolve to the path string, not the stat dict. If
 # that breaks, either the install task errors at Jinja-render time or
 # the wrong file gets installed — either way the per-layer assertions
 # in verify.yml fail.
-#
-# The role iterates exactly common_brewfile + group_purpose_brewfile +
-# host_brewfile today (not the full group_sets axis — see the role's
-# tasks/main.yml). We test what the role actually does, not the
-# convention's full surface.
 
 driver:
   name: docker

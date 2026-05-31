@@ -17,7 +17,8 @@
 #
 # Why a `linuxbrew` user: brew refuses to install or run as root on Linux.
 # Scenarios connect ansible as this user via `ansible_user: linuxbrew` in
-# each molecule.yml.
+# each molecule.yml. No sudo: the homebrew role has no `become:` and the
+# converges never escalate.
 FROM debian:bookworm-slim
 
 RUN apt-get update \
@@ -29,11 +30,9 @@ RUN apt-get update \
         git \
         procps \
         python3 \
-        sudo \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --shell /bin/bash linuxbrew \
-    && echo 'linuxbrew ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/linuxbrew
+RUN useradd --create-home --shell /bin/bash linuxbrew
 
 USER linuxbrew
 WORKDIR /home/linuxbrew
@@ -48,8 +47,6 @@ RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" \
     && brew install hello
 
 # Make brew discoverable from non-login shells (ansible.builtin.command uses
-# direct exec, no shell rc loading).
+# direct exec, no shell rc loading). HOMEBREW_PREFIX / _CELLAR / _REPOSITORY
+# don't need explicit ENV — brew computes them from its own binary location.
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
-ENV HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
-ENV HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar"
-ENV HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew"
