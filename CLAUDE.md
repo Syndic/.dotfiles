@@ -439,6 +439,16 @@ cost across both gate paths and lets the second play's pre-state inherit
 from the first — exactly the contract under test. Splitting into two
 scenarios would double the setup cost for no additional coverage.
 
+**Pre-test image build is currently inlined in `tests/run`.** The
+`docker build -t dotfiles-homebrew-molecule:local …` step lives at the
+top of `run_molecule()` rather than in any per-role hook, because
+homebrew is the only role today with pre-test setup. If a second role
+ever needs a comparable step, that's the signal to extract a per-role
+convention (e.g., a `molecule/prepare.sh` `tests/run` discovers and runs
+before each role's `molecule test`) rather than adding a second inline
+branch. Until then, the inline path is correct-altitude — generalizing
+on one data point would be premature.
+
 Two end-to-end harnesses live under `tests/`, both running inside a fresh
 Debian container as a non-root sudo user. They share Docker plumbing via
 `tests/lib/e2e-common.sh` — the shared library handles the tarball
