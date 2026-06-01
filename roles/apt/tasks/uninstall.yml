@@ -2,11 +2,17 @@
 # apt role — uninstall path. Inverse of main.yml.
 # Resolves the same group-set layers and sets state: absent.
 
+# Init guarantees apt_group_layer is defined even when group_sets is
+# empty (the resolve loop below runs zero times in that case). Mirrors
+# the install side; see roles/apt/tasks/main.yml.
+- name: Initialize apt_group_layer
+  ansible.builtin.set_fact:
+    apt_group_layer: []
+
 - name: Resolve apt group-set layers
   ansible.builtin.set_fact:
     apt_group_layer: >-
-      {{ (apt_group_layer | default([]))
-         + lookup('vars', 'group_' ~ item ~ '_apt') }}
+      {{ apt_group_layer + lookup('vars', 'group_' ~ item ~ '_apt') }}
   loop: "{{ group_sets }}"
   loop_control:
     label: "group_{{ item }}_apt"
