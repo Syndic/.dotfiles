@@ -50,9 +50,23 @@ jobs:
       - run: ansible-lint
 
   molecule:
-    # Per-role molecule scenarios (roles/{dotfiles,apt,flatpak}/molecule/default).
-    # Faster than the e2e-linux harness so it's safe to gate every PR on;
-    # the heavy install↔uninstall round-trip stays manual via workflow_dispatch.
+    # Per-role molecule scenarios, sharded across roles via the matrix. The
+    # previous serial single job was wall-clock-bound by whatever the slowest
+    # role happened to be (today: homebrew, which builds a Linuxbrew base
+    # image inline); sharding lets the lighter roles return in parallel while
+    # homebrew runs in its own cell. Local devs still get the serial path
+    # via `./tests/run molecule` (no role arg).
+    #
+    # `fail-fast: false` so a failure in one role doesn't cancel sibling
+    # shards — we want every failing role surfaced in one CI run, not a
+    # whack-a-mole sequence.
+    #
+    # New molecule-covered roles must be added here AND to MOLECULE_ROLES in
+    # tests/run (local serial and CI shard discovery read different sources).
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [dotfiles, apt, flatpak, homebrew]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -75,4 +89,4 @@ jobs:
       # keeps the molecule job working if a future `ansible` release trims its
       # bundle. Mirrors .devcontainer/post-create.sh.
       - run: ansible-galaxy collection install community.docker ansible.posix
-      - run: ./tests/run molecule
+      - run: ./tests/run molecule ${{ matrix.role }}

@@ -377,7 +377,8 @@ molecule, ansible-lint, and yamllint).
 ./tests/run python                   # pytest only
 ./tests/run bash                     # bats only
 ./tests/run lint                     # yamllint + ansible-lint
-./tests/run molecule                 # molecule only (needs docker)
+./tests/run molecule                 # all molecule roles, serial (needs docker)
+./tests/run molecule <role>          # one role's scenarios (used by the CI matrix)
 ```
 
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
@@ -387,6 +388,17 @@ scenario; **homebrew has three** (`default`, `multi_layer`, `gates`) — see
 "Homebrew molecule scenarios" below. The bare `./tests/run` runs everything;
 use `./tests/run fast` when you don't have Docker (or don't want to pay the
 ~5-min molecule cost) and just need the python/bash gates.
+
+**Molecule CI is sharded across roles** via a `strategy.matrix` in
+`tests.yml` — one runner per role, all in parallel. The previous single
+job was wall-clock-bound by the slowest role (homebrew, which builds a
+Linuxbrew base image inline); sharding lets the lighter roles return in
+1-2 min while homebrew runs in its own cell. The roles list is duplicated
+in two places — `MOLECULE_ROLES` in `tests/run` for local serial runs, and
+`matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
+covered role requires updating both. `fail-fast: false` is set on the
+matrix so a failure in one shard doesn't cancel the siblings; we want
+every failing role surfaced in a single CI run.
 
 Why molecule on top of the e2e harnesses: the e2e suite is gated to manual
 `workflow_dispatch` because of its runtime, so per-PR coverage of role-level
@@ -449,15 +461,22 @@ cost across both gate paths and lets the second play's pre-state inherit
 from the first — exactly the contract under test. Splitting into two
 scenarios would double the setup cost for no additional coverage.
 
-**Pre-test image build is currently inlined in `tests/run`.** The
-`docker build -t dotfiles-homebrew-molecule:local …` step lives at the
-top of `run_molecule()` rather than in any per-role hook, because
-homebrew is the only role today with pre-test setup. If a second role
-ever needs a comparable step, that's the signal to extract a per-role
+**Pre-test image build is currently inlined in `tests/run`,** gated to
+the homebrew shard. The `docker build -t dotfiles-homebrew-molecule:local
+…` step lives inside `run_molecule()` and only fires when the homebrew
+role is in the run set — so the lighter matrix cells (dotfiles, apt,
+flatpak) don't pay for an image they never use. If a second role ever
+needs a comparable step, that's the signal to extract a per-role
 convention (e.g., a `molecule/prepare.sh` `tests/run` discovers and runs
-before each role's `molecule test`) rather than adding a second inline
+before each role's `molecule test`) rather than adding a second gated
 branch. Until then, the inline path is correct-altitude — generalizing
 on one data point would be premature.
+
+CI still pays the full cold image build per homebrew shard run because
+matrix cells don't share docker layer caches across runs. That's the
+specific cost the ghcr-publish followup addresses: building the base
+image once on Dockerfile changes and pulling it in CI from
+`ghcr.io/syndic/dotfiles-homebrew-molecule:latest`.
 
 Two end-to-end harnesses live under `tests/`, both running inside a fresh
 Debian container as a non-root sudo user. They share Docker plumbing via
