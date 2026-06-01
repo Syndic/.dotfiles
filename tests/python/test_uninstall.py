@@ -44,6 +44,11 @@ def fake_install(tmp_path, monkeypatch):
     (home / ".keep_me").write_text("user data, do not touch\n")
     (home / ".other_link").symlink_to(Path("/tmp/somewhere_outside"))
 
+    # host_vars/fake.yml so an explicit --host fake passes the validator
+    # the shared resolver now enforces (see test_resolve_host_profile).
+    (managed_root / "host_vars").mkdir()
+    (managed_root / "host_vars" / "fake.yml").write_text("")
+
     monkeypatch.setattr(uninstall, "DOTFILES_DIR", managed_root)
     monkeypatch.setattr(
         uninstall, "INSTALLED_HOST_MARKER", managed_root / ".installed-host"
@@ -151,9 +156,21 @@ def test_read_recorded_host_returns_none_for_empty_marker(fake_install):
     assert uninstall.read_recorded_host() is None
 
 
+def test_resolve_host_validates_explicit_arg(fake_install, capsys):
+    # Symmetric to phase2's resolver: a typo'd uninstall --host must fail
+    # loudly rather than reach `ansible-playbook --limit` and silently skip.
+    _, managed_root = fake_install
+    (managed_root / "host_vars" / "mini26.yml").write_text("")
+    with pytest.raises(SystemExit) as exc:
+        uninstall.resolve_host("typo")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "No host profile named 'typo'" in err
+    assert "mini26" in err  # available-list mention
+
+
 def test_resolve_host_uses_recorded_when_profile_still_exists(fake_install, capsys):
     _, managed_root = fake_install
-    (managed_root / "host_vars").mkdir()
     (managed_root / "host_vars" / "mini26.yml").write_text("")
     (managed_root / ".installed-host").write_text("mini26\n")
     assert uninstall.resolve_host(None) == "mini26"
@@ -170,8 +187,7 @@ def test_resolve_host_warns_and_falls_back_when_recorded_profile_is_gone(
     host_vars/ listing keeps us from passing a bad value to ansible-playbook
     later, where it surfaces as a confusing --limit error."""
     _, managed_root = fake_install
-    (managed_root / "host_vars").mkdir()
-    # Two real profiles, neither of which matches what the marker recorded.
+    # fake_install already mkdir'd host_vars and seeded fake.yml; add more.
     (managed_root / "host_vars" / "laptop24.yml").write_text("")
     (managed_root / "host_vars" / "mini26.yml").write_text("")
     (managed_root / ".installed-host").write_text("renamed_away\n")

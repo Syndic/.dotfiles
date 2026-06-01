@@ -68,13 +68,27 @@ def list_host_profiles(profiles_dir: Path) -> list:
 
 
 def resolve_host_profile(host_arg, profiles_dir: Path) -> str:
-    """Resolve a host profile name. With host_arg set, accept it as-is.
-    Otherwise list profiles_dir entries and prompt for a selection."""
-    if host_arg:
-        info(f"Using host profile: {host_arg}")
-        return host_arg
-
+    """Resolve a host profile name. With host_arg set, validate it against
+    profiles_dir and accept or die. Otherwise list profiles_dir entries and
+    prompt for a selection."""
     profiles = list_host_profiles(profiles_dir)
+
+    if host_arg:
+        if host_arg in profiles:
+            info(f"Using host profile: {host_arg}")
+            return host_arg
+        # A typo'd --host would otherwise reach `ansible-playbook --limit`
+        # and produce "skipping: no hosts matched" with exit 0 — the user
+        # walks away thinking the install ran. Fail loudly instead.
+        if not profiles:
+            die(
+                f"No host profile named '{host_arg}' "
+                f"(no host_vars/ profiles found in {profiles_dir})."
+            )
+        die(
+            f"No host profile named '{host_arg}'. "
+            f"Available: {', '.join(profiles)}"
+        )
 
     if not profiles:
         die("No --host given and no host_vars/ profiles found to choose from.")

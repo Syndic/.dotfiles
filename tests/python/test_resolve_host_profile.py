@@ -34,8 +34,31 @@ def feed_no_tty(monkeypatch):
 
 
 def test_host_arg_short_circuits(fake_dotfiles):
-    # No need to attach a tty — --host bypasses the interactive prompt entirely.
-    assert phase2.resolve_host_profile("explicit") == "explicit"
+    # A valid --host bypasses the interactive prompt entirely (no tty needed).
+    assert phase2.resolve_host_profile("mini18") == "mini18"
+
+
+def test_host_arg_unknown_dies_with_available_list(fake_dotfiles, capsys):
+    # A typo'd --host must fail loudly: otherwise it reaches
+    # `ansible-playbook --limit <typo>` and produces "skipping: no hosts
+    # matched" with exit 0, masking a no-op install.
+    with pytest.raises(SystemExit) as exc:
+        phase2.resolve_host_profile("typo")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "No host profile named 'typo'" in err
+    for name in ("laptop24", "mini18", "mini26"):
+        assert name in err
+
+
+def test_host_arg_unknown_with_no_profiles_dies(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(phase2, "DOTFILES_DIR", tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        phase2.resolve_host_profile("anything")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "No host profile named 'anything'" in err
+    assert "no host_vars/ profiles found" in err
 
 
 def test_numeric_selection(fake_dotfiles, monkeypatch):

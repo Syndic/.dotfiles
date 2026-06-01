@@ -110,10 +110,12 @@ def read_recorded_host() -> str | None:
 
 
 def resolve_host(host_arg) -> str:
-    if host_arg:
-        info(f"Using host profile: {host_arg}")
-        return host_arg
     profiles_dir = DOTFILES_DIR / "host_vars"
+    if host_arg:
+        # Delegate to the shared resolver so an explicit --host is validated
+        # against host_vars/ — a typo would otherwise reach ansible-playbook
+        # --limit and silently skip every host.
+        return _resolve_host_profile(host_arg, profiles_dir)
     recorded = read_recorded_host()
     if recorded:
         # Marker may be stale (profile renamed/removed); validate before use.
