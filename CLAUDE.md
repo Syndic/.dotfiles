@@ -381,6 +381,17 @@ molecule, ansible-lint, and yamllint).
 ./tests/run molecule <role>          # one role's scenarios (used by the CI matrix)
 ```
 
+**Multi-suite invocations (`all`, `fast`) print a per-suite summary** —
+pass/fail and wall-clock per suite, with the molecule line broken out
+per role on `all`. They also switch from fail-fast to run-all-then-
+summarize semantics: a failing earlier suite no longer aborts the run,
+so one invocation surfaces every broken suite. Exit is non-zero iff any
+suite failed. Single-suite invocations (`./tests/run python`, etc.)
+preserve fail-fast — no summary, exit code propagates directly. The cost
+of run-all-then-summarize is paying to run later suites against a tree
+that may already be invalid; in practice the full picture is worth more
+than the early abort.
+
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
 under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,
 flatpak, and homebrew roles are covered. Most roles have a single `default/`

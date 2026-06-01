@@ -12,6 +12,12 @@
 # CI runs each suite as its own job — see .github/workflows/tests.yml. The
 # molecule job shards across roles via `./tests/run molecule <role>` so wall-
 # clock is bounded by the slowest shard (homebrew) instead of the sum.
+#
+# Multi-suite invocations (`all` / `fast`) print a per-suite summary at the
+# end and switch to run-all-then-summarize semantics — a failing earlier
+# suite no longer aborts the run, so one invocation surfaces every broken
+# suite. Single-suite invocations keep fail-fast semantics (no summary, exit
+# code propagates directly).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,6 +29,9 @@ cd "$REPO_ROOT"
 # read from different sources.
 MOLECULE_ROLES=(dotfiles apt flatpak homebrew)
 
+# ---------------------------------------------------------------------------
+# Suite implementations
+# ---------------------------------------------------------------------------
 run_python() {
   echo "=== python ==="
   pytest tests/python -v
@@ -60,13 +69,28 @@ prepare_homebrew_image() {
   docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
 }
 
+# One role's scenarios. Image prep is folded in here (gated on homebrew) so
+# the suite-timing on multi-suite runs reflects the *whole* cost of that
+# role's molecule pass, including any setup it needs. `molecule test --all`
+# runs every scenario under the role's molecule/ dir — equivalent to
+# `-s default` for single-scenario roles, picks up the multi-scenario
+# homebrew role without per-role special-casing.
+run_molecule_role() {
+  local role="$1"
+  if [[ "$role" == "homebrew" ]]; then
+    prepare_homebrew_image
+  fi
+  echo "--- molecule: roles/${role} ---"
+  (cd "roles/${role}" && molecule test --all)
+}
+
 run_molecule() {
   local target_role="${1:-}"
   echo "=== molecule ==="
 
   local roles=()
   if [[ -z "$target_role" ]]; then
-    for r in "${MOLECULE_ROLES[@]}"; do roles+=("roles/${r}"); done
+    roles=("${MOLECULE_ROLES[@]}")
   else
     local known=false
     for r in "${MOLECULE_ROLES[@]}"; do
@@ -76,41 +100,101 @@ run_molecule() {
       echo "unknown molecule role: ${target_role} (known: ${MOLECULE_ROLES[*]})" >&2
       return 2
     fi
-    roles=("roles/${target_role}")
+    roles=("$target_role")
   fi
 
-  # The homebrew scenarios share a Linuxbrew-preinstalled base image. Either
-  # pull a prebuilt copy from ghcr (when MOLECULE_HOMEBREW_IMAGE is set —
-  # see .github/workflows/publish-molecule-images.yml) or build it locally.
-  # Either way the result is retagged to `dotfiles-homebrew-molecule:local`,
-  # which is what every scenario's `molecule.yml` references. Gated on the
-  # homebrew shard so the other matrix cells don't pay for an image they
-  # never use.
-  for role_dir in "${roles[@]}"; do
-    if [[ "$role_dir" == "roles/homebrew" ]]; then
-      prepare_homebrew_image
-      break
-    fi
-  done
-
   local rc=0
-  # `molecule test --all` runs every scenario under the role's molecule/
-  # dir. Equivalent to `-s default` for roles with just one scenario, and
-  # picks up the multi-scenario homebrew role without per-role special-
-  # casing.
-  for role_dir in "${roles[@]}"; do
-    echo "--- molecule: ${role_dir} ---"
-    (cd "${role_dir}" && molecule test --all) || rc=$?
+  for r in "${roles[@]}"; do
+    run_molecule_role "$r" || rc=$?
   done
   return $rc
 }
 
+# ---------------------------------------------------------------------------
+# Multi-suite summary
+#
+# Active on `all` / `fast` only. `run_suite <name> <cmd...>` records the
+# named suite's result + wall-clock and always returns 0, so subsequent
+# suites still run even after a failure. `print_summary` returns non-zero
+# iff any recorded suite failed — the caller propagates that to exit.
+# ---------------------------------------------------------------------------
+SUMMARY_NAMES=()
+SUMMARY_STATUSES=()
+SUMMARY_SECONDS=()
+
+run_suite() {
+  local name="$1"; shift
+  local start=$SECONDS
+  local rc=0
+  "$@" || rc=$?
+  local elapsed=$((SECONDS - start))
+  SUMMARY_NAMES+=("$name")
+  if [[ $rc -eq 0 ]]; then
+    SUMMARY_STATUSES+=("PASS")
+  else
+    SUMMARY_STATUSES+=("FAIL")
+  fi
+  SUMMARY_SECONDS+=("$elapsed")
+  return 0
+}
+
+format_duration() {
+  local s=$1
+  if (( s < 60 )); then
+    printf '%ds' "$s"
+  else
+    printf '%dm %02ds' $((s / 60)) $((s % 60))
+  fi
+}
+
+print_summary() {
+  echo
+  echo "=== summary ==="
+  local max_name=0 n
+  for n in "${SUMMARY_NAMES[@]}"; do
+    (( ${#n} > max_name )) && max_name=${#n}
+  done
+  local i status duration any_failed=0
+  for (( i = 0; i < ${#SUMMARY_NAMES[@]}; i++ )); do
+    status="${SUMMARY_STATUSES[$i]}"
+    duration="$(format_duration "${SUMMARY_SECONDS[$i]}")"
+    printf '  %-*s  %s  (%s)\n' \
+      "$max_name" "${SUMMARY_NAMES[$i]}" "$status" "$duration"
+    [[ "$status" == "FAIL" ]] && any_failed=1
+  done
+  return "$any_failed"
+}
+
+run_multi() {
+  # `all` and `fast` share everything except the molecule block.
+  local include_molecule="$1"
+
+  run_suite python run_python
+  run_suite bash   run_bash
+  run_suite lint   run_lint
+
+  if [[ "$include_molecule" == "true" ]]; then
+    # Per-role breakdown rather than one molecule line — the four roles
+    # have very different costs (homebrew dominates), so seeing them
+    # separately makes the summary actionable.
+    local role
+    for role in "${MOLECULE_ROLES[@]}"; do
+      run_suite "molecule:${role}" run_molecule_role "$role"
+    done
+  fi
+
+  print_summary
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
 case "${1:-all}" in
   python)   run_python ;;
   bash)     run_bash ;;
   lint)     run_lint ;;
   molecule) run_molecule "${2:-}" ;;
-  fast)     run_python; run_bash; run_lint ;;
-  all)      run_python; run_bash; run_lint; run_molecule ;;
+  fast)     run_multi false ;;
+  all)      run_multi true ;;
   *)        echo "usage: $0 [python|bash|lint|molecule [role]|fast|all]" >&2; exit 2 ;;
 esac
