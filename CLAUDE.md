@@ -474,22 +474,41 @@ cost across both gate paths and lets the second play's pre-state inherit
 from the first — exactly the contract under test. Splitting into two
 scenarios would double the setup cost for no additional coverage.
 
-**Pre-test image build is currently inlined in `tests/run`,** gated to
-the homebrew shard. The `docker build -t dotfiles-homebrew-molecule:local
-…` step lives inside `run_molecule()` and only fires when the homebrew
-role is in the run set — so the lighter matrix cells (dotfiles, apt,
-flatpak) don't pay for an image they never use. If a second role ever
-needs a comparable step, that's the signal to extract a per-role
-convention (e.g., a `molecule/prepare.sh` `tests/run` discovers and runs
-before each role's `molecule test`) rather than adding a second gated
-branch. Until then, the inline path is correct-altitude — generalizing
-on one data point would be premature.
+**Homebrew base image is prepared by `prepare_homebrew_image` in
+`tests/run`,** gated to the homebrew shard so the lighter matrix cells
+don't pay for an image they never use. Two paths, same outcome (an image
+tagged `dotfiles-homebrew-molecule:local`, which every scenario's
+`molecule.yml` references):
 
-CI still pays the full cold image build per homebrew shard run because
-matrix cells don't share docker layer caches across runs. That's the
-specific cost the ghcr-publish followup addresses: building the base
-image once on Dockerfile changes and pulling it in CI from
-`ghcr.io/syndic/dotfiles-homebrew-molecule:latest`.
+- **Pull from ghcr** when `MOLECULE_HOMEBREW_IMAGE` is set. CI sets it
+  on the homebrew matrix cell to
+  `ghcr.io/syndic/dotfiles-homebrew-molecule:latest` (lowercased; ghcr
+  requires it). The published image is built + pushed by
+  `.github/workflows/publish-molecule-images.yml` on pushes to `main`
+  that touch the Dockerfile.
+- **Local `docker build`** otherwise (no env var) or as a fallback when
+  the pull fails (registry hiccup, image not yet published, PR that
+  changes the Dockerfile and therefore needs the *modified* version
+  tested rather than the published one).
+
+The fallback is load-bearing for that last case: a PR editing the
+Dockerfile must be tested against its own Dockerfile, not the `:latest`
+published from main. The pull is best-effort; failure quietly drops to
+build. Don't replace it with a hard pull — that would couple PR CI to
+the publish workflow having already shipped, and break Dockerfile-
+editing PRs.
+
+The published package must be set to **public** in the GitHub UI
+(Packages → Settings → Change visibility) so fork PRs can pull
+anonymously. Switching to private would require docker/login-action in
+tests.yml's molecule job and would break fork PRs (where GITHUB_TOKEN is
+anonymous). One-time manual step per published package.
+
+If a second role ever needs comparable per-role setup, that's the signal
+to extract a convention (e.g., a `molecule/prepare.sh` `tests/run`
+discovers and runs before each role's `molecule test`) rather than
+adding a second gated branch. Until then, the inline path is correct-
+altitude — generalizing on one data point would be premature.
 
 Two end-to-end harnesses live under `tests/`, both running inside a fresh
 Debian container as a non-root sudo user. They share Docker plumbing via

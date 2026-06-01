@@ -68,6 +68,14 @@ jobs:
       matrix:
         role: [dotfiles, apt, flatpak, homebrew]
     runs-on: ubuntu-latest
+    # packages: read so the homebrew shard can pull the prebuilt base image
+    # from ghcr (see .github/workflows/publish-molecule-images.yml). The
+    # published package is set to public so this works on fork PRs too
+    # (where GITHUB_TOKEN is anonymous); the permission is here for the
+    # case where the package is or becomes private.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -90,6 +98,14 @@ jobs:
       # bundle. Mirrors .devcontainer/post-create.sh.
       - run: ansible-galaxy collection install community.docker ansible.posix
       - run: ./tests/run molecule ${{ matrix.role }}
+        env:
+          # Pull the prebuilt Linuxbrew base image from ghcr instead of
+          # rebuilding it. Only consulted by tests/run when the homebrew
+          # shard is the one running; the other matrix cells ignore it.
+          # The env var is hardcoded lowercase (ghcr requires it) — the
+          # publish workflow lowercases dynamically from repository_owner,
+          # but here we know the owner statically.
+          MOLECULE_HOMEBREW_IMAGE: ghcr.io/syndic/dotfiles-homebrew-molecule:latest
 
   molecule-all:
     # Aggregator: collapses the `molecule (<role>)` shards into one stable

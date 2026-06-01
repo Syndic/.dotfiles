@@ -1,14 +1,16 @@
 # Shared base image for every roles/homebrew/molecule/* scenario.
 #
-# Built locally by `./tests/run molecule` and tagged
-# `dotfiles-homebrew-molecule:local`; each scenario references that tag with
-# `pre_build_image: true`. The molecule scenarios then exec into a container
-# that already has Linuxbrew installed — a fresh `brew install` script run
-# costs ~5min and would dominate every scenario's setup otherwise.
+# Built either locally by `./tests/run molecule` or pulled from ghcr (see
+# .github/workflows/publish-molecule-images.yml), then tagged as
+# `dotfiles-homebrew-molecule:local`. Each scenario references that local
+# tag with `pre_build_image: true`. The molecule scenarios then exec into
+# a container that already has Linuxbrew installed — a fresh `brew install`
+# script run costs ~5min and would dominate every scenario's setup
+# otherwise.
 #
-# Followup: bake-and-publish this image to ghcr (see PR description) so CI
-# pulls instead of rebuilds. The local `docker build` here exists in part to
-# define the contract that ghcr image will satisfy.
+# Edits to this file rebuild locally on the next `tests/run molecule` and
+# trigger the publish-molecule-images workflow on merge to main (which
+# re-publishes the `:latest` tag CI pulls).
 #
 # Why not extend geerlingguy/docker-debian12-ansible: the homebrew role
 # doesn't need systemd / init / privileged mode (no `become:`, no service

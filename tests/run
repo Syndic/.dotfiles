@@ -39,6 +39,27 @@ run_lint() {
   ansible-lint
 }
 
+prepare_homebrew_image() {
+  # MOLECULE_HOMEBREW_IMAGE, when set, names a fully-qualified image ref
+  # (e.g. `ghcr.io/syndic/dotfiles-homebrew-molecule:latest`) to pull and
+  # retag as the local one. CI sets it in tests.yml's homebrew shard. On
+  # any failure — pull error, unset registry, network blip, image not yet
+  # published — fall back to a local `docker build` so CI is never blocked
+  # waiting on the publish workflow, and a PR that *changes* the Dockerfile
+  # still gets tested against its own changes (the published copy would be
+  # one Dockerfile version behind).
+  if [[ -n "${MOLECULE_HOMEBREW_IMAGE:-}" ]]; then
+    echo "--- molecule: pulling homebrew base image from ${MOLECULE_HOMEBREW_IMAGE} ---"
+    if docker pull "${MOLECULE_HOMEBREW_IMAGE}" \
+       && docker tag "${MOLECULE_HOMEBREW_IMAGE}" dotfiles-homebrew-molecule:local; then
+      return 0
+    fi
+    echo "--- molecule: pull failed; falling back to local build ---" >&2
+  fi
+  echo "--- molecule: building roles/homebrew base image ---"
+  docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
+}
+
 run_molecule() {
   local target_role="${1:-}"
   echo "=== molecule ==="
@@ -58,16 +79,16 @@ run_molecule() {
     roles=("roles/${target_role}")
   fi
 
-  # The homebrew scenarios share a Linuxbrew-preinstalled base image. Build
-  # it once before the scenario loop — docker layer caching makes this a
-  # near-no-op on rebuild. Gated on the homebrew shard so the other matrix
-  # cells don't pay for an image they never use. Followup tracked in the
-  # ci/molecule-homebrew-image-ghcr branch: pull this image from ghcr
-  # instead of rebuilding it every CI run.
+  # The homebrew scenarios share a Linuxbrew-preinstalled base image. Either
+  # pull a prebuilt copy from ghcr (when MOLECULE_HOMEBREW_IMAGE is set —
+  # see .github/workflows/publish-molecule-images.yml) or build it locally.
+  # Either way the result is retagged to `dotfiles-homebrew-molecule:local`,
+  # which is what every scenario's `molecule.yml` references. Gated on the
+  # homebrew shard so the other matrix cells don't pay for an image they
+  # never use.
   for role_dir in "${roles[@]}"; do
     if [[ "$role_dir" == "roles/homebrew" ]]; then
-      echo "--- molecule: building roles/homebrew base image ---"
-      docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
+      prepare_homebrew_image
       break
     fi
   done
