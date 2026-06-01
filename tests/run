@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # Run the test suites.
 #
-#   ./tests/run             # everything (python + bash + lint + molecule)
-#   ./tests/run fast        # python + bash + lint (skip molecule — no docker)
-#   ./tests/run python      # just pytest
-#   ./tests/run bash        # just bats
-#   ./tests/run lint        # yamllint + ansible-lint
-#   ./tests/run molecule    # just molecule (per-role scenarios; needs docker)
+#   ./tests/run                  # everything (python + bash + lint + molecule)
+#   ./tests/run fast             # python + bash + lint (skip molecule — no docker)
+#   ./tests/run python           # just pytest
+#   ./tests/run bash             # just bats
+#   ./tests/run lint             # yamllint + ansible-lint
+#   ./tests/run molecule         # all molecule roles, serial (needs docker)
+#   ./tests/run molecule <role>  # one role's scenarios — used by the CI matrix
 #
-# CI runs each suite as its own job — see .github/workflows/tests.yml.
+# CI runs each suite as its own job — see .github/workflows/tests.yml. The
+# molecule job shards across roles via `./tests/run molecule <role>` so wall-
+# clock is bounded by the slowest shard (homebrew) instead of the sum.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# All molecule-covered roles. New roles with scenarios under
+# `roles/<role>/molecule/` must be added here AND to the `matrix.role` list
+# in .github/workflows/tests.yml — local serial runs and CI shard discovery
+# read from different sources.
+MOLECULE_ROLES=(dotfiles apt flatpak homebrew)
 
 run_python() {
   echo "=== python ==="
@@ -31,24 +40,44 @@ run_lint() {
 }
 
 run_molecule() {
+  local target_role="${1:-}"
   echo "=== molecule ==="
-  # Each scenario lives under roles/<role>/molecule/<scenario>/. molecule
-  # discovers them via MOLECULE_GLOB and is invoked from the role dir so
-  # `molecule test --all` finds every scenario directory.
+
+  local roles=()
+  if [[ -z "$target_role" ]]; then
+    for r in "${MOLECULE_ROLES[@]}"; do roles+=("roles/${r}"); done
+  else
+    local known=false
+    for r in "${MOLECULE_ROLES[@]}"; do
+      if [[ "$r" == "$target_role" ]]; then known=true; break; fi
+    done
+    if ! $known; then
+      echo "unknown molecule role: ${target_role} (known: ${MOLECULE_ROLES[*]})" >&2
+      return 2
+    fi
+    roles=("roles/${target_role}")
+  fi
 
   # The homebrew scenarios share a Linuxbrew-preinstalled base image. Build
   # it once before the scenario loop — docker layer caching makes this a
-  # near-no-op on rebuild. Followup: replace this local build with a pull
-  # from a ghcr-published image (see roles/homebrew/molecule/Dockerfile).
-  echo "--- molecule: building roles/homebrew base image ---"
-  docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
+  # near-no-op on rebuild. Gated on the homebrew shard so the other matrix
+  # cells don't pay for an image they never use. Followup tracked in the
+  # ci/molecule-homebrew-image-ghcr branch: pull this image from ghcr
+  # instead of rebuilding it every CI run.
+  for role_dir in "${roles[@]}"; do
+    if [[ "$role_dir" == "roles/homebrew" ]]; then
+      echo "--- molecule: building roles/homebrew base image ---"
+      docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
+      break
+    fi
+  done
 
   local rc=0
   # `molecule test --all` runs every scenario under the role's molecule/
   # dir. Equivalent to `-s default` for roles with just one scenario, and
   # picks up the multi-scenario homebrew role without per-role special-
   # casing.
-  for role_dir in roles/dotfiles roles/apt roles/flatpak roles/homebrew; do
+  for role_dir in "${roles[@]}"; do
     echo "--- molecule: ${role_dir} ---"
     (cd "${role_dir}" && molecule test --all) || rc=$?
   done
@@ -59,8 +88,8 @@ case "${1:-all}" in
   python)   run_python ;;
   bash)     run_bash ;;
   lint)     run_lint ;;
-  molecule) run_molecule ;;
+  molecule) run_molecule "${2:-}" ;;
   fast)     run_python; run_bash; run_lint ;;
   all)      run_python; run_bash; run_lint; run_molecule ;;
-  *)        echo "usage: $0 [python|bash|lint|molecule|fast|all]" >&2; exit 2 ;;
+  *)        echo "usage: $0 [python|bash|lint|molecule [role]|fast|all]" >&2; exit 2 ;;
 esac
