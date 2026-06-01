@@ -44,6 +44,11 @@ def fake_install(tmp_path, monkeypatch):
     (home / ".keep_me").write_text("user data, do not touch\n")
     (home / ".other_link").symlink_to(Path("/tmp/somewhere_outside"))
 
+    # host_vars/fake.yml so an explicit --host fake passes the validator
+    # the shared resolver now enforces (see test_resolve_host_profile).
+    (managed_root / "host_vars").mkdir()
+    (managed_root / "host_vars" / "fake.yml").write_text("")
+
     monkeypatch.setattr(uninstall, "DOTFILES_DIR", managed_root)
     monkeypatch.setattr(
         uninstall, "INSTALLED_HOST_MARKER", managed_root / ".installed-host"
@@ -137,8 +142,8 @@ def test_symlinks_restore_highest_indexed_backup(fake_install):
 # ---------------------------------------------------------------------------
 def test_read_recorded_host_returns_marker_contents(fake_install):
     _, managed_root = fake_install
-    (managed_root / ".installed-host").write_text("laptop24\n")
-    assert uninstall.read_recorded_host() == "laptop24"
+    (managed_root / ".installed-host").write_text("stubbed_host_1\n")
+    assert uninstall.read_recorded_host() == "stubbed_host_1"
 
 
 def test_read_recorded_host_returns_none_when_missing(fake_install):
@@ -151,12 +156,24 @@ def test_read_recorded_host_returns_none_for_empty_marker(fake_install):
     assert uninstall.read_recorded_host() is None
 
 
+def test_resolve_host_validates_explicit_arg(fake_install, capsys):
+    # Symmetric to phase2's resolver: a typo'd uninstall --host must fail
+    # loudly rather than reach `ansible-playbook --limit` and silently skip.
+    _, managed_root = fake_install
+    (managed_root / "host_vars" / "stubbed_host_3.yml").write_text("")
+    with pytest.raises(SystemExit) as exc:
+        uninstall.resolve_host("typo")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "No host profile named 'typo'" in err
+    assert "stubbed_host_3" in err  # available-list mention
+
+
 def test_resolve_host_uses_recorded_when_profile_still_exists(fake_install, capsys):
     _, managed_root = fake_install
-    (managed_root / "host_vars").mkdir()
-    (managed_root / "host_vars" / "mini26.yml").write_text("")
-    (managed_root / ".installed-host").write_text("mini26\n")
-    assert uninstall.resolve_host(None) == "mini26"
+    (managed_root / "host_vars" / "stubbed_host_3.yml").write_text("")
+    (managed_root / ".installed-host").write_text("stubbed_host_3\n")
+    assert uninstall.resolve_host(None) == "stubbed_host_3"
     # The "from .installed-host" info line confirms the marker path was used.
     out = capsys.readouterr().out
     assert "from .installed-host" in out
@@ -170,19 +187,18 @@ def test_resolve_host_warns_and_falls_back_when_recorded_profile_is_gone(
     host_vars/ listing keeps us from passing a bad value to ansible-playbook
     later, where it surfaces as a confusing --limit error."""
     _, managed_root = fake_install
-    (managed_root / "host_vars").mkdir()
-    # Two real profiles, neither of which matches what the marker recorded.
-    (managed_root / "host_vars" / "laptop24.yml").write_text("")
-    (managed_root / "host_vars" / "mini26.yml").write_text("")
+    # fake_install already mkdir'd host_vars and seeded fake.yml; add more.
+    (managed_root / "host_vars" / "stubbed_host_1.yml").write_text("")
+    (managed_root / "host_vars" / "stubbed_host_3.yml").write_text("")
     (managed_root / ".installed-host").write_text("renamed_away\n")
 
     # Feed the interactive picker so the fallback can resolve.
-    stream = io.StringIO("mini26\n")
+    stream = io.StringIO("stubbed_host_3\n")
     stream.isatty = lambda: True
     monkeypatch.setattr(sys, "stdin", stream)
 
     chosen = uninstall.resolve_host(None)
-    assert chosen == "mini26"
+    assert chosen == "stubbed_host_3"
     captured = capsys.readouterr()
     # The warning routes through warn() (stderr) and names both the stale
     # value and the marker file, so the user can find and fix the drift.
