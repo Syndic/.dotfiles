@@ -90,3 +90,29 @@ jobs:
       # bundle. Mirrors .devcontainer/post-create.sh.
       - run: ansible-galaxy collection install community.docker ansible.posix
       - run: ./tests/run molecule ${{ matrix.role }}
+
+  molecule-all:
+    # Aggregator: collapses the `molecule (<role>)` shards into one stable
+    # check so branch protection can require a single name. Without this,
+    # adding a new role means adding a new required-check entry; with it,
+    # the required check stays `molecule-all` regardless of how many shards
+    # exist.
+    #
+    # `if: always()` so the aggregator runs even when shards fail or get
+    # skipped — otherwise the check would itself be marked "skipped" on
+    # shard failure, which some branch-protection configurations treat as
+    # not-required.
+    #
+    # `needs.molecule.result` is the matrix-level rollup: 'success' iff
+    # every shard succeeded, otherwise 'failure'/'cancelled'.
+    if: always()
+    needs: molecule
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert every molecule shard passed
+        run: |
+          result='${{ needs.molecule.result }}'
+          if [[ "$result" != "success" ]]; then
+            echo "molecule matrix rollup: ${result}" >&2
+            exit 1
+          fi

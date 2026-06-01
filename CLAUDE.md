@@ -396,9 +396,22 @@ Linuxbrew base image inline); sharding lets the lighter roles return in
 1-2 min while homebrew runs in its own cell. The roles list is duplicated
 in two places — `MOLECULE_ROLES` in `tests/run` for local serial runs, and
 `matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
-covered role requires updating both. `fail-fast: false` is set on the
-matrix so a failure in one shard doesn't cancel the siblings; we want
-every failing role surfaced in a single CI run.
+covered role requires updating both. **`tests/python/test_molecule_role_lists_agree.py`
+gates this**: it scans `roles/*/molecule/` on disk and asserts both lists
+match, so forgetting to update one (or only updating one) fails CI
+immediately rather than silently shipping mismatched local/CI coverage.
+`fail-fast: false` is set on the matrix so a failure in one shard doesn't
+cancel the siblings; we want every failing role surfaced in a single CI run.
+
+**Branch protection should require `molecule-all`, not the per-role
+checks.** The `molecule-all` job `needs: molecule` (so it runs after every
+shard) and `if: always()` (so it runs even when shards fail) — it asserts
+`needs.molecule.result == 'success'` and exits non-zero otherwise. With
+this aggregator wired up, adding a new role only requires updating the two
+lists above; the required-check name (`molecule-all`) stays stable.
+Without it, branch protection would have to enumerate `molecule (dotfiles)`,
+`molecule (apt)`, ..., and adding a role would mean updating the
+protection rule too.
 
 Why molecule on top of the e2e harnesses: the e2e suite is gated to manual
 `workflow_dispatch` because of its runtime, so per-PR coverage of role-level
