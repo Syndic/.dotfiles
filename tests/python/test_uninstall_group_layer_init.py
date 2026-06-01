@@ -7,65 +7,51 @@ iterations) leaves the consuming task referencing an undefined variable.
 
 PR #57 added the `Initialize <role>_group_layer` task on the install side
 (roles/<role>/tasks/main.yml). The uninstall siblings need the same
-guarantee."""
+guarantee.
 
+Asserted via line-matching rather than YAML parsing so the pytest venv
+doesn't need PyYAML (the test venv ships pytest + pytest-cov only —
+see .devcontainer/post-create.sh). Matches the precedent set by
+test_homebrew_role_defaults.py."""
+
+import re
 from pathlib import Path
-
-import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_tasks(role: str, file_name: str) -> list:
-    path = REPO_ROOT / "roles" / role / "tasks" / file_name
-    return yaml.safe_load(path.read_text())
-
-
-def _find_init_index(tasks: list, layer_var: str) -> int:
-    """Return the index of the set_fact task that initializes `layer_var`
-    to `[]`, or -1 if no such task exists."""
-    for i, task in enumerate(tasks):
-        set_fact = task.get("ansible.builtin.set_fact") or task.get("set_fact")
-        if not set_fact:
-            continue
-        if "loop" in task:
-            continue
-        if layer_var not in set_fact:
-            continue
-        value = set_fact[layer_var]
-        if isinstance(value, list) and value == []:
-            return i
-    return -1
-
-
-def _find_resolve_index(tasks: list, layer_var: str) -> int:
-    """Return the index of the looped set_fact that resolves `layer_var`
-    across `group_sets`, or -1."""
-    for i, task in enumerate(tasks):
-        set_fact = task.get("ansible.builtin.set_fact") or task.get("set_fact")
-        if not set_fact or "loop" not in task:
-            continue
-        if layer_var in set_fact:
+def _find_line(lines: list, pattern: str) -> int:
+    """Return the 1-based line number of the first line matching `pattern`,
+    or -1 if no match."""
+    regex = re.compile(pattern)
+    for i, line in enumerate(lines, start=1):
+        if regex.search(line):
             return i
     return -1
 
 
 def _assert_init_before_resolve(role: str, layer_var: str) -> None:
-    tasks = _load_tasks(role, "uninstall.yml")
-    init_idx = _find_init_index(tasks, layer_var)
-    resolve_idx = _find_resolve_index(tasks, layer_var)
+    path = REPO_ROOT / "roles" / role / "tasks" / "uninstall.yml"
+    lines = path.read_text().splitlines()
 
-    assert init_idx >= 0, (
-        f"{role}/tasks/uninstall.yml is missing an Initialize task that "
+    # `<var>: []` on its own line — the Initialize set_fact body.
+    init_line = _find_line(lines, rf"^\s+{re.escape(layer_var)}:\s*\[\s*\]\s*$")
+    # `loop: "{{ group_sets }}"` — the hallmark of the resolve loop, with
+    # tolerant whitespace inside the Jinja braces.
+    resolve_line = _find_line(lines, r'loop:\s*"\{\{\s*group_sets\s*\}\}"')
+
+    assert init_line >= 0, (
+        f"{path.relative_to(REPO_ROOT)} is missing an Initialize task that "
         f"sets {layer_var}: [] before the resolve loop runs"
     )
-    assert resolve_idx >= 0, (
-        f"{role}/tasks/uninstall.yml has no resolve loop for {layer_var}"
+    assert resolve_line >= 0, (
+        f"{path.relative_to(REPO_ROOT)} has no `loop: \"{{{{ group_sets }}}}\"` "
+        f"resolve loop"
     )
-    assert init_idx < resolve_idx, (
-        f"{role}/tasks/uninstall.yml initializes {layer_var} (idx {init_idx}) "
-        f"after the resolve loop (idx {resolve_idx})"
+    assert init_line < resolve_line, (
+        f"{path.relative_to(REPO_ROOT)} initializes {layer_var} on line "
+        f"{init_line}, after the resolve loop on line {resolve_line}"
     )
 
 
