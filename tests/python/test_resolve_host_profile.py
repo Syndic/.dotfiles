@@ -12,7 +12,7 @@ def fake_dotfiles(tmp_path, monkeypatch):
     at it. Returns the path to host_vars/ for additional test setup."""
     host_vars = tmp_path / "host_vars"
     host_vars.mkdir()
-    for name in ("laptop24", "mini18", "mini26"):
+    for name in ("stubbed_host_1", "stubbed_host_2", "stubbed_host_3"):
         (host_vars / f"{name}.yml").write_text("")
     monkeypatch.setattr(phase2, "DOTFILES_DIR", tmp_path)
     return host_vars
@@ -35,7 +35,7 @@ def feed_no_tty(monkeypatch):
 
 def test_host_arg_short_circuits(fake_dotfiles):
     # A valid --host bypasses the interactive prompt entirely (no tty needed).
-    assert phase2.resolve_host_profile("mini18") == "mini18"
+    assert phase2.resolve_host_profile("stubbed_host_2") == "stubbed_host_2"
 
 
 def test_host_arg_unknown_dies_with_available_list(fake_dotfiles, capsys):
@@ -47,7 +47,7 @@ def test_host_arg_unknown_dies_with_available_list(fake_dotfiles, capsys):
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "No host profile named 'typo'" in err
-    for name in ("laptop24", "mini18", "mini26"):
+    for name in ("stubbed_host_1", "stubbed_host_2", "stubbed_host_3"):
         assert name in err
 
 
@@ -63,22 +63,22 @@ def test_host_arg_unknown_with_no_profiles_dies(tmp_path, monkeypatch, capsys):
 
 def test_numeric_selection(fake_dotfiles, monkeypatch):
     feed_tty(monkeypatch, "2")
-    assert phase2.resolve_host_profile(None) == "mini18"
+    assert phase2.resolve_host_profile(None) == "stubbed_host_2"
 
 
 def test_name_selection(fake_dotfiles, monkeypatch):
-    feed_tty(monkeypatch, "mini26")
-    assert phase2.resolve_host_profile(None) == "mini26"
+    feed_tty(monkeypatch, "stubbed_host_3")
+    assert phase2.resolve_host_profile(None) == "stubbed_host_3"
 
 
 def test_typo_then_out_of_range_then_valid(fake_dotfiles, monkeypatch):
     feed_tty(monkeypatch, "nope", "0", "9", "3")
-    assert phase2.resolve_host_profile(None) == "mini26"
+    assert phase2.resolve_host_profile(None) == "stubbed_host_3"
 
 
 def test_empty_input_reprompts(fake_dotfiles, monkeypatch):
     feed_tty(monkeypatch, "", "  ", "1")
-    assert phase2.resolve_host_profile(None) == "laptop24"
+    assert phase2.resolve_host_profile(None) == "stubbed_host_1"
 
 
 def test_eof_dies(fake_dotfiles, monkeypatch):

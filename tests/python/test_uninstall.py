@@ -142,8 +142,8 @@ def test_symlinks_restore_highest_indexed_backup(fake_install):
 # ---------------------------------------------------------------------------
 def test_read_recorded_host_returns_marker_contents(fake_install):
     _, managed_root = fake_install
-    (managed_root / ".installed-host").write_text("laptop24\n")
-    assert uninstall.read_recorded_host() == "laptop24"
+    (managed_root / ".installed-host").write_text("stubbed_host_1\n")
+    assert uninstall.read_recorded_host() == "stubbed_host_1"
 
 
 def test_read_recorded_host_returns_none_when_missing(fake_install):
@@ -160,20 +160,20 @@ def test_resolve_host_validates_explicit_arg(fake_install, capsys):
     # Symmetric to phase2's resolver: a typo'd uninstall --host must fail
     # loudly rather than reach `ansible-playbook --limit` and silently skip.
     _, managed_root = fake_install
-    (managed_root / "host_vars" / "mini26.yml").write_text("")
+    (managed_root / "host_vars" / "stubbed_host_3.yml").write_text("")
     with pytest.raises(SystemExit) as exc:
         uninstall.resolve_host("typo")
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "No host profile named 'typo'" in err
-    assert "mini26" in err  # available-list mention
+    assert "stubbed_host_3" in err  # available-list mention
 
 
 def test_resolve_host_uses_recorded_when_profile_still_exists(fake_install, capsys):
     _, managed_root = fake_install
-    (managed_root / "host_vars" / "mini26.yml").write_text("")
-    (managed_root / ".installed-host").write_text("mini26\n")
-    assert uninstall.resolve_host(None) == "mini26"
+    (managed_root / "host_vars" / "stubbed_host_3.yml").write_text("")
+    (managed_root / ".installed-host").write_text("stubbed_host_3\n")
+    assert uninstall.resolve_host(None) == "stubbed_host_3"
     # The "from .installed-host" info line confirms the marker path was used.
     out = capsys.readouterr().out
     assert "from .installed-host" in out
@@ -188,17 +188,17 @@ def test_resolve_host_warns_and_falls_back_when_recorded_profile_is_gone(
     later, where it surfaces as a confusing --limit error."""
     _, managed_root = fake_install
     # fake_install already mkdir'd host_vars and seeded fake.yml; add more.
-    (managed_root / "host_vars" / "laptop24.yml").write_text("")
-    (managed_root / "host_vars" / "mini26.yml").write_text("")
+    (managed_root / "host_vars" / "stubbed_host_1.yml").write_text("")
+    (managed_root / "host_vars" / "stubbed_host_3.yml").write_text("")
     (managed_root / ".installed-host").write_text("renamed_away\n")
 
     # Feed the interactive picker so the fallback can resolve.
-    stream = io.StringIO("mini26\n")
+    stream = io.StringIO("stubbed_host_3\n")
     stream.isatty = lambda: True
     monkeypatch.setattr(sys, "stdin", stream)
 
     chosen = uninstall.resolve_host(None)
-    assert chosen == "mini26"
+    assert chosen == "stubbed_host_3"
     captured = capsys.readouterr()
     # The warning routes through warn() (stderr) and names both the stale
     # value and the marker file, so the user can find and fix the drift.
