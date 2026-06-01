@@ -47,7 +47,10 @@ teardown() {
   # inside uninstall.py returns True, the no-tty branch never fires, and
   # the script blocks on input("Proceed? [y/N]: ") instead of printing the
   # "Re-run with --yes" message this test is checking for.
-  run python3 "$REPO_ROOT/uninstall.py" --host fake < /dev/null
+  # Pick an existing host profile so the new --host validator accepts it;
+  # the no-tty branch then makes the run inert regardless of which one.
+  host="$(basename "$(ls "$REPO_ROOT/host_vars"/*.yml | head -n1)" .yml)"
+  run python3 "$REPO_ROOT/uninstall.py" --host "$host" < /dev/null
   [ "$status" -eq 0 ]
   [[ "$output" == *"Uninstall plan"* ]]
   [[ "$output" == *"Re-run with --yes"* ]]
