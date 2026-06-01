@@ -1,0 +1,66 @@
+---
+# Build + push the prebuilt molecule base images to ghcr. The molecule CI
+# shards (.github/workflows/tests.yml) pull these instead of rebuilding the
+# image from scratch every run — sharding gave us per-role parallelism but
+# left every homebrew shard paying the ~5min cold image build, since matrix
+# cells don't share docker layer caches across runs.
+#
+# Only fires on main when an image source changes, plus manual dispatch.
+# PRs do NOT trigger publishing — they consume the latest published image
+# via the pull-with-fallback path in tests/run (falls back to local build
+# if pull fails, so a PR that *changes* the Dockerfile still gets tested
+# against its own changes via the fallback).
+#
+# Package visibility: the published packages must be set to **public** in
+# the GitHub UI (Packages → Settings → Change visibility). Once-per-package
+# manual step. Public packages let fork PRs pull anonymously; switching to
+# private would require docker/login-action in tests.yml and break fork PRs.
+
+name: publish-molecule-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'roles/homebrew/molecule/Dockerfile'
+      - '.github/workflows/publish-molecule-images.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # ghcr image paths must be lowercase. github.repository_owner returns
+      # the casing of the GitHub org/user, which may be mixed-case — compute
+      # a lowercased copy here rather than hardcoding the owner.
+      - id: owner
+        run: echo "value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` for the tests.yml consumer; `sha-<short>` so a regression
+      # can be pinned to the publishing commit while debugging.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.owner.outputs.value }}/dotfiles-homebrew-molecule
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: roles/homebrew/molecule/
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
