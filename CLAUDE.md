@@ -236,6 +236,16 @@ back in `os.environ` for convenience. Don't lean on sudo's timestamp cache
 to bridge install.sh's apt step and Ansible's later become — phase 2's
 Homebrew install can easily run longer than sudo's 15-minute default.
 
+`uninstall.py` carries the symmetric handoff in `capture_sudo_password()`
+(uninstall.py): it pops `SUDO_PASSWORD` from `os.environ` unconditionally
+(defense-in-depth, even when not needed), then — only when the run will hit
+a `become: true` task (Linux + `--apt-packages` or `--flatpak-packages`) —
+prefers the env value, falls back to `sudo -n true`, and finally prompts
+via `getpass`. The captured value is held in a local and passed to the
+ansible-playbook subprocess via `env={"ANSIBLE_BECOME_PASS": ...}`. Capture
+runs **after** `resolve_host` and **before** the plan is printed, so the
+no-tty / bad-password failure modes surface before any work happens.
+
 ## Uninstall
 
 `uninstall.py` reverses what install put on the host. By default it removes

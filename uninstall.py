@@ -17,7 +17,9 @@ the plan is printed and nothing is done.
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -195,10 +197,20 @@ def _latest_backup(target_path: Path) -> Path | None:
     return best
 
 
-def build_playbook_actions(host: str, brew: bool, apt: bool, flatpak: bool):
+def build_playbook_actions(
+    host: str,
+    brew: bool,
+    apt: bool,
+    flatpak: bool,
+    sudo_password: str | None = None,
+):
     """If any package-removal flag is set, return one action that invokes
     uninstall.yml with the matching --tags. Returns (preview, callable) or
-    (None, None) when nothing is requested."""
+    (None, None) when nothing is requested.
+
+    `sudo_password`, if given, is passed to the playbook subprocess via
+    ANSIBLE_BECOME_PASS — scoped to that subprocess only, never set on the
+    parent's os.environ. Mirrors phase2.run_playbook."""
     tags = []
     if brew:
         tags.append("brew_packages")
@@ -221,7 +233,12 @@ def build_playbook_actions(host: str, brew: bool, apt: bool, flatpak: bool):
             "--limit", host,
             "--tags", ",".join(tags),
         ]
-        run(cmd)
+        if sudo_password:
+            env = os.environ.copy()
+            env["ANSIBLE_BECOME_PASS"] = sudo_password
+            run(cmd, env=env)
+        else:
+            run(cmd)
 
     return preview, do_playbook
 
@@ -271,6 +288,93 @@ def build_repo_action():
 
 
 # ---------------------------------------------------------------------------
+# Sudo handoff (symmetric to install.sh -> phase2)
+# ---------------------------------------------------------------------------
+def _sudo_passwordless() -> bool:
+    """True iff `sudo` is configured to not require a password for this user."""
+    try:
+        return subprocess.run(
+            ["sudo", "-n", "true"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _sudo_validates(password: str) -> bool:
+    """True iff `password` authenticates against sudo. `-k` first invalidates
+    the credential cache so a previously-cached session can't make a bad
+    password look valid."""
+    try:
+        return subprocess.run(
+            ["sudo", "-S", "-p", "", "-k", "true"],
+            input=password + "\n",
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def capture_sudo_password(needed_for_become: bool) -> str | None:
+    """Resolve a sudo password for the playbook subprocess on Linux.
+
+    Always pops SUDO_PASSWORD from os.environ first so it can't leak into
+    any later subprocess we spawn (mirrors phase2.capture_sudo_password).
+    Then, only when `needed_for_become` is true:
+      - root → None (no escalation needed)
+      - SUDO_PASSWORD was set in env → validate and return it
+      - `sudo -n true` succeeds → None (passwordless sudo configured)
+      - tty present → prompt via getpass, validate, return
+      - otherwise → die with an actionable message"""
+    env_password = os.environ.pop("SUDO_PASSWORD", None) or None
+
+    if not needed_for_become:
+        return None
+
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return None
+
+    if env_password is not None:
+        if not _sudo_validates(env_password):
+            die("Provided SUDO_PASSWORD failed sudo authentication.")
+        return env_password
+
+    if _sudo_passwordless():
+        return None
+
+    if not sys.stdin.isatty():
+        die(
+            "sudo password required for package removal but no tty available. "
+            "Either configure passwordless sudo, export SUDO_PASSWORD, or "
+            "run from a terminal."
+        )
+
+    info("Linux package removal needs sudo for the Ansible playbook.")
+    user = os.environ.get("USER") or ""
+    prompt = f"[sudo] password for {user}: " if user else "[sudo] password: "
+    try:
+        password = getpass.getpass(prompt)
+    except (EOFError, KeyboardInterrupt):
+        print()
+        die("No sudo password provided.")
+    if not _sudo_validates(password):
+        die("sudo authentication failed.")
+    return password
+
+
+def _needs_become_password(args: argparse.Namespace) -> bool:
+    """True iff the playbook subprocess will hit a `become: true` task. Only
+    the apt and flatpak roles use become, and both are Linux-only."""
+    if platform.system() != "Linux":
+        return False
+    return bool(args.apt_packages or args.flatpak_packages)
+
+
+# ---------------------------------------------------------------------------
 # Confirmation
 # ---------------------------------------------------------------------------
 def confirm(skip_prompt: bool) -> bool:
@@ -300,11 +404,20 @@ def main(argv=None) -> None:
     args = parse_args(argv)
     host = resolve_host(args.host)
 
+    # Capture upfront so the failure mode (no tty + no SUDO_PASSWORD) surfaces
+    # before we print the plan, not partway through the playbook. Matches the
+    # install-side flow in install.sh + phase2 (prompt first, then work).
+    sudo_password = capture_sudo_password(_needs_become_password(args))
+
     sections = []  # list of (header, preview_lines, callable)
 
     # 1. Package removal (needs the package managers still present)
     pb_preview, pb_do = build_playbook_actions(
-        host, args.brew_packages, args.apt_packages, args.flatpak_packages
+        host,
+        args.brew_packages,
+        args.apt_packages,
+        args.flatpak_packages,
+        sudo_password=sudo_password,
     )
     if pb_do is not None:
         sections.append(("Uninstall packages", pb_preview, pb_do))
