@@ -8,10 +8,17 @@
 # because removing a tap doesn't uninstall its packages and the user may have
 # other installs depending on it.
 
+# Init guarantees homebrew_group_brewfile_layer is defined even when
+# group_sets is empty (the resolve loop below runs zero times in that
+# case). Mirrors the install side; see roles/homebrew/tasks/main.yml.
+- name: Initialize homebrew_group_brewfile_layer
+  ansible.builtin.set_fact:
+    homebrew_group_brewfile_layer: []
+
 - name: Resolve homebrew group-set Brewfile paths
   ansible.builtin.set_fact:
     homebrew_group_brewfile_layer: >-
-      {{ (homebrew_group_brewfile_layer | default([]))
+      {{ homebrew_group_brewfile_layer
          + [lookup('vars', 'group_' ~ item ~ '_brewfile')] }}
   loop: "{{ group_sets }}"
   loop_control:
