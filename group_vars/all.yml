@@ -31,12 +31,20 @@ ansible_python_interpreter: "{{ ansible_playbook_python }}"
 # a new set is a one-line edit here (plus the per-group_vars files for
 # the new groups) — no per-role edits. The standard role-side pattern is:
 #
+#   - name: Initialize <role>_group_layer
+#     ansible.builtin.set_fact:
+#       <role>_group_layer: []
+#
 #   - name: Resolve <thing> group-set layers
 #     ansible.builtin.set_fact:
 #       <role>_group_layer: >-
-#         {{ (<role>_group_layer | default([]))
+#         {{ <role>_group_layer
 #            + lookup('vars', 'group_' ~ item ~ '_<thing>') }}
 #     loop: "{{ group_sets }}"
+#
+# The separate init task guarantees the var is defined even when
+# `group_sets` is empty (the resolve loop runs zero times in that case),
+# so consumers downstream don't need their own `| default([])`.
 #
 # `lookup('vars', name)` without a default raises on a missing name —
 # that's what makes typos in `group_sets` or in a `<thing>` name in a

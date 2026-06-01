@@ -1,0 +1,30 @@
+---
+# Empty-group_sets scenario for the flatpak role. Mirrors the default
+# scenario's composition-only approach (see roles/flatpak/molecule/default/
+# molecule.yml for the rationale) but with `group_sets: []`. Regression
+# cover for the producer-side guarantee that `flatpak_group_layer` is
+# defined as `[]` even when the resolve loop runs zero times.
+
+driver:
+  name: docker
+
+platforms:
+  - name: flatpak-empty-groups
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    command: /lib/systemd/systemd
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      callback_result_format: yaml
+
+verifier:
+  name: ansible

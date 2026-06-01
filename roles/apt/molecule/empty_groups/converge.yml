@@ -1,0 +1,26 @@
+---
+# Exercises the producer-side guarantee that `apt_group_layer` is
+# defined as `[]` when `group_sets` is empty — i.e. the resolve loop
+# runs zero times. Without the init step in roles/apt/tasks/main.yml,
+# the install task's `+ apt_group_layer` concatenation would fail with
+# "'apt_group_layer' is undefined".
+- name: Converge — apt role (empty group_sets)
+  hosts: all
+  gather_facts: true
+  vars:
+    group_sets: []
+    common_apt:
+      - tree
+    host_apt:
+      - bzip2
+  tasks:
+    - name: Run apt role
+      ansible.builtin.include_role:
+        name: apt
+
+    - name: apt_group_layer must be defined and empty
+      ansible.builtin.assert:
+        that:
+          - apt_group_layer is defined
+          - apt_group_layer == []
+        fail_msg: "apt_group_layer not empty: {{ apt_group_layer | default('<undef>') }}"

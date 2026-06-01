@@ -1,0 +1,32 @@
+---
+# Empty-group_sets scenario for the apt role. Regression cover for the
+# producer-side guarantee: the resolve task's init step keeps
+# `apt_group_layer` defined as `[]` even when the loop runs zero times,
+# so the install task's concatenation doesn't crash on an undefined var.
+#
+# Same Debian image as the default scenario; the role itself does the
+# real apt install on common_apt + host_apt only (no group layers).
+
+driver:
+  name: docker
+
+platforms:
+  - name: apt-empty-groups
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    command: /lib/systemd/systemd
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      callback_result_format: yaml
+
+verifier:
+  name: ansible

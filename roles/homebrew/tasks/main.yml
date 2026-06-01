@@ -3,10 +3,16 @@
 # Run `brew bundle` over the layered Brewfiles. Layering convention:
 # see group_vars/all.yml. Runs on macOS and Linuxbrew.
 
+# Init guarantees homebrew_group_brewfile_layer is defined even when
+# group_sets is empty (the resolve loop below runs zero times in that case).
+- name: Initialize homebrew_group_brewfile_layer
+  ansible.builtin.set_fact:
+    homebrew_group_brewfile_layer: []
+
 - name: Resolve homebrew group-set Brewfile paths
   ansible.builtin.set_fact:
     homebrew_group_brewfile_layer: >-
-      {{ (homebrew_group_brewfile_layer | default([]))
+      {{ homebrew_group_brewfile_layer
          + [lookup('vars', 'group_' ~ item ~ '_brewfile')] }}
   loop: "{{ group_sets }}"
   loop_control:
@@ -17,7 +23,7 @@
     path: "{{ item }}"
   loop: >-
     {{ [common_brewfile | default('')]
-       + (homebrew_group_brewfile_layer | default([]))
+       + homebrew_group_brewfile_layer
        + [host_brewfile | default('')] }}
   register: homebrew_brewfile_stats
   when: item | length > 0

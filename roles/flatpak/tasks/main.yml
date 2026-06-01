@@ -22,11 +22,16 @@
     flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
     method: system
 
+# Init guarantees flatpak_group_layer is defined even when group_sets
+# is empty (the resolve loop below runs zero times in that case).
+- name: Initialize flatpak_group_layer
+  ansible.builtin.set_fact:
+    flatpak_group_layer: []
+
 - name: Resolve flatpak group-set layers
   ansible.builtin.set_fact:
     flatpak_group_layer: >-
-      {{ (flatpak_group_layer | default([]))
-         + lookup('vars', 'group_' ~ item ~ '_flatpak') }}
+      {{ flatpak_group_layer + lookup('vars', 'group_' ~ item ~ '_flatpak') }}
   loop: "{{ group_sets }}"
   loop_control:
     label: "group_{{ item }}_flatpak"
