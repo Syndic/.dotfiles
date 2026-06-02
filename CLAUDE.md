@@ -381,16 +381,37 @@ molecule, ansible-lint, and yamllint).
 ./tests/run molecule <role>          # one role's scenarios (used by the CI matrix)
 ```
 
-**Multi-suite invocations (`all`, `fast`) print a per-suite summary** —
-pass/fail and wall-clock per suite, with the molecule line broken out
-per role on `all`. They also switch from fail-fast to run-all-then-
-summarize semantics: a failing earlier suite no longer aborts the run,
-so one invocation surfaces every broken suite. Exit is non-zero iff any
-suite failed. Single-suite invocations (`./tests/run python`, etc.)
-preserve fail-fast — no summary, exit code propagates directly. The cost
-of run-all-then-summarize is paying to run later suites against a tree
-that may already be invalid; in practice the full picture is worth more
-than the early abort.
+**Multi-suite invocations (`all`, `fast`) run every suite in parallel**,
+buffering each suite's output to a tempfile. On a tty, a live dashboard
+shows the last `TAIL_LINES` (default 20) of each currently-running suite,
+refreshed every `TICK` (default 2) seconds via cursor-up + erase. When a
+suite finishes, its full buffered output flushes above the dashboard
+prefixed with `=== <name> (PASS|FAIL, Xm YYs) ===`, becoming permanent
+scrollback as more suites complete. The dashboard shrinks as suites
+finish; once everyone's done, the per-suite summary prints (pass/fail
+and wall-clock, molecule broken out per role on `all`). Exit is non-zero
+iff any suite failed.
+
+On a non-tty (CI, piped) the live dashboard is skipped — completed-suite
+output still flushes as soon as each finishes (in completion order), the
+summary still prints at the end. The exit code semantics are identical.
+
+Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+semantics — no parallelism, no summary, exit code propagates directly.
+
+Two trade-offs the parallel mode pays:
+
+1. **Run-all-then-summarize.** A failing earlier suite no longer aborts
+   the run, so the others still run against a tree that may already be
+   invalid. The full picture is worth more than the early abort.
+2. **Homebrew base image prep is lifted out of the molecule shard** and
+   runs serially before the parallel block starts. Parallel `docker build`
+   / `docker tag` against the same `:local` tag would race, and the bash
+   shards' output would interleave on stdout (we buffer per-suite, but the
+   docker daemon writes to its own log streams). The summary's
+   `molecule:homebrew` time then reflects test work only, not image prep
+   — arguably more honest, but worth knowing when comparing wall-clocks
+   against pre-parallel runs.
 
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
 under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,

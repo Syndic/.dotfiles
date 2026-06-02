@@ -13,11 +13,22 @@
 # molecule job shards across roles via `./tests/run molecule <role>` so wall-
 # clock is bounded by the slowest shard (homebrew) instead of the sum.
 #
-# Multi-suite invocations (`all` / `fast`) print a per-suite summary at the
-# end and switch to run-all-then-summarize semantics — a failing earlier
-# suite no longer aborts the run, so one invocation surfaces every broken
-# suite. Single-suite invocations keep fail-fast semantics (no summary, exit
-# code propagates directly).
+# Multi-suite invocations (`all` / `fast`) run **every suite in parallel** in
+# the background, buffering each suite's output to a tempfile. On a tty,
+# the live dashboard shows the last ~20 lines of each currently-running
+# suite, refreshed every couple seconds; when a suite finishes its full
+# output flushes above the dashboard and a PASS/FAIL line joins the running
+# summary. On a non-tty (CI logs, piped) the live dashboard is skipped —
+# completed-suite output still flushes as each finishes, just without the
+# rolling live tail. Either way a per-suite summary prints at the end and
+# exit is non-zero iff any suite failed.
+#
+# Tunable via env vars:
+#   TICK=<seconds>       dashboard refresh cadence (default 2)
+#   TAIL_LINES=<n>       lines of live tail per running suite (default 20)
+#
+# Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+# semantics — no parallelism, no summary, exit code propagates directly.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -69,19 +80,26 @@ prepare_homebrew_image() {
   docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
 }
 
-# One role's scenarios. Image prep is folded in here (gated on homebrew) so
-# the suite-timing on multi-suite runs reflects the *whole* cost of that
-# role's molecule pass, including any setup it needs. `molecule test --all`
-# runs every scenario under the role's molecule/ dir — equivalent to
-# `-s default` for single-scenario roles, picks up the multi-scenario
-# homebrew role without per-role special-casing.
+# Run one role's scenarios. `molecule test --all` runs every scenario under
+# the role's molecule/ dir — equivalent to `-s default` for single-scenario
+# roles, picks up the multi-scenario homebrew role without per-role special-
+# casing.
+run_molecule_role_noprep() {
+  local role="$1"
+  echo "--- molecule: roles/${role} ---"
+  (cd "roles/${role}" && molecule test --all)
+}
+
+# Standard per-role entry: handles homebrew's image prep inline. Used by
+# the serial `./tests/run molecule [role]` path. The parallel multi-suite
+# path lifts prepare_homebrew_image out (serially, once) before spawning
+# shards so parallel `docker build` calls don't race on the same tag.
 run_molecule_role() {
   local role="$1"
   if [[ "$role" == "homebrew" ]]; then
     prepare_homebrew_image
   fi
-  echo "--- molecule: roles/${role} ---"
-  (cd "roles/${role}" && molecule test --all)
+  run_molecule_role_noprep "$role"
 }
 
 run_molecule() {
@@ -112,31 +130,10 @@ run_molecule() {
 
 # ---------------------------------------------------------------------------
 # Multi-suite summary
-#
-# Active on `all` / `fast` only. `run_suite <name> <cmd...>` records the
-# named suite's result + wall-clock and always returns 0, so subsequent
-# suites still run even after a failure. `print_summary` returns non-zero
-# iff any recorded suite failed — the caller propagates that to exit.
 # ---------------------------------------------------------------------------
 SUMMARY_NAMES=()
 SUMMARY_STATUSES=()
 SUMMARY_SECONDS=()
-
-run_suite() {
-  local name="$1"; shift
-  local start=$SECONDS
-  local rc=0
-  "$@" || rc=$?
-  local elapsed=$((SECONDS - start))
-  SUMMARY_NAMES+=("$name")
-  if [[ $rc -eq 0 ]]; then
-    SUMMARY_STATUSES+=("PASS")
-  else
-    SUMMARY_STATUSES+=("FAIL")
-  fi
-  SUMMARY_SECONDS+=("$elapsed")
-  return 0
-}
 
 format_duration() {
   local s=$1
@@ -165,23 +162,222 @@ print_summary() {
   return "$any_failed"
 }
 
+# ---------------------------------------------------------------------------
+# Parallel orchestration
+#
+# spawn_suite NAME CMD ... — backgrounds CMD, redirects its stdout+stderr to
+#   $SPAWN_LOGDIR/<name>.log, and writes $? to <name>.rc atomically when it
+#   exits. Records the name/pid/start-time in parallel indexed arrays.
+#
+# The main loop ticks every $TICK seconds:
+#   1. (interactive only) clear the previous dashboard via cursor-up + erase
+#   2. for each newly-completed suite: print its full buffered output and
+#      record its result in the summary arrays
+#   3. break if everyone's done
+#   4. (interactive only) render the live dashboard: per-running-suite block
+#      with elapsed time + last $TAIL_LINES of its log, truncated to terminal
+#      width so wrapping doesn't break the next-tick line-count math
+#
+# Non-tty fallback (CI, piped): skip step 1 and step 4 entirely. Each
+# completed suite's output still flushes as soon as it finishes; there's just
+# no rolling tail of in-flight suites.
+# ---------------------------------------------------------------------------
+SPAWN_LOGDIR=""
+SPAWN_NAMES=()
+SPAWN_PIDS=()
+SPAWN_STARTS=()
+SUITE_FLUSHED=()       # 1 once <name>.log has been printed and result recorded
+DASHBOARD_LINES=0      # how many lines the last dashboard render produced
+
+spawn_suite() {
+  local name="$1"; shift
+  local log="$SPAWN_LOGDIR/${name}.log"
+  : > "$log"
+  local start
+  start=$(date +%s)
+  (
+    # Disable -e inside the subshell so a failing suite still reaches the
+    # rc-capture line below — otherwise set -e would abort the subshell at
+    # the failing command, the .rc file would never appear, and the main
+    # loop would poll forever waiting on a status that's never published.
+    set +e
+    "$@" >"$log" 2>&1
+    local rc=$?
+    # Atomic publish so the main loop never observes a half-written rc file.
+    echo "$rc" > "$SPAWN_LOGDIR/${name}.rc.tmp"
+    mv "$SPAWN_LOGDIR/${name}.rc.tmp" "$SPAWN_LOGDIR/${name}.rc"
+  ) &
+  SPAWN_NAMES+=("$name")
+  SPAWN_PIDS+=("$!")
+  SPAWN_STARTS+=("$start")
+  SUITE_FLUSHED+=("")
+}
+
+clear_dashboard() {
+  # `tput cuu 0` is undefined on some terminals — guard the zero case.
+  if (( DASHBOARD_LINES > 0 )); then
+    tput cuu "$DASHBOARD_LINES" 2>/dev/null || true
+    tput ed 2>/dev/null || true
+    DASHBOARD_LINES=0
+  fi
+}
+
+# For each suite whose rc file has appeared since the last flush, print
+# `=== name (PASS, Xm YYs) ===` followed by its full buffered output and
+# append to the summary arrays. Idempotent — the SUITE_FLUSHED parallel
+# array gates each entry.
+flush_completed() {
+  local i name rc_file rc status start elapsed
+  for (( i = 0; i < ${#SPAWN_NAMES[@]}; i++ )); do
+    [[ -n "${SUITE_FLUSHED[$i]}" ]] && continue
+    name="${SPAWN_NAMES[$i]}"
+    rc_file="$SPAWN_LOGDIR/${name}.rc"
+    [[ -f "$rc_file" ]] || continue
+
+    rc=$(<"$rc_file")
+    start="${SPAWN_STARTS[$i]}"
+    elapsed=$(( $(date +%s) - start ))
+    if [[ "$rc" -eq 0 ]]; then
+      status="PASS"
+    else
+      status="FAIL"
+    fi
+
+    printf '\n=== %s  (%s, %s) ===\n' "$name" "$status" "$(format_duration "$elapsed")"
+    cat "$SPAWN_LOGDIR/${name}.log"
+
+    SUMMARY_NAMES+=("$name")
+    SUMMARY_STATUSES+=("$status")
+    SUMMARY_SECONDS+=("$elapsed")
+    SUITE_FLUSHED[$i]=1
+  done
+}
+
+# True when at least one suite hasn't flushed yet.
+any_still_running() {
+  local i
+  for (( i = 0; i < ${#SPAWN_NAMES[@]}; i++ )); do
+    [[ -z "${SUITE_FLUSHED[$i]}" ]] && return 0
+  done
+  return 1
+}
+
+render_dashboard() {
+  local cols now name start elapsed tail_lines tail_text body_lines
+  cols=$(tput cols 2>/dev/null || echo 80)
+  now=$(date +%s)
+  local lines=0
+  printf -- '─── live (%s) ───\n' "$(date +%H:%M:%S)"
+  ((lines++))
+  local i
+  for (( i = 0; i < ${#SPAWN_NAMES[@]}; i++ )); do
+    [[ -n "${SUITE_FLUSHED[$i]}" ]] && continue
+    name="${SPAWN_NAMES[$i]}"
+    start="${SPAWN_STARTS[$i]}"
+    elapsed=$(( now - start ))
+    printf '[%s | %s]\n' "$name" "$(format_duration "$elapsed")"
+    ((lines++))
+    # Truncate each line to $cols so terminal wrap doesn't break our
+    # next-tick line-count math.
+    tail_text=$(tail -n "${TAIL_LINES:-20}" "$SPAWN_LOGDIR/${name}.log" 2>/dev/null \
+                | cut -c1-"$cols" || true)
+    if [[ -n "$tail_text" ]]; then
+      printf '%s\n' "$tail_text"
+      body_lines=$(printf '%s' "$tail_text" | grep -c '^' || true)
+      lines=$((lines + body_lines))
+    fi
+    echo ""
+    ((lines++))
+  done
+  DASHBOARD_LINES=$lines
+}
+
+parallel_cleanup() {
+  # Triggered by INT/TERM. Kill any still-running children so Ctrl+C doesn't
+  # leave background pytest/molecule/docker processes orphaned. `kill -0`
+  # check avoids `kill` errors on already-exited pids.
+  local pid
+  for pid in "${SPAWN_PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  done
+  # Restore cursor in case we were mid-dashboard.
+  tput cnorm 2>/dev/null || true
+  if [[ -n "$SPAWN_LOGDIR" && -d "$SPAWN_LOGDIR" ]]; then
+    rm -rf "$SPAWN_LOGDIR"
+  fi
+}
+
 run_multi() {
   # `all` and `fast` share everything except the molecule block.
   local include_molecule="$1"
 
-  run_suite python run_python
-  run_suite bash   run_bash
-  run_suite lint   run_lint
+  SPAWN_LOGDIR=$(mktemp -d -t dotfiles-tests-run.XXXXXX)
+  SPAWN_NAMES=()
+  SPAWN_PIDS=()
+  SPAWN_STARTS=()
+  SUITE_FLUSHED=()
+  DASHBOARD_LINES=0
 
+  trap parallel_cleanup INT TERM EXIT
+
+  # Homebrew's molecule scenarios share a base image. If we let the molecule
+  # shards race in parallel, two could try to `docker build` (or `docker
+  # tag`) the same `:local` tag at once — wasted work at best, garbled
+  # output at worst. Do the prep once, serially, before any background
+  # job spawns. The summary `molecule:homebrew` time then reflects test
+  # work only, not image prep — which is arguably more honest.
   if [[ "$include_molecule" == "true" ]]; then
-    # Per-role breakdown rather than one molecule line — the four roles
-    # have very different costs (homebrew dominates), so seeing them
-    # separately makes the summary actionable.
-    local role
-    for role in "${MOLECULE_ROLES[@]}"; do
-      run_suite "molecule:${role}" run_molecule_role "$role"
+    local r
+    for r in "${MOLECULE_ROLES[@]}"; do
+      if [[ "$r" == "homebrew" ]]; then
+        echo "--- preparing homebrew base image (serial; before parallel block) ---"
+        prepare_homebrew_image
+        break
+      fi
     done
   fi
+
+  spawn_suite python run_python
+  spawn_suite bash   run_bash
+  spawn_suite lint   run_lint
+
+  if [[ "$include_molecule" == "true" ]]; then
+    local role
+    for role in "${MOLECULE_ROLES[@]}"; do
+      spawn_suite "molecule:${role}" run_molecule_role_noprep "$role"
+    done
+  fi
+
+  local interactive=false
+  [[ -t 1 ]] && interactive=true
+
+  if $interactive; then
+    tput civis 2>/dev/null || true
+  fi
+
+  while true; do
+    $interactive && clear_dashboard
+    flush_completed
+    if ! any_still_running; then
+      break
+    fi
+    $interactive && render_dashboard
+    sleep "${TICK:-2}"
+  done
+
+  if $interactive; then
+    tput cnorm 2>/dev/null || true
+  fi
+
+  # Clean up the trap — we exited normally and parallel_cleanup would
+  # otherwise nuke SPAWN_LOGDIR before print_summary needs anything in it.
+  # (Currently print_summary doesn't read tempfiles, but unset is the safe
+  # contract.)
+  trap - INT TERM EXIT
+  rm -rf "$SPAWN_LOGDIR"
+  SPAWN_LOGDIR=""
 
   print_summary
 }
