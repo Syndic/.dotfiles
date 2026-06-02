@@ -306,7 +306,15 @@ def render_dashboard(runner: ParallelRunner) -> int:
         if s.name in runner.results:
             continue
         elapsed = int(now - runner.start_times[s.name])
-        print(f"[{s.name} | {format_duration(elapsed)}]")
+        # Suite header — blue (info) background so it visibly cleaves the
+        # block from the suite's own tail content below. Plain
+        # `[name | elapsed]` got lost in molecule's verbose colored
+        # scenario logs; the colored bracket reads as a labeled
+        # sub-section against any surrounding noise. Hierarchically below
+        # the yellow announce-style dashboard header above; mirrors
+        # _dotfiles_common's palette (yellow announce = top-level
+        # boundary, blue info = labeled sub-section).
+        print(f"\x1b[1;37;44m {s.name} · {format_duration(elapsed)} \x1b[0m")
         lines += 1
         try:
             content = runner.log_paths[s.name].read_text(errors="replace")
@@ -318,7 +326,7 @@ def render_dashboard(runner: ParallelRunner) -> int:
                 lines += 1
         except (FileNotFoundError, OSError):
             pass
-        print()  # blank line between suite blocks
+        print()  # blank line between suite headers
         lines += 1
 
     return lines

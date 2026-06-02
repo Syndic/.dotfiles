@@ -392,16 +392,24 @@ bracket-style banners stay consistent with the bootstrap.
 buffering each suite's output to a tempfile. On a tty, a live dashboard
 shows the last `TAIL_LINES` (default 20) of each currently-running suite,
 refreshed every `TICK` (default 2) seconds via cursor-up + erase. The
-dashboard header uses the `announce`-style yellow background banner
-(`live · HH:MM:SS · X/N suites complete`) so it stays visually distinct
-from pytest / molecule output that has its own banner-like lines —
-otherwise the previous render's separators are easy to confuse with the
-suite content scrolling past. When a suite finishes, its full buffered
-output flushes above the dashboard prefixed with a `<name> · PASS · Xs`
-(yellow) or `· FAIL ·` (red) `announce` banner, becoming permanent
-scrollback. The dashboard shrinks as suites complete. Once everyone's
-done, the summary prints with per-suite green/red badges. Exit is
-non-zero iff any suite failed.
+dashboard uses a three-tier colored hierarchy mirroring
+`_dotfiles_common`'s palette:
+
+- **Dashboard header** — yellow background `announce`-style banner
+  (`live · HH:MM:SS · X/N suites complete`), the top-level section
+  boundary. Otherwise the previous render's separators would be easy to
+  confuse with suite content scrolling past.
+- **Suite header** (one per running suite, above its tail block) — blue
+  background `info`-style banner (`<name> · <elapsed>`), the labeled
+  sub-section. Plain `[name | elapsed]` was easy to lose in molecule's
+  verbose colored scenario logs; the colored bracket reads as a section
+  start against any surrounding noise.
+- **Completion banner** (above each suite's full output as it flushes) —
+  yellow `announce`-style for PASS, red (`die`-style) for FAIL. Becomes
+  permanent scrollback as the dashboard redraws above.
+
+When everyone's done, the summary prints with per-suite green/red
+badges. Exit is non-zero iff any suite failed.
 
 On a non-tty (CI, piped) the live dashboard is skipped — completed-suite
 output still flushes as soon as each finishes (in completion order), the
