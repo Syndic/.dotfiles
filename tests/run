@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.14
+# renovate: datasource=python-version depName=python
 """Run the test suites.
 
   ./tests/run                  # everything (python + bash + lint + molecule)
@@ -31,13 +32,13 @@ Tunable via env: TICK=<seconds>, TAIL_LINES=<n>.
 Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
-Rewritten from bash (#63) — the orchestration logic (subprocess
-backgrounding, terminal cursor control, per-suite state tracking) reads
-substantially more clearly in Python and the bootstrap already requires
-python3, so the no-extra-dep argument for bash didn't hold up.
+Runs under the same `tooling_python` (3.14) as the lint/molecule CI jobs
+and the devcontainer's Ansible venv — *not* the frozen 3.9.6 that drives
+the bootstrap. The shebang version is Renovate-tracked alongside the
+other two so all three stay in step. This is dev tooling, not bootstrap,
+so it gets the latest language features (`match`, `Self`, native union
+types, parenthesized context managers).
 """
-from __future__ import annotations
-
 import os
 import shutil
 import signal
@@ -45,7 +46,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Self
 
 # Repo root is two levels up from this script. Add to sys.path so we can
 # import the shared output helpers that the bootstrap + uninstall also use,
@@ -56,7 +59,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from _dotfiles_common import announce, die, info, warn  # noqa: E402
 
-# Tunable via env. Cast at import — bad values surface immediately, not
+# Tunable via env. Cast at import so bad values surface immediately, not
 # partway through a parallel run.
 TICK = float(os.environ.get("TICK", "2"))
 TAIL_LINES = int(os.environ.get("TAIL_LINES", "20"))
@@ -94,14 +97,14 @@ def format_duration(seconds: float) -> str:
 # --------------------------------------------------------------------------- #
 # Suite definitions
 # --------------------------------------------------------------------------- #
+@dataclass(frozen=True, slots=True)
 class Suite:
     """One named test suite — an argv that runs the whole thing as a single
     subprocess. Multi-command suites (lint, molecule) wrap their commands in
     `bash -c '... && ...'` so they're still one Popen-able invocation."""
 
-    def __init__(self, name: str, argv: list[str]) -> None:
-        self.name = name
-        self.argv = argv
+    name: str
+    argv: list[str]
 
 
 PYTHON_SUITE = Suite("python", ["pytest", "tests/python", "-v"])
@@ -132,8 +135,7 @@ def prepare_homebrew_image() -> None:
     retag. On pull failure — registry hiccup, image not yet published, PR
     editing the Dockerfile — fall back to a local docker build so a fresh
     Dockerfile is tested against its own changes."""
-    image = os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip()
-    if image:
+    if image := os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip():
         info(f"molecule: pulling homebrew base image from {image}")
         try:
             subprocess.run(["docker", "pull", image], check=True, cwd=REPO_ROOT)
@@ -168,8 +170,7 @@ def run_single_suite(suite: Suite) -> int:
 
 def run_lint_serial() -> int:
     """Two-command suite — run yamllint, short-circuit on failure."""
-    rc = subprocess.call(["yamllint", "."], cwd=REPO_ROOT)
-    if rc != 0:
+    if (rc := subprocess.call(["yamllint", "."], cwd=REPO_ROOT)) != 0:
         return rc
     return subprocess.call(["ansible-lint"], cwd=REPO_ROOT)
 
@@ -194,8 +195,7 @@ def run_molecule(target_role: str | None) -> int:
     roles = MOLECULE_ROLES if target_role is None else [target_role]
     rc = 0
     for role in roles:
-        result = run_molecule_role_serial(role)
-        if result != 0:
+        if (result := run_molecule_role_serial(role)) != 0:
             rc = result
     return rc
 
@@ -203,21 +203,24 @@ def run_molecule(target_role: str | None) -> int:
 # --------------------------------------------------------------------------- #
 # Parallel orchestrator
 # --------------------------------------------------------------------------- #
+@dataclass(slots=True)
 class ParallelRunner:
     """Spawns every suite as a subprocess writing to its own tempfile.
     `poll()` returns the names of any newly-completed suites since the last
     poll. `cleanup()` terminates survivors and removes the tempdir."""
 
-    def __init__(self, suites: list[Suite]) -> None:
-        self.suites = suites
-        self.tmpdir = Path(tempfile.mkdtemp(prefix="dotfiles-tests-run."))
-        self.procs: dict[str, subprocess.Popen] = {}
-        self.log_paths: dict[str, Path] = {}
-        self.start_times: dict[str, float] = {}
-        # name -> (rc, elapsed_seconds)
-        self.results: dict[str, tuple[int, float]] = {}
+    suites: list[Suite]
+    tmpdir: Path = field(init=False)
+    procs: dict[str, subprocess.Popen] = field(default_factory=dict)
+    log_paths: dict[str, Path] = field(default_factory=dict)
+    start_times: dict[str, float] = field(default_factory=dict)
+    # name -> (rc, elapsed_seconds)
+    results: dict[str, tuple[int, float]] = field(default_factory=dict)
 
-    def spawn_all(self) -> None:
+    def __post_init__(self) -> None:
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="dotfiles-tests-run."))
+
+    def spawn_all(self) -> Self:
         for s in self.suites:
             # `:` is fine in filenames; `/` would not be — sanitize defensively.
             log = self.tmpdir / f"{s.name.replace('/', '_')}.log"
@@ -227,18 +230,17 @@ class ParallelRunner:
             # buffering=0: unbuffered file fd so the subprocess's writes hit
             # disk immediately and the dashboard's tail() sees them on the
             # next tick rather than waiting for python's userspace buffer.
-            f = open(log, "wb", buffering=0)
-            try:
+            # Parenthesized context managers are nice here — and the open
+            # file is only used to Popen-dup the fd, so closing it on
+            # exit doesn't disturb the child.
+            with open(log, "wb", buffering=0) as f:
                 self.procs[s.name] = subprocess.Popen(
                     s.argv,
                     stdout=f,
                     stderr=subprocess.STDOUT,
                     cwd=REPO_ROOT,
                 )
-            finally:
-                # Popen dups the fd into the child; the parent handle is
-                # no longer needed and closing it doesn't disturb the child.
-                f.close()
+        return self
 
     def poll(self) -> list[str]:
         """Return names of suites that have completed since the last poll."""
@@ -246,8 +248,7 @@ class ParallelRunner:
         for name, proc in self.procs.items():
             if name in self.results:
                 continue
-            rc = proc.poll()
-            if rc is not None:
+            if (rc := proc.poll()) is not None:
                 elapsed = time.time() - self.start_times[name]
                 self.results[name] = (rc, elapsed)
                 newly_done.append(name)
@@ -309,10 +310,10 @@ def render_dashboard(runner: ParallelRunner) -> int:
         lines += 1
         try:
             content = runner.log_paths[s.name].read_text(errors="replace")
+            # Truncate to terminal width so wrap doesn't desync the
+            # next-tick line-count math.
             tail = content.splitlines()[-TAIL_LINES:]
             for line in tail:
-                # Truncate to terminal width so wrap doesn't desync the
-                # next-tick line-count math.
                 print(line[:cols])
                 lines += 1
         except (FileNotFoundError, OSError):
@@ -341,10 +342,7 @@ def flush_completed(runner: ParallelRunner, newly_done: list[str]) -> None:
         rc, elapsed = runner.results[name]
         status = "PASS" if rc == 0 else "FAIL"
         banner = f"{name} · {status} · {format_duration(elapsed)}"
-        if rc == 0:
-            announce(banner)
-        else:
-            announce_fail(banner)
+        (announce if rc == 0 else announce_fail)(banner)
         try:
             sys.stdout.buffer.write(runner.log_paths[name].read_bytes())
             sys.stdout.flush()
@@ -381,15 +379,12 @@ def run_multi(include_molecule: bool) -> int:
         if "homebrew" in MOLECULE_ROLES:
             info("preparing homebrew base image (serial; before parallel block)")
             prepare_homebrew_image()
-        for role in MOLECULE_ROLES:
-            suites.append(molecule_role_suite(role))
+        suites.extend(molecule_role_suite(role) for role in MOLECULE_ROLES)
 
-    runner = ParallelRunner(suites)
-    runner.spawn_all()
-
+    runner = ParallelRunner(suites).spawn_all()
     interactive = sys.stdout.isatty()
 
-    def _signal_handler(_signum, _frame):
+    def _signal_handler(_signum: int, _frame: object) -> None:
         # Ctrl+C / SIGTERM: tear down children, restore cursor, exit 130
         # (the conventional SIGINT exit code).
         runner.cleanup()
@@ -412,8 +407,7 @@ def run_multi(include_molecule: bool) -> int:
                 clear_dashboard(dashboard_lines)
                 dashboard_lines = 0
 
-            newly_done = runner.poll()
-            flush_completed(runner, newly_done)
+            flush_completed(runner, runner.poll())
 
             if runner.all_done():
                 break
@@ -439,27 +433,26 @@ USAGE = "usage: tests/run [python|bash|lint|molecule [role]|fast|all]"
 
 
 def main(argv: list[str]) -> int:
-    if not argv:
-        return run_multi(include_molecule=True)
-
-    cmd = argv[0]
-    extra = argv[1] if len(argv) > 1 else None
-
-    if cmd == "python":
-        return run_single_suite(PYTHON_SUITE)
-    if cmd == "bash":
-        return run_single_suite(BASH_SUITE)
-    if cmd == "lint":
-        return run_lint_serial()
-    if cmd == "molecule":
-        return run_molecule(extra)
-    if cmd == "fast":
-        return run_multi(include_molecule=False)
-    if cmd == "all":
-        return run_multi(include_molecule=True)
-
-    print(USAGE, file=sys.stderr)
-    return 2
+    match argv:
+        case []:
+            return run_multi(include_molecule=True)
+        case ["python", *_]:
+            return run_single_suite(PYTHON_SUITE)
+        case ["bash", *_]:
+            return run_single_suite(BASH_SUITE)
+        case ["lint", *_]:
+            return run_lint_serial()
+        case ["molecule"]:
+            return run_molecule(None)
+        case ["molecule", role, *_]:
+            return run_molecule(role)
+        case ["fast", *_]:
+            return run_multi(include_molecule=False)
+        case ["all", *_]:
+            return run_multi(include_molecule=True)
+        case _:
+            print(USAGE, file=sys.stderr)
+            return 2
 
 
 if __name__ == "__main__":
