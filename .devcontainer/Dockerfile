@@ -5,7 +5,7 @@ FROM mcr.microsoft.com/devcontainers/base:debian
 # the frozen 3.9.6 and the tooling interpreter from source on every image build
 # — the bulk of the old startup cost. post-create.sh drives uv to build the
 # dev/test venvs. The pinned tag is bumped by Renovate's docker manager.
-COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.18 /uv /uvx /usr/local/bin/
 
 # bats-core for the bash test suite (tests/bash) — CI installs the same apt
 # package, keep in sync with .github/workflows/tests.yml. ripgrep is here for
