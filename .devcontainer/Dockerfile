@@ -8,11 +8,13 @@ FROM mcr.microsoft.com/devcontainers/base:debian
 COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /uvx /usr/local/bin/
 
 # bats-core for the bash test suite (tests/bash) — CI installs the same apt
-# package, keep in sync with .github/workflows/tests.yml. Everything Python
+# package, keep in sync with .github/workflows/tests.yml. ripgrep is here for
+# interactive use (grep/search inside the container). Everything Python
 # (pytest, ansible, ansible-lint, molecule, pre-commit) is installed by
 # post-create.sh via uv, not apt/pipx.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         bats \
+        ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Make a git worktree's metadata resolve in-container at the SAME absolute path
