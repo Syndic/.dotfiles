@@ -51,7 +51,7 @@ jobs:
       # `latest` for the tests.yml consumer; `sha-<short>` so a regression
       # can be pinned to the publishing commit while debugging.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ steps.owner.outputs.value }}/dotfiles-homebrew-molecule
           tags: |
