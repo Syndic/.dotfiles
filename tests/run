@@ -1,402 +1,466 @@
-#!/usr/bin/env bash
-# Run the test suites.
-#
-#   ./tests/run                  # everything (python + bash + lint + molecule)
-#   ./tests/run fast             # python + bash + lint (skip molecule — no docker)
-#   ./tests/run python           # just pytest
-#   ./tests/run bash             # just bats
-#   ./tests/run lint             # yamllint + ansible-lint
-#   ./tests/run molecule         # all molecule roles, serial (needs docker)
-#   ./tests/run molecule <role>  # one role's scenarios — used by the CI matrix
-#
-# CI runs each suite as its own job — see .github/workflows/tests.yml. The
-# molecule job shards across roles via `./tests/run molecule <role>` so wall-
-# clock is bounded by the slowest shard (homebrew) instead of the sum.
-#
-# Multi-suite invocations (`all` / `fast`) run **every suite in parallel** in
-# the background, buffering each suite's output to a tempfile. On a tty,
-# the live dashboard shows the last ~20 lines of each currently-running
-# suite, refreshed every couple seconds; when a suite finishes its full
-# output flushes above the dashboard and a PASS/FAIL line joins the running
-# summary. On a non-tty (CI logs, piped) the live dashboard is skipped —
-# completed-suite output still flushes as each finishes, just without the
-# rolling live tail. Either way a per-suite summary prints at the end and
-# exit is non-zero iff any suite failed.
-#
-# Tunable via env vars:
-#   TICK=<seconds>       dashboard refresh cadence (default 2)
-#   TAIL_LINES=<n>       lines of live tail per running suite (default 20)
-#
-# Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
-# semantics — no parallelism, no summary, exit code propagates directly.
-set -euo pipefail
+#!/usr/bin/env python3
+"""Run the test suites.
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+  ./tests/run                  # everything (python + bash + lint + molecule)
+  ./tests/run fast             # python + bash + lint (skip molecule — no docker)
+  ./tests/run python           # just pytest
+  ./tests/run bash             # just bats
+  ./tests/run lint             # yamllint + ansible-lint
+  ./tests/run molecule         # all molecule roles, serial (needs docker)
+  ./tests/run molecule <role>  # one role's scenarios — used by the CI matrix
+
+CI runs each suite as its own job — see .github/workflows/tests.yml. The
+molecule job shards across roles via `./tests/run molecule <role>` so wall-
+clock is bounded by the slowest shard (homebrew) instead of the sum.
+
+Multi-suite invocations (`all` / `fast`) run every suite in parallel,
+buffering each suite's output to a tempfile. On a tty, a live dashboard
+shows the last TAIL_LINES (default 20) of each currently-running suite,
+refreshed every TICK (default 2) seconds via cursor-up + erase. The
+dashboard header uses the announce-style yellow bracket from
+_dotfiles_common so it stays visually distinct from pytest/molecule's
+own banner-like lines, and tracks `X/N suites complete`. When a suite
+finishes, its full buffered output flushes above the dashboard prefixed
+with a PASS (yellow) or FAIL (red) announce banner. On a non-tty (CI,
+piped) the dashboard is skipped — completed-suite output still flushes
+as each finishes; the summary still prints at the end. Exit is non-zero
+iff any suite failed.
+
+Tunable via env: TICK=<seconds>, TAIL_LINES=<n>.
+
+Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+semantics — no parallelism, no summary, exit code propagates directly.
+
+Rewritten from bash (#63) — the orchestration logic (subprocess
+backgrounding, terminal cursor control, per-suite state tracking) reads
+substantially more clearly in Python and the bootstrap already requires
+python3, so the no-extra-dep argument for bash didn't hold up.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+# Repo root is two levels up from this script. Add to sys.path so we can
+# import the shared output helpers that the bootstrap + uninstall also use,
+# keeping the bracket-style colored banners visually consistent across the
+# whole repo.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from _dotfiles_common import announce, die, info, warn  # noqa: E402
+
+# Tunable via env. Cast at import — bad values surface immediately, not
+# partway through a parallel run.
+TICK = float(os.environ.get("TICK", "2"))
+TAIL_LINES = int(os.environ.get("TAIL_LINES", "20"))
 
 # All molecule-covered roles. New roles with scenarios under
-# `roles/<role>/molecule/` must be added here AND to the `matrix.role` list
-# in .github/workflows/tests.yml — local serial runs and CI shard discovery
-# read from different sources.
-MOLECULE_ROLES=(dotfiles apt flatpak homebrew)
+# `roles/<role>/molecule/` must also be added to the `matrix.role` list in
+# .github/workflows/tests.yml — local serial runs and CI shard discovery
+# read from different sources. test_molecule_role_lists_agree.py asserts
+# both lists match what's on disk.
+MOLECULE_ROLES = ["dotfiles", "apt", "flatpak", "homebrew"]
 
-# ---------------------------------------------------------------------------
-# Suite implementations
-# ---------------------------------------------------------------------------
-run_python() {
-  echo "=== python ==="
-  pytest tests/python -v
-}
+# --------------------------------------------------------------------------- #
+# ANSI helpers (extending _dotfiles_common's bracket-style banners)
+# --------------------------------------------------------------------------- #
+ANSI_HIDE_CURSOR = "\x1b[?25l"
+ANSI_SHOW_CURSOR = "\x1b[?25h"
+ANSI_PASS_BADGE = "\x1b[1;37;42m PASS \x1b[0m"   # white-on-green
+ANSI_FAIL_BADGE = "\x1b[1;37;101m FAIL \x1b[0m"  # white-on-red
 
-run_bash() {
-  echo "=== bash ==="
-  bats tests/bash
-}
 
-run_lint() {
-  echo "=== lint ==="
-  yamllint .
-  ansible-lint
-}
+def announce_fail(msg: str) -> None:
+    """Mirror of `_dotfiles_common.announce`, but red — for the completion
+    banner of a failing suite so it pops in the scrollback alongside the
+    yellow PASS banners."""
+    print(f"\n\x1b[1;37;101m {msg} \x1b[0m")
 
-prepare_homebrew_image() {
-  # MOLECULE_HOMEBREW_IMAGE, when set, names a fully-qualified image ref
-  # (e.g. `ghcr.io/syndic/dotfiles-homebrew-molecule:latest`) to pull and
-  # retag as the local one. CI sets it in tests.yml's homebrew shard. On
-  # any failure — pull error, unset registry, network blip, image not yet
-  # published — fall back to a local `docker build` so CI is never blocked
-  # waiting on the publish workflow, and a PR that *changes* the Dockerfile
-  # still gets tested against its own changes (the published copy would be
-  # one Dockerfile version behind).
-  if [[ -n "${MOLECULE_HOMEBREW_IMAGE:-}" ]]; then
-    echo "--- molecule: pulling homebrew base image from ${MOLECULE_HOMEBREW_IMAGE} ---"
-    if docker pull "${MOLECULE_HOMEBREW_IMAGE}" \
-       && docker tag "${MOLECULE_HOMEBREW_IMAGE}" dotfiles-homebrew-molecule:local; then
-      return 0
-    fi
-    echo "--- molecule: pull failed; falling back to local build ---" >&2
-  fi
-  echo "--- molecule: building roles/homebrew base image ---"
-  docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
-}
 
-# Run one role's scenarios. `molecule test --all` runs every scenario under
-# the role's molecule/ dir — equivalent to `-s default` for single-scenario
-# roles, picks up the multi-scenario homebrew role without per-role special-
-# casing.
-run_molecule_role_noprep() {
-  local role="$1"
-  echo "--- molecule: roles/${role} ---"
-  (cd "roles/${role}" && molecule test --all)
-}
+def format_duration(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    return f"{s // 60}m {s % 60:02d}s"
 
-# Standard per-role entry: handles homebrew's image prep inline. Used by
-# the serial `./tests/run molecule [role]` path. The parallel multi-suite
-# path lifts prepare_homebrew_image out (serially, once) before spawning
-# shards so parallel `docker build` calls don't race on the same tag.
-run_molecule_role() {
-  local role="$1"
-  if [[ "$role" == "homebrew" ]]; then
-    prepare_homebrew_image
-  fi
-  run_molecule_role_noprep "$role"
-}
 
-run_molecule() {
-  local target_role="${1:-}"
-  echo "=== molecule ==="
+# --------------------------------------------------------------------------- #
+# Suite definitions
+# --------------------------------------------------------------------------- #
+class Suite:
+    """One named test suite — an argv that runs the whole thing as a single
+    subprocess. Multi-command suites (lint, molecule) wrap their commands in
+    `bash -c '... && ...'` so they're still one Popen-able invocation."""
 
-  local roles=()
-  if [[ -z "$target_role" ]]; then
-    roles=("${MOLECULE_ROLES[@]}")
-  else
-    local known=false
-    for r in "${MOLECULE_ROLES[@]}"; do
-      if [[ "$r" == "$target_role" ]]; then known=true; break; fi
-    done
-    if ! $known; then
-      echo "unknown molecule role: ${target_role} (known: ${MOLECULE_ROLES[*]})" >&2
-      return 2
-    fi
-    roles=("$target_role")
-  fi
+    def __init__(self, name: str, argv: list[str]) -> None:
+        self.name = name
+        self.argv = argv
 
-  local rc=0
-  for r in "${roles[@]}"; do
-    run_molecule_role "$r" || rc=$?
-  done
-  return $rc
-}
 
-# ---------------------------------------------------------------------------
-# Multi-suite summary
-# ---------------------------------------------------------------------------
-SUMMARY_NAMES=()
-SUMMARY_STATUSES=()
-SUMMARY_SECONDS=()
+PYTHON_SUITE = Suite("python", ["pytest", "tests/python", "-v"])
+BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
+# `&&` so a yamllint failure short-circuits ansible-lint — matches the
+# fail-fast behavior of the previous bash version's `set -e`.
+LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])
 
-format_duration() {
-  local s=$1
-  if (( s < 60 )); then
-    printf '%ds' "$s"
-  else
-    printf '%dm %02ds' $((s / 60)) $((s % 60))
-  fi
-}
 
-print_summary() {
-  echo
-  echo "=== summary ==="
-  local max_name=0 n
-  for n in "${SUMMARY_NAMES[@]}"; do
-    (( ${#n} > max_name )) && max_name=${#n}
-  done
-  local i status duration any_failed=0
-  for (( i = 0; i < ${#SUMMARY_NAMES[@]}; i++ )); do
-    status="${SUMMARY_STATUSES[$i]}"
-    duration="$(format_duration "${SUMMARY_SECONDS[$i]}")"
-    printf '  %-*s  %s  (%s)\n' \
-      "$max_name" "${SUMMARY_NAMES[$i]}" "$status" "$duration"
-    [[ "$status" == "FAIL" ]] && any_failed=1
-  done
-  return "$any_failed"
-}
+def molecule_role_suite(role: str) -> Suite:
+    return Suite(
+        f"molecule:{role}",
+        ["bash", "-c", f"cd roles/{role} && molecule test --all"],
+    )
 
-# ---------------------------------------------------------------------------
-# Parallel orchestration
-#
-# spawn_suite NAME CMD ... — backgrounds CMD, redirects its stdout+stderr to
-#   $SPAWN_LOGDIR/<name>.log, and writes $? to <name>.rc atomically when it
-#   exits. Records the name/pid/start-time in parallel indexed arrays.
-#
-# The main loop ticks every $TICK seconds:
-#   1. (interactive only) clear the previous dashboard via cursor-up + erase
-#   2. for each newly-completed suite: print its full buffered output and
-#      record its result in the summary arrays
-#   3. break if everyone's done
-#   4. (interactive only) render the live dashboard: per-running-suite block
-#      with elapsed time + last $TAIL_LINES of its log, truncated to terminal
-#      width so wrapping doesn't break the next-tick line-count math
-#
-# Non-tty fallback (CI, piped): skip step 1 and step 4 entirely. Each
-# completed suite's output still flushes as soon as it finishes; there's just
-# no rolling tail of in-flight suites.
-# ---------------------------------------------------------------------------
-SPAWN_LOGDIR=""
-SPAWN_NAMES=()
-SPAWN_PIDS=()
-SPAWN_STARTS=()
-SUITE_FLUSHED=()       # 1 once <name>.log has been printed and result recorded
-DASHBOARD_LINES=0      # how many lines the last dashboard render produced
 
-spawn_suite() {
-  local name="$1"; shift
-  local log="$SPAWN_LOGDIR/${name}.log"
-  : > "$log"
-  local start
-  start=$(date +%s)
-  (
-    # Disable -e inside the subshell so a failing suite still reaches the
-    # rc-capture line below — otherwise set -e would abort the subshell at
-    # the failing command, the .rc file would never appear, and the main
-    # loop would poll forever waiting on a status that's never published.
-    set +e
-    "$@" >"$log" 2>&1
-    local rc=$?
-    # Atomic publish so the main loop never observes a half-written rc file.
-    echo "$rc" > "$SPAWN_LOGDIR/${name}.rc.tmp"
-    mv "$SPAWN_LOGDIR/${name}.rc.tmp" "$SPAWN_LOGDIR/${name}.rc"
-  ) &
-  SPAWN_NAMES+=("$name")
-  SPAWN_PIDS+=("$!")
-  SPAWN_STARTS+=("$start")
-  SUITE_FLUSHED+=("")
-}
+# --------------------------------------------------------------------------- #
+# Homebrew image prep — runs serially before any parallel spawn
+# --------------------------------------------------------------------------- #
+def prepare_homebrew_image() -> None:
+    """Build or pull the Linuxbrew base image used by every homebrew molecule
+    scenario. Lifted out of the molecule shard so parallel `docker build` /
+    `docker tag` calls against the same `:local` tag don't race. The
+    summary's `molecule:homebrew` wall-clock therefore reflects test work
+    only, not image prep.
 
-clear_dashboard() {
-  # `tput cuu 0` is undefined on some terminals — guard the zero case.
-  if (( DASHBOARD_LINES > 0 )); then
-    tput cuu "$DASHBOARD_LINES" 2>/dev/null || true
-    tput ed 2>/dev/null || true
-    DASHBOARD_LINES=0
-  fi
-}
+    MOLECULE_HOMEBREW_IMAGE (set by CI) names a published image to pull and
+    retag. On pull failure — registry hiccup, image not yet published, PR
+    editing the Dockerfile — fall back to a local docker build so a fresh
+    Dockerfile is tested against its own changes."""
+    image = os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip()
+    if image:
+        info(f"molecule: pulling homebrew base image from {image}")
+        try:
+            subprocess.run(["docker", "pull", image], check=True, cwd=REPO_ROOT)
+            subprocess.run(
+                ["docker", "tag", image, "dotfiles-homebrew-molecule:local"],
+                check=True,
+                cwd=REPO_ROOT,
+            )
+            return
+        except subprocess.CalledProcessError:
+            warn("molecule: pull failed; falling back to local build")
+    info("molecule: building roles/homebrew base image")
+    subprocess.run(
+        [
+            "docker",
+            "build",
+            "-t",
+            "dotfiles-homebrew-molecule:local",
+            "roles/homebrew/molecule/",
+        ],
+        check=True,
+        cwd=REPO_ROOT,
+    )
 
-# For each suite whose rc file has appeared since the last flush, print
-# `=== name (PASS, Xm YYs) ===` followed by its full buffered output and
-# append to the summary arrays. Idempotent — the SUITE_FLUSHED parallel
-# array gates each entry.
-flush_completed() {
-  local i name rc_file rc status start elapsed
-  for (( i = 0; i < ${#SPAWN_NAMES[@]}; i++ )); do
-    [[ -n "${SUITE_FLUSHED[$i]}" ]] && continue
-    name="${SPAWN_NAMES[$i]}"
-    rc_file="$SPAWN_LOGDIR/${name}.rc"
-    [[ -f "$rc_file" ]] || continue
 
-    rc=$(<"$rc_file")
-    start="${SPAWN_STARTS[$i]}"
-    elapsed=$(( $(date +%s) - start ))
-    if [[ "$rc" -eq 0 ]]; then
-      status="PASS"
-    else
-      status="FAIL"
-    fi
+# --------------------------------------------------------------------------- #
+# Serial single-suite paths (no dashboard, exit code propagates)
+# --------------------------------------------------------------------------- #
+def run_single_suite(suite: Suite) -> int:
+    return subprocess.call(suite.argv, cwd=REPO_ROOT)
 
-    printf '\n=== %s  (%s, %s) ===\n' "$name" "$status" "$(format_duration "$elapsed")"
-    cat "$SPAWN_LOGDIR/${name}.log"
 
-    SUMMARY_NAMES+=("$name")
-    SUMMARY_STATUSES+=("$status")
-    SUMMARY_SECONDS+=("$elapsed")
-    SUITE_FLUSHED[$i]=1
-  done
-}
+def run_lint_serial() -> int:
+    """Two-command suite — run yamllint, short-circuit on failure."""
+    rc = subprocess.call(["yamllint", "."], cwd=REPO_ROOT)
+    if rc != 0:
+        return rc
+    return subprocess.call(["ansible-lint"], cwd=REPO_ROOT)
 
-# True when at least one suite hasn't flushed yet.
-any_still_running() {
-  local i
-  for (( i = 0; i < ${#SPAWN_NAMES[@]}; i++ )); do
-    [[ -z "${SUITE_FLUSHED[$i]}" ]] && return 0
-  done
-  return 1
-}
 
-render_dashboard() {
-  local cols now name start elapsed tail_lines tail_text body_lines
-  cols=$(tput cols 2>/dev/null || echo 80)
-  now=$(date +%s)
-  # Bare `((expr))` returns 1 when `expr` evaluates to 0 — and under
-  # `set -e` the script aborts. Post-increment `((lines++))` evaluates to
-  # the OLD value of lines, so `((lines++))` from lines=0 returns 1 and
-  # nukes the run. Use explicit assignment to keep the exit code 0
-  # regardless of the value. (`(( ++lines ))` would work too, but the
-  # assignment form makes the intent obvious and removes a future foot-gun.)
-  local lines=0
-  printf -- '─── live (%s) ───\n' "$(date +%H:%M:%S)"
-  lines=$((lines + 1))
-  local i
-  for (( i = 0; i < ${#SPAWN_NAMES[@]}; i++ )); do
-    [[ -n "${SUITE_FLUSHED[$i]}" ]] && continue
-    name="${SPAWN_NAMES[$i]}"
-    start="${SPAWN_STARTS[$i]}"
-    elapsed=$(( now - start ))
-    printf '[%s | %s]\n' "$name" "$(format_duration "$elapsed")"
-    lines=$((lines + 1))
-    # Truncate each line to $cols so terminal wrap doesn't break our
-    # next-tick line-count math.
-    tail_text=$(tail -n "${TAIL_LINES:-20}" "$SPAWN_LOGDIR/${name}.log" 2>/dev/null \
-                | cut -c1-"$cols" || true)
-    if [[ -n "$tail_text" ]]; then
-      printf '%s\n' "$tail_text"
-      body_lines=$(printf '%s' "$tail_text" | grep -c '^' || true)
-      lines=$((lines + body_lines))
-    fi
-    echo ""
-    lines=$((lines + 1))
-  done
-  DASHBOARD_LINES=$lines
-}
+def run_molecule_role_serial(role: str) -> int:
+    if role == "homebrew":
+        prepare_homebrew_image()
+    info(f"--- molecule: roles/{role} ---")
+    return subprocess.call(
+        ["bash", "-c", f"cd roles/{role} && molecule test --all"],
+        cwd=REPO_ROOT,
+    )
 
-parallel_cleanup() {
-  # Triggered by INT/TERM. Kill any still-running children so Ctrl+C doesn't
-  # leave background pytest/molecule/docker processes orphaned. `kill -0`
-  # check avoids `kill` errors on already-exited pids.
-  local pid
-  for pid in "${SPAWN_PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-    fi
-  done
-  # Restore cursor in case we were mid-dashboard.
-  tput cnorm 2>/dev/null || true
-  if [[ -n "$SPAWN_LOGDIR" && -d "$SPAWN_LOGDIR" ]]; then
-    rm -rf "$SPAWN_LOGDIR"
-  fi
-}
 
-run_multi() {
-  # `all` and `fast` share everything except the molecule block.
-  local include_molecule="$1"
+def run_molecule(target_role: str | None) -> int:
+    info("=== molecule ===")
+    if target_role is not None and target_role not in MOLECULE_ROLES:
+        die(
+            f"unknown molecule role: {target_role} "
+            f"(known: {', '.join(MOLECULE_ROLES)})"
+        )
+    roles = MOLECULE_ROLES if target_role is None else [target_role]
+    rc = 0
+    for role in roles:
+        result = run_molecule_role_serial(role)
+        if result != 0:
+            rc = result
+    return rc
 
-  SPAWN_LOGDIR=$(mktemp -d -t dotfiles-tests-run.XXXXXX)
-  SPAWN_NAMES=()
-  SPAWN_PIDS=()
-  SPAWN_STARTS=()
-  SUITE_FLUSHED=()
-  DASHBOARD_LINES=0
 
-  trap parallel_cleanup INT TERM EXIT
+# --------------------------------------------------------------------------- #
+# Parallel orchestrator
+# --------------------------------------------------------------------------- #
+class ParallelRunner:
+    """Spawns every suite as a subprocess writing to its own tempfile.
+    `poll()` returns the names of any newly-completed suites since the last
+    poll. `cleanup()` terminates survivors and removes the tempdir."""
 
-  # Homebrew's molecule scenarios share a base image. If we let the molecule
-  # shards race in parallel, two could try to `docker build` (or `docker
-  # tag`) the same `:local` tag at once — wasted work at best, garbled
-  # output at worst. Do the prep once, serially, before any background
-  # job spawns. The summary `molecule:homebrew` time then reflects test
-  # work only, not image prep — which is arguably more honest.
-  if [[ "$include_molecule" == "true" ]]; then
-    local r
-    for r in "${MOLECULE_ROLES[@]}"; do
-      if [[ "$r" == "homebrew" ]]; then
-        echo "--- preparing homebrew base image (serial; before parallel block) ---"
-        prepare_homebrew_image
-        break
-      fi
-    done
-  fi
+    def __init__(self, suites: list[Suite]) -> None:
+        self.suites = suites
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="dotfiles-tests-run."))
+        self.procs: dict[str, subprocess.Popen] = {}
+        self.log_paths: dict[str, Path] = {}
+        self.start_times: dict[str, float] = {}
+        # name -> (rc, elapsed_seconds)
+        self.results: dict[str, tuple[int, float]] = {}
 
-  spawn_suite python run_python
-  spawn_suite bash   run_bash
-  spawn_suite lint   run_lint
+    def spawn_all(self) -> None:
+        for s in self.suites:
+            # `:` is fine in filenames; `/` would not be — sanitize defensively.
+            log = self.tmpdir / f"{s.name.replace('/', '_')}.log"
+            log.touch()
+            self.log_paths[s.name] = log
+            self.start_times[s.name] = time.time()
+            # buffering=0: unbuffered file fd so the subprocess's writes hit
+            # disk immediately and the dashboard's tail() sees them on the
+            # next tick rather than waiting for python's userspace buffer.
+            f = open(log, "wb", buffering=0)
+            try:
+                self.procs[s.name] = subprocess.Popen(
+                    s.argv,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    cwd=REPO_ROOT,
+                )
+            finally:
+                # Popen dups the fd into the child; the parent handle is
+                # no longer needed and closing it doesn't disturb the child.
+                f.close()
 
-  if [[ "$include_molecule" == "true" ]]; then
-    local role
-    for role in "${MOLECULE_ROLES[@]}"; do
-      spawn_suite "molecule:${role}" run_molecule_role_noprep "$role"
-    done
-  fi
+    def poll(self) -> list[str]:
+        """Return names of suites that have completed since the last poll."""
+        newly_done = []
+        for name, proc in self.procs.items():
+            if name in self.results:
+                continue
+            rc = proc.poll()
+            if rc is not None:
+                elapsed = time.time() - self.start_times[name]
+                self.results[name] = (rc, elapsed)
+                newly_done.append(name)
+        return newly_done
 
-  local interactive=false
-  [[ -t 1 ]] && interactive=true
+    def all_done(self) -> bool:
+        return len(self.results) == len(self.suites)
 
-  if $interactive; then
-    tput civis 2>/dev/null || true
-  fi
+    def completed_count(self) -> int:
+        return len(self.results)
 
-  while true; do
-    $interactive && clear_dashboard
-    flush_completed
-    if ! any_still_running; then
-      break
-    fi
-    $interactive && render_dashboard
-    sleep "${TICK:-2}"
-  done
+    def cleanup(self) -> None:
+        """Best-effort: terminate any still-running children, then nuke the
+        tempdir. Called from both the normal-exit path and the signal
+        handler, so it has to be idempotent and exception-safe."""
+        for proc in self.procs.values():
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-  if $interactive; then
-    tput cnorm 2>/dev/null || true
-  fi
 
-  # Clean up the trap — we exited normally and parallel_cleanup would
-  # otherwise nuke SPAWN_LOGDIR before print_summary needs anything in it.
-  # (Currently print_summary doesn't read tempfiles, but unset is the safe
-  # contract.)
-  trap - INT TERM EXIT
-  rm -rf "$SPAWN_LOGDIR"
-  SPAWN_LOGDIR=""
+# --------------------------------------------------------------------------- #
+# Dashboard rendering
+# --------------------------------------------------------------------------- #
+def _terminal_cols() -> int:
+    try:
+        return shutil.get_terminal_size((80, 24)).columns
+    except OSError:
+        return 80
 
-  print_summary
-}
 
-# ---------------------------------------------------------------------------
+def render_dashboard(runner: ParallelRunner) -> int:
+    """Print the live dashboard. Returns the number of lines emitted so the
+    next tick knows how many to clear via cursor-up + erase-to-end-of-screen."""
+    cols = _terminal_cols()
+    now = time.time()
+    timestamp = time.strftime("%H:%M:%S")
+    completed = runner.completed_count()
+    total = len(runner.suites)
+
+    # Header uses _dotfiles_common's announce styling (white-on-yellow,
+    # bold, bracketed by spaces) so it stays distinct from pytest /
+    # molecule output that has its own banner-like lines — without that
+    # contrast the dashboard's "─── live ───" was indistinguishable from
+    # one molecule scenario's separators against the previous suite's
+    # scrollback. The X/N count gives at-a-glance progress.
+    header_text = f"live · {timestamp} · {completed}/{total} suites complete"
+    print(f"\n\x1b[1;37;43m {header_text} \x1b[0m")
+    lines = 2  # the leading blank line + the header line
+
+    for s in runner.suites:
+        if s.name in runner.results:
+            continue
+        elapsed = int(now - runner.start_times[s.name])
+        print(f"[{s.name} | {format_duration(elapsed)}]")
+        lines += 1
+        try:
+            content = runner.log_paths[s.name].read_text(errors="replace")
+            tail = content.splitlines()[-TAIL_LINES:]
+            for line in tail:
+                # Truncate to terminal width so wrap doesn't desync the
+                # next-tick line-count math.
+                print(line[:cols])
+                lines += 1
+        except (FileNotFoundError, OSError):
+            pass
+        print()  # blank line between suite blocks
+        lines += 1
+
+    return lines
+
+
+def clear_dashboard(lines: int) -> None:
+    if lines > 0:
+        # Move cursor up `lines` rows, then erase from cursor to end of
+        # display. Equivalent to `tput cuu N; tput ed` from the old bash
+        # version.
+        sys.stdout.write(f"\x1b[{lines}A\x1b[J")
+        sys.stdout.flush()
+
+
+def flush_completed(runner: ParallelRunner, newly_done: list[str]) -> None:
+    """For each suite that finished since the last poll, print a PASS
+    (yellow announce) or FAIL (red announce) banner followed by the suite's
+    full buffered output. This becomes permanent scrollback as the
+    dashboard redraws above it."""
+    for name in newly_done:
+        rc, elapsed = runner.results[name]
+        status = "PASS" if rc == 0 else "FAIL"
+        banner = f"{name} · {status} · {format_duration(elapsed)}"
+        if rc == 0:
+            announce(banner)
+        else:
+            announce_fail(banner)
+        try:
+            sys.stdout.buffer.write(runner.log_paths[name].read_bytes())
+            sys.stdout.flush()
+        except (FileNotFoundError, OSError):
+            pass
+
+
+def print_summary(runner: ParallelRunner) -> int:
+    """Print the per-suite summary. Returns 0 if all PASS, 1 otherwise."""
+    announce("summary")
+    max_name = max((len(s.name) for s in runner.suites), default=0)
+    any_failed = False
+    # Spawn order (matches dashboard order), not completion order — keeps
+    # the layout stable run-to-run for at-a-glance reading.
+    for s in runner.suites:
+        rc, elapsed = runner.results[s.name]
+        badge = ANSI_PASS_BADGE if rc == 0 else ANSI_FAIL_BADGE
+        if rc != 0:
+            any_failed = True
+        print(f"  {s.name:<{max_name}}  {badge}  ({format_duration(elapsed)})")
+    return 1 if any_failed else 0
+
+
+# --------------------------------------------------------------------------- #
+# Multi-suite parallel driver
+# --------------------------------------------------------------------------- #
+def run_multi(include_molecule: bool) -> int:
+    suites = [PYTHON_SUITE, BASH_SUITE, LINT_SUITE]
+    if include_molecule:
+        # Serial homebrew image prep before any parallel spawn — concurrent
+        # `docker build` / `docker tag` against the same `:local` tag would
+        # race. Side effect: the parallel summary's molecule:homebrew
+        # wall-clock reflects test work only, not image prep.
+        if "homebrew" in MOLECULE_ROLES:
+            info("preparing homebrew base image (serial; before parallel block)")
+            prepare_homebrew_image()
+        for role in MOLECULE_ROLES:
+            suites.append(molecule_role_suite(role))
+
+    runner = ParallelRunner(suites)
+    runner.spawn_all()
+
+    interactive = sys.stdout.isatty()
+
+    def _signal_handler(_signum, _frame):
+        # Ctrl+C / SIGTERM: tear down children, restore cursor, exit 130
+        # (the conventional SIGINT exit code).
+        runner.cleanup()
+        if interactive:
+            sys.stdout.write(ANSI_SHOW_CURSOR)
+            sys.stdout.flush()
+        sys.exit(130)
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
+    if interactive:
+        sys.stdout.write(ANSI_HIDE_CURSOR)
+        sys.stdout.flush()
+
+    dashboard_lines = 0
+    try:
+        while True:
+            if interactive:
+                clear_dashboard(dashboard_lines)
+                dashboard_lines = 0
+
+            newly_done = runner.poll()
+            flush_completed(runner, newly_done)
+
+            if runner.all_done():
+                break
+
+            if interactive:
+                dashboard_lines = render_dashboard(runner)
+                sys.stdout.flush()
+
+            time.sleep(TICK)
+    finally:
+        if interactive:
+            sys.stdout.write(ANSI_SHOW_CURSOR)
+            sys.stdout.flush()
+        runner.cleanup()
+
+    return print_summary(runner)
+
+
+# --------------------------------------------------------------------------- #
 # Dispatch
-# ---------------------------------------------------------------------------
-case "${1:-all}" in
-  python)   run_python ;;
-  bash)     run_bash ;;
-  lint)     run_lint ;;
-  molecule) run_molecule "${2:-}" ;;
-  fast)     run_multi false ;;
-  all)      run_multi true ;;
-  *)        echo "usage: $0 [python|bash|lint|molecule [role]|fast|all]" >&2; exit 2 ;;
-esac
+# --------------------------------------------------------------------------- #
+USAGE = "usage: tests/run [python|bash|lint|molecule [role]|fast|all]"
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        return run_multi(include_molecule=True)
+
+    cmd = argv[0]
+    extra = argv[1] if len(argv) > 1 else None
+
+    if cmd == "python":
+        return run_single_suite(PYTHON_SUITE)
+    if cmd == "bash":
+        return run_single_suite(BASH_SUITE)
+    if cmd == "lint":
+        return run_lint_serial()
+    if cmd == "molecule":
+        return run_molecule(extra)
+    if cmd == "fast":
+        return run_multi(include_molecule=False)
+    if cmd == "all":
+        return run_multi(include_molecule=True)
+
+    print(USAGE, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
