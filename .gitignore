@@ -39,6 +39,7 @@ __pycache__/
 # checkout; only the runtime-written file inside is ignored.
 /.devcontainer/.host-git-common
 /.devcontainer/.git-plumbing/host-git-common-path
+/.devcontainer/.git-plumbing/host-timezone
 
 # ── Runtime state ─────────────────────────────────────────────────────────────────────────────────
 # phase2.py writes this after a successful install so uninstall.py can default

@@ -56,6 +56,7 @@ here="$(cd "$(dirname "$0")" && pwd)"        # the .devcontainer dir (host abs)
 workspace="$(cd "$here/.." && pwd)"          # repo/worktree root (host abs)
 link="$here/.host-git-common"
 pathfile="$here/.git-plumbing/host-git-common-path"
+tzfile="$here/.git-plumbing/host-timezone"
 
 # The .git-plumbing dir is tracked (via its README), so it normally exists
 # already; mkdir -p covers stray cases like a manual deletion without
@@ -79,3 +80,32 @@ else
   mkdir -p "$link"
   : >"$pathfile"
 fi
+
+# Host timezone — discover the IANA zone name (e.g. "America/Los_Angeles") and
+# persist it so the Dockerfile can apply it to the image. Without this, the
+# container defaults to Etc/UTC and timestamps in molecule/playbook output drift
+# 7-8h off the host. See CLAUDE.md "Host timezone plumbing".
+#
+# Two host shapes:
+#   - /etc/localtime is a symlink into the zoneinfo db (macOS, most modern
+#     Linux). Strip everything up to and including `zoneinfo/` to get the zone.
+#   - /etc/timezone exists as a plain text file (Debian/Ubuntu, some others).
+# An empty result is fine — the Dockerfile guards on `[ -s ]` and falls back to
+# the image's default zone.
+tz=""
+if target="$(readlink /etc/localtime 2>/dev/null)"; then
+  case "$target" in
+    *zoneinfo/*) tz="${target##*zoneinfo/}" ;;
+  esac
+fi
+if [ -z "$tz" ] && [ -r /etc/timezone ]; then
+  tz="$(tr -d '[:space:]' </etc/timezone)"
+fi
+# Reject path traversal or absolute paths defensively — the Dockerfile uses the
+# value to build /usr/share/zoneinfo/$tz, so a hostile or broken /etc/localtime
+# target shouldn't be able to point that elsewhere. The Dockerfile additionally
+# checks the resolved zoneinfo file exists before applying.
+case "$tz" in
+  /* | *..*) tz="" ;;
+esac
+printf '%s\n' "$tz" >"$tzfile"
