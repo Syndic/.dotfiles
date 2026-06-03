@@ -16,8 +16,10 @@ clock is bounded by the slowest shard (homebrew) instead of the sum.
 
 Multi-suite invocations (`all` / `fast`) run every suite in parallel,
 buffering each suite's output to a tempfile. On a tty, a live dashboard
-shows the last TAIL_LINES (default 20) of each currently-running suite,
-refreshed every TICK (default 2) seconds via cursor-up + erase. The
+shows the tail of each currently-running suite's log — capped at
+MAX_LIVE_LINES_PER_SUITE (default 20) per suite, compressed equally
+across suites when the viewport can't fit that many for everyone.
+Refreshed every TICK (default 2) seconds via cursor-up + erase. The
 dashboard header uses the announce-style yellow bracket from
 _dotfiles_common so it stays visually distinct from pytest/molecule's
 own banner-like lines, and tracks `X/N suites complete`. When a suite
@@ -27,7 +29,7 @@ piped) the dashboard is skipped — completed-suite output still flushes
 as each finishes; the summary still prints at the end. Exit is non-zero
 iff any suite failed.
 
-Tunable via env: TICK=<seconds>, TAIL_LINES=<n>.
+Tunable via env: TICK=<seconds>, MAX_LIVE_LINES_PER_SUITE=<n>.
 
 Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
@@ -70,7 +72,7 @@ from _dotfiles_common import (  # noqa: E402
 # Tunable via env. Cast at import so bad values surface immediately, not
 # partway through a parallel run.
 TICK = float(os.environ.get("TICK", "2"))
-TAIL_LINES = int(os.environ.get("TAIL_LINES", "20"))
+MAX_LIVE_LINES_PER_SUITE = int(os.environ.get("MAX_LIVE_LINES_PER_SUITE", "20"))
 
 # All molecule-covered roles. New roles with scenarios under
 # `roles/<role>/molecule/` must also be added to the `matrix.role` list in
@@ -301,11 +303,13 @@ def render_dashboard(runner: ParallelRunner) -> int:
     """Print the live dashboard. Returns the number of lines emitted so the
     next tick knows how many to clear via cursor-up + erase-to-end-of-screen.
 
-    Dashboard height is capped at `rows - DASHBOARD_MARGIN`. When there
-    isn't enough room for every running suite to show TAIL_LINES of log,
-    per-suite tails compress (down to zero, headers only). When there
-    isn't even room for the headers, the dashboard collapses to a single
-    header line naming what's running."""
+    Dashboard height is capped at `rows - DASHBOARD_MARGIN`. The per-suite
+    tail height is `min(MAX_LIVE_LINES_PER_SUITE, viewport_share)` — the
+    user-configured ceiling when the viewport has room, otherwise an
+    equal share of what's left after the dashboard + per-suite headers.
+    The share can compress to zero (headers only); when even the headers
+    don't fit, the dashboard collapses to a single header line naming
+    what's running."""
     cols, rows = shutil.get_terminal_size((80, 24))
     now = time.time()
     timestamp = time.strftime("%H:%M:%S", time.localtime(now))
@@ -330,7 +334,12 @@ def render_dashboard(runner: ParallelRunner) -> int:
         announce_warning((header_text + suffix)[:cols - 2])
         return 2
 
-    tail_per_suite = min(TAIL_LINES, (available - fixed_overhead) // len(running))
+    # MAX_LIVE_LINES_PER_SUITE is a ceiling, not a literal count — when
+    # the viewport budget per suite is smaller, the smaller value wins
+    # and every suite's tail compresses by the same amount.
+    live_lines_per_suite = min(
+        MAX_LIVE_LINES_PER_SUITE, (available - fixed_overhead) // len(running)
+    )
 
     # Three-tier color hierarchy mirrors _dotfiles_common's palette:
     # yellow announce_warning (top-level section boundary) for the
@@ -343,10 +352,10 @@ def render_dashboard(runner: ParallelRunner) -> int:
         elapsed = int(now - r.start_time)
         announce_info(f"{r.name} · {format_duration(elapsed)}")
         lines += 2
-        if tail_per_suite > 0:
+        if live_lines_per_suite > 0:
             # Truncate each line to $cols so terminal wrap doesn't desync
             # the next-tick line-count math.
-            tail = [log_line[:cols] for log_line in _tail_lines(r.log_path, tail_per_suite)]
+            tail = [log_line[:cols] for log_line in _tail_lines(r.log_path, live_lines_per_suite)]
             if tail:
                 sys.stdout.write("\n".join(tail) + "\n")
                 lines += len(tail)

@@ -387,10 +387,12 @@ the bootstrap.
 
 **Multi-suite invocations (`all`, `fast`) run every suite in parallel**,
 buffering each suite's output to a tempfile. On a tty, a live dashboard
-shows the last `TAIL_LINES` (default 20) of each currently-running suite,
-refreshed every `TICK` (default 2) seconds via cursor-up + erase. The
-dashboard uses a three-tier colored hierarchy mirroring
-`_dotfiles_common`'s palette:
+shows the tail of each running suite's log — capped at
+`MAX_LIVE_LINES_PER_SUITE` (default 20) per suite, compressed equally
+across suites when the viewport can't fit that many for everyone (down
+to zero, headers only, if the terminal is tight). Refreshed every
+`TICK` (default 2) seconds via cursor-up + erase. The dashboard uses
+a three-tier colored hierarchy mirroring `_dotfiles_common`'s palette:
 
 - **Dashboard header** — yellow background `announce`-style banner
   (`live · HH:MM:SS · X/N suites complete`), the top-level section
