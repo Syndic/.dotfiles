@@ -381,12 +381,9 @@ molecule, ansible-lint, and yamllint).
 ./tests/run molecule <role>          # one role's scenarios (used by the CI matrix)
 ```
 
-`tests/run` is a Python script (rewritten from bash so the orchestration
-logic — subprocess backgrounding, tempfile buffering, terminal cursor
-control, per-suite state — reads in one language reviewers know well
-rather than depending on bash arithmetic + cursor escapes). It imports
-`announce` / `info` / `warn` / `die` from `_dotfiles_common` so the
-bracket-style banners stay consistent with the bootstrap.
+`tests/run` imports `announce` / `info` / `warn` / `die` from
+`_dotfiles_common` so the bracket-style banners stay consistent with
+the bootstrap.
 
 **Multi-suite invocations (`all`, `fast`) run every suite in parallel**,
 buffering each suite's output to a tempfile. On a tty, a live dashboard

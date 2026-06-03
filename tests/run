@@ -32,12 +32,11 @@ Tunable via env: TICK=<seconds>, TAIL_LINES=<n>.
 Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
-Runs under the same `tooling_python` (3.14) as the lint/molecule CI jobs
-and the devcontainer's Ansible venv — *not* the frozen 3.9.6 that drives
-the bootstrap. The shebang version is Renovate-tracked alongside the
-other two so all three stay in step. This is dev tooling, not bootstrap,
-so it gets the latest language features (`match`, `Self`, native union
-types, parenthesized context managers).
+Runs under `tooling_python` (3.14) — same interpreter as the
+lint/molecule CI jobs and the devcontainer's Ansible venv. Renovate
+tracks the shebang version alongside those two (see renovate.json) so
+all three stay in step. The bootstrap's frozen 3.9.6 doesn't apply
+here; this is dev tooling.
 """
 import os
 import shutil
@@ -109,8 +108,7 @@ class Suite:
 
 PYTHON_SUITE = Suite("python", ["pytest", "tests/python", "-v"])
 BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
-# `&&` so a yamllint failure short-circuits ansible-lint — matches the
-# fail-fast behavior of the previous bash version's `set -e`.
+# `&&` so a yamllint failure short-circuits ansible-lint.
 LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])
 
 
