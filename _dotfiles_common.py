@@ -17,6 +17,13 @@ def announce(msg: str) -> None:
     print(f"\n\x1b[1;37;43m {msg} \x1b[0m")
 
 
+def announce_fail(msg: str) -> None:
+    """Like `announce`, but red — a banner that signals failure without
+    exiting (use `die` to exit). Pairs with announce so PASS/FAIL banners
+    in scrollback share the same shape and only differ on color."""
+    print(f"\n\x1b[1;37;101m {msg} \x1b[0m")
+
+
 def centered_announce(msg: str) -> None:
     terminal_cols = shutil.get_terminal_size().columns
     indent = max(0, (terminal_cols - (len(msg) + 2)) // 2)

@@ -57,7 +57,14 @@ from typing import Self
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from _dotfiles_common import announce, die, info, run, warn  # noqa: E402
+from _dotfiles_common import (  # noqa: E402
+    announce,
+    announce_fail,
+    die,
+    info,
+    run,
+    warn,
+)
 
 # Tunable via env. Cast at import so bad values surface immediately, not
 # partway through a parallel run.
@@ -78,13 +85,6 @@ ANSI_HIDE_CURSOR = "\x1b[?25l"
 ANSI_SHOW_CURSOR = "\x1b[?25h"
 ANSI_PASS_BADGE = "\x1b[1;37;42m PASS \x1b[0m"   # white-on-green
 ANSI_FAIL_BADGE = "\x1b[1;37;101m FAIL \x1b[0m"  # white-on-red
-
-
-def announce_fail(msg: str) -> None:
-    """Mirror of `_dotfiles_common.announce`, but red — for the completion
-    banner of a failing suite so it pops in the scrollback alongside the
-    yellow PASS banners."""
-    print(f"\n\x1b[1;37;101m {msg} \x1b[0m")
 
 
 def format_duration(seconds: float) -> str:

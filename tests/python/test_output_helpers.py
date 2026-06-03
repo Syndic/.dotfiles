@@ -23,6 +23,20 @@ def test_announce_writes_to_stdout(capsys):
     assert "\x1b[1;37;43m" in out.out  # yellow background
 
 
+def test_announce_fail_writes_to_stdout(capsys):
+    """announce_fail is the red sibling of announce — same shape, signals
+    failure without exiting (use die() to exit). tests/run uses it for the
+    completion banner of a failing suite."""
+    import _dotfiles_common
+
+    _dotfiles_common.announce_fail("Header")
+    out = capsys.readouterr()
+    assert "Header" in out.out
+    assert out.err == ""
+    assert "\x1b[1;37;101m" in out.out  # red background
+    assert "\x1b[0m" in out.out          # reset
+
+
 def test_info_writes_to_stdout(capsys):
     phase2.info("hello")
     out = capsys.readouterr()
