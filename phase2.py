@@ -20,8 +20,8 @@ import sys
 from pathlib import Path
 
 from _dotfiles_common import (
-    announce,
-    centered_announce,
+    announce_warning,
+    centered_announce_warning,
     die,
     info,
     is_profile_entry,
@@ -133,7 +133,7 @@ def display_kilobyte(format_subdir: str) -> None:
         for line in f:
             print(indent_str + line.rstrip("\r\n"))
 
-    centered_announce(f"SIT. STAY. SUBMIT.")
+    centered_announce_warning(f"SIT. STAY. SUBMIT.")
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ def main() -> None:
     install_galaxy_requirements()
     host_profile = resolve_host_profile(args.host)
 
-    announce(f"Tools ready - Running Playbook")
+    announce_warning(f"Tools ready - Running Playbook")
     run_playbook(
         host_profile,
         sudo_password=sudo_password,

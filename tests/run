@@ -22,7 +22,7 @@ dashboard header uses the announce-style yellow bracket from
 _dotfiles_common so it stays visually distinct from pytest/molecule's
 own banner-like lines, and tracks `X/N suites complete`. When a suite
 finishes, its full buffered output flushes above the dashboard prefixed
-with a PASS (yellow) or FAIL (red) announce banner. On a non-tty (CI,
+with a PASS (yellow) or FAIL (red) announce_warning banner. On a non-tty (CI,
 piped) the dashboard is skipped — completed-suite output still flushes
 as each finishes; the summary still prints at the end. Exit is non-zero
 iff any suite failed.
@@ -58,8 +58,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from _dotfiles_common import (  # noqa: E402
-    announce,
     announce_fail,
+    announce_info,
+    announce_warning,
     die,
     info,
     run,
@@ -79,7 +80,7 @@ TAIL_LINES = int(os.environ.get("TAIL_LINES", "20"))
 MOLECULE_ROLES = ["dotfiles", "apt", "flatpak", "homebrew"]
 
 # --------------------------------------------------------------------------- #
-# ANSI helpers (extending _dotfiles_common's bracket-style banners)
+# Dashboard-local ANSI constants (cursor visibility + inline status badges)
 # --------------------------------------------------------------------------- #
 ANSI_HIDE_CURSOR = "\x1b[?25l"
 ANSI_SHOW_CURSOR = "\x1b[?25h"
@@ -92,13 +93,6 @@ def format_duration(seconds: float) -> str:
     if s < 60:
         return f"{s}s"
     return f"{s // 60}m {s % 60:02d}s"
-
-
-def _suite_banner(name: str, elapsed: int) -> str:
-    """Blue info-style banner for a per-suite header in the live dashboard.
-    Hierarchically below the yellow announce-style dashboard header above
-    (see _dotfiles_common.announce); mirrors the same palette."""
-    return f"\x1b[1;37;44m {name} · {format_duration(elapsed)} \x1b[0m"
 
 
 # --------------------------------------------------------------------------- #
@@ -321,41 +315,43 @@ def render_dashboard(runner: ParallelRunner) -> int:
 
     header_text = f"live · {timestamp} · {completed}/{total} suites complete"
 
-    # Budget: each running suite costs 2 fixed rows (its colored suite
-    # header + a trailing blank). The dashboard header costs 2 (leading
-    # blank + the colored header itself).
+    # Budget: each running suite costs 2 fixed rows for its
+    # announce_info banner (its leading \n is the visual separator
+    # between suite blocks). The dashboard header costs 2 (announce_warning's
+    # leading \n + the colored header itself).
     available = rows - DASHBOARD_MARGIN
     fixed_overhead = 2 + 2 * len(running)
     if not running or fixed_overhead > available:
         # Either nothing left to render (rare; we'd usually have broken
         # the loop on all_done) or too many suites to fit even with no
-        # tails. Collapse to a single-line announce naming what's
+        # tails. Collapse to a single-line announce_warning naming what's
         # running, keeping cursor-up math correct.
         suffix = f" · running: {', '.join(r.name for r in running)}" if running else ""
-        announce((header_text + suffix)[:cols - 2])
+        announce_warning((header_text + suffix)[:cols - 2])
         return 2
 
     tail_per_suite = min(TAIL_LINES, (available - fixed_overhead) // len(running))
 
-    # Build the body as one string and write atomically. Fewer write()
-    # syscalls than per-print; the cursor-up redraw doesn't tear visibly
-    # between header and the first suite block. Header still goes
-    # through announce() (canonical home for the yellow-bracket style)
-    # in a separate write — its leading \n is part of the contract.
-    announce(header_text)
-    body: list[str] = []
+    # Three-tier color hierarchy mirrors _dotfiles_common's palette:
+    # yellow announce_warning (top-level section boundary) for the
+    # dashboard header, blue announce_info (labeled sub-section) for the
+    # per-suite headers. announce_info's leading \n provides the visual
+    # separator between suite blocks — no explicit blank line needed.
+    announce_warning(header_text)
+    lines = 2
     for r in running:
         elapsed = int(now - r.start_time)
-        body.append(_suite_banner(r.name, elapsed))
+        announce_info(f"{r.name} · {format_duration(elapsed)}")
+        lines += 2
         if tail_per_suite > 0:
             # Truncate each line to $cols so terminal wrap doesn't desync
             # the next-tick line-count math.
-            for log_line in _tail_lines(r.log_path, tail_per_suite):
-                body.append(log_line[:cols])
-        body.append("")  # blank separator after each suite block
-    sys.stdout.write("\n".join(body) + "\n")
+            tail = [log_line[:cols] for log_line in _tail_lines(r.log_path, tail_per_suite)]
+            if tail:
+                sys.stdout.write("\n".join(tail) + "\n")
+                lines += len(tail)
     sys.stdout.flush()
-    return 2 + len(body)
+    return lines
 
 
 def clear_dashboard(lines: int) -> None:
@@ -368,9 +364,9 @@ def clear_dashboard(lines: int) -> None:
 
 def flush_completed(newly_done: list[SuiteRun]) -> None:
     """For each suite that finished since the last poll, print a PASS
-    (yellow announce) or FAIL (red announce) banner followed by the
-    suite's full buffered output. This becomes permanent scrollback as
-    the dashboard redraws above it."""
+    (yellow announce_warning) or FAIL (red announce_fail) banner followed
+    by the suite's full buffered output. This becomes permanent scrollback
+    as the dashboard redraws above it."""
     for r in newly_done:
         # poll() only returns SuiteRuns whose result has been set; the
         # assert keeps the invariant visible to type-checkers.
@@ -378,7 +374,7 @@ def flush_completed(newly_done: list[SuiteRun]) -> None:
         rc, elapsed = r.result
         status = "PASS" if rc == 0 else "FAIL"
         banner = f"{r.name} · {status} · {format_duration(elapsed)}"
-        (announce if rc == 0 else announce_fail)(banner)
+        (announce_warning if rc == 0 else announce_fail)(banner)
         try:
             with open(r.log_path, "rb") as f:
                 # Stream in copyfileobj's default chunk size rather than
@@ -394,7 +390,7 @@ def print_summary(runner: ParallelRunner) -> int:
     """Print the per-suite summary. Returns 0 if all PASS, 1 otherwise.
 
     Caller guarantees `runner.all_done`."""
-    announce("summary")
+    announce_warning("summary")
     max_name = max((len(r.name) for r in runner.runs), default=0)
     any_failed = False
     # Spawn order (matches dashboard order), not completion order — keeps

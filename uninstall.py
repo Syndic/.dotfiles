@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 from _dotfiles_common import (
-    announce,
+    announce_warning,
     die,
     info,
     list_host_profiles,
@@ -280,7 +280,7 @@ def build_repo_action():
 
     def do_repo():
         print()
-        announce(f"To remove the dotfiles checkout, run:")
+        announce_warning(f"To remove the dotfiles checkout, run:")
         print(f"  rm -rf {DOTFILES_DIR}")
         print()
 
@@ -453,7 +453,7 @@ def main(argv=None) -> None:
         info("Nothing to do.")
         return
 
-    announce("Uninstall plan")
+    announce_warning("Uninstall plan")
     for header, preview, _ in sections:
         print(f"\n{header}:")
         for line in preview:
@@ -465,7 +465,7 @@ def main(argv=None) -> None:
         return
 
     for header, _, do in sections:
-        announce(header)
+        announce_warning(header)
         do()
 
     print()
