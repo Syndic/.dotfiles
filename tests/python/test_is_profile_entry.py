@@ -1,9 +1,9 @@
-"""Tests for phase2.is_profile_entry — the filter that decides whether a
-host_vars/ entry is a real Ansible host profile or junk."""
+"""Tests for _dotfiles_common.is_profile_entry — the filter that decides
+whether a host_vars/ entry is a real Ansible host profile or junk."""
 import os
 import pytest
 
-import phase2
+import _dotfiles_common as common
 
 
 @pytest.fixture
@@ -43,13 +43,13 @@ def host_vars(tmp_path):
     ("broken-symlink", False),
 ])
 def test_is_profile_entry(host_vars, name, expected):
-    assert phase2.is_profile_entry(host_vars / name) is expected
+    assert common.is_profile_entry(host_vars / name) is expected
 
 
 def test_filtered_list_is_just_real_profiles(host_vars):
     profiles = sorted(
         p.stem if p.is_file() else p.name
         for p in host_vars.iterdir()
-        if phase2.is_profile_entry(p)
+        if common.is_profile_entry(p)
     )
     assert profiles == ["laptop24", "mini18", "mini26"]
