@@ -31,6 +31,15 @@
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*python-version: '(?<currentValue>[^']+)'"
       ],
       "versioningTemplate": "python"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep tests/run's shebang Python pin current — should track `tooling_python` (post-create.sh) and the molecule CI job's `python-version` (tests.yml) so the dev tooling, local lint, and CI all run under the same interpreter.",
+      "managerFilePatterns": ["/^tests/run$/"],
+      "matchStrings": [
+        "^#!/usr/bin/env python(?<currentValue>\\d+\\.\\d+)\\s*\\n# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)"
+      ],
+      "versioningTemplate": "python"
     }
   ]
 }

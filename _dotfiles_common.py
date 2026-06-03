@@ -13,11 +13,32 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
-def announce(msg: str) -> None:
+def announce_warning(msg: str) -> None:
+    """Yellow-background banner — the top-level section-boundary marker.
+    Named for the color (the yellow that warn-style messages use), not
+    the semantic — this is just as often used to herald a normal phase
+    transition as to flag a problem."""
     print(f"\n\x1b[1;37;43m {msg} \x1b[0m")
 
 
-def centered_announce(msg: str) -> None:
+def announce_info(msg: str) -> None:
+    """Blue-background banner — for a labeled sub-section under a
+    yellow announce_warning section boundary. Mirrors info()'s color
+    (blue) but in full-banner shape rather than info()'s prefix-badge
+    shape."""
+    print(f"\n\x1b[1;37;44m {msg} \x1b[0m")
+
+
+def announce_fail(msg: str) -> None:
+    """Red-background banner — signals failure without exiting (use
+    `die` to exit). Pairs with announce_warning so PASS/FAIL banners
+    in scrollback share the same shape and only differ on color."""
+    print(f"\n\x1b[1;37;101m {msg} \x1b[0m")
+
+
+def centered_announce_warning(msg: str) -> None:
+    """Yellow-background banner centered in the terminal — variant of
+    announce_warning used by phase2's kilobyte splash."""
     terminal_cols = shutil.get_terminal_size().columns
     indent = max(0, (terminal_cols - (len(msg) + 2)) // 2)
     print(f"\n{' ' * indent}[1;37;43m {msg} [0m")

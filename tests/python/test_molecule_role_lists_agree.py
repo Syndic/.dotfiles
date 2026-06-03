@@ -29,11 +29,20 @@ def _roles_on_disk() -> set:
 
 
 def _roles_in_tests_run() -> set:
-    """Set of role names declared in `MOLECULE_ROLES=(...)` in tests/run."""
+    """Set of role names declared in `MOLECULE_ROLES = [...]` in tests/run.
+
+    Matches the Python list literal — tolerates single or double quotes
+    and surrounding whitespace."""
     text = (REPO_ROOT / "tests" / "run").read_text()
-    match = re.search(r"^MOLECULE_ROLES=\(([^)]+)\)", text, re.MULTILINE)
-    assert match, "MOLECULE_ROLES=(...) declaration not found in tests/run"
-    return set(match.group(1).split())
+    match = re.search(
+        r"^MOLECULE_ROLES\s*=\s*\[([^\]]+)\]", text, re.MULTILINE
+    )
+    assert match, "MOLECULE_ROLES = [...] declaration not found in tests/run"
+    return {
+        item.strip().strip("\"'")
+        for item in match.group(1).split(",")
+        if item.strip()
+    }
 
 
 def _roles_in_ci_matrix() -> set:

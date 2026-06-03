@@ -1,116 +1,510 @@
-#!/usr/bin/env bash
-# Run the test suites.
-#
-#   ./tests/run                  # everything (python + bash + lint + molecule)
-#   ./tests/run fast             # python + bash + lint (skip molecule — no docker)
-#   ./tests/run python           # just pytest
-#   ./tests/run bash             # just bats
-#   ./tests/run lint             # yamllint + ansible-lint
-#   ./tests/run molecule         # all molecule roles, serial (needs docker)
-#   ./tests/run molecule <role>  # one role's scenarios — used by the CI matrix
-#
-# CI runs each suite as its own job — see .github/workflows/tests.yml. The
-# molecule job shards across roles via `./tests/run molecule <role>` so wall-
-# clock is bounded by the slowest shard (homebrew) instead of the sum.
-set -euo pipefail
+#!/usr/bin/env python3.14
+# renovate: datasource=python-version depName=python
+"""Run the test suites.
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+  ./tests/run                  # everything (python + bash + lint + molecule)
+  ./tests/run fast             # python + bash + lint (skip molecule — no docker)
+  ./tests/run python           # just pytest
+  ./tests/run bash             # just bats
+  ./tests/run lint             # yamllint + ansible-lint
+  ./tests/run molecule         # all molecule roles, serial (needs docker)
+  ./tests/run molecule <role>  # one role's scenarios — used by the CI matrix
+
+CI runs each suite as its own job — see .github/workflows/tests.yml. The
+molecule job shards across roles via `./tests/run molecule <role>` so wall-
+clock is bounded by the slowest shard (homebrew) instead of the sum.
+
+Multi-suite invocations (`all` / `fast`) run every suite in parallel,
+buffering each suite's output to a tempfile. On a tty, a live dashboard
+shows the tail of each currently-running suite's log — capped at
+MAX_LIVE_LINES_PER_SUITE (default 20) per suite, compressed equally
+across suites when the viewport can't fit that many for everyone.
+Refreshed every TICK (default 2) seconds via cursor-up + erase. The
+dashboard header uses the announce-style yellow bracket from
+_dotfiles_common so it stays visually distinct from pytest/molecule's
+own banner-like lines, and tracks `X/N suites complete`. When a suite
+finishes, its full buffered output flushes above the dashboard prefixed
+with a PASS (yellow) or FAIL (red) announce_warning banner. On a non-tty (CI,
+piped) the dashboard is skipped — completed-suite output still flushes
+as each finishes; the summary still prints at the end. Exit is non-zero
+iff any suite failed.
+
+Tunable via env: TICK=<seconds>, MAX_LIVE_LINES_PER_SUITE=<n>.
+
+Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+semantics — no parallelism, no summary, exit code propagates directly.
+
+Runs under `tooling_python` (3.14) — same interpreter as the
+lint/molecule CI jobs and the devcontainer's Ansible venv. Renovate
+tracks the shebang version alongside those two (see renovate.json) so
+all three stay in step. The bootstrap's frozen 3.9.6 doesn't apply
+here; this is dev tooling.
+"""
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Self
+
+# Repo root is two levels up from this script. Add to sys.path so we can
+# import the shared output helpers that the bootstrap + uninstall also use,
+# keeping the bracket-style colored banners visually consistent across the
+# whole repo.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from _dotfiles_common import (  # noqa: E402
+    announce_fail,
+    announce_info,
+    announce_warning,
+    die,
+    info,
+    run,
+    warn,
+)
+
+# Tunable via env. Cast at import so bad values surface immediately, not
+# partway through a parallel run.
+TICK = float(os.environ.get("TICK", "2"))
+MAX_LIVE_LINES_PER_SUITE = int(os.environ.get("MAX_LIVE_LINES_PER_SUITE", "20"))
 
 # All molecule-covered roles. New roles with scenarios under
-# `roles/<role>/molecule/` must be added here AND to the `matrix.role` list
-# in .github/workflows/tests.yml — local serial runs and CI shard discovery
-# read from different sources.
-MOLECULE_ROLES=(dotfiles apt flatpak homebrew)
+# `roles/<role>/molecule/` must also be added to the `matrix.role` list in
+# .github/workflows/tests.yml — local serial runs and CI shard discovery
+# read from different sources. test_molecule_role_lists_agree.py asserts
+# both lists match what's on disk.
+MOLECULE_ROLES = ["dotfiles", "apt", "flatpak", "homebrew"]
 
-run_python() {
-  echo "=== python ==="
-  pytest tests/python -v
-}
+# --------------------------------------------------------------------------- #
+# Dashboard-local ANSI constants (cursor visibility + inline status badges)
+# --------------------------------------------------------------------------- #
+ANSI_HIDE_CURSOR = "\x1b[?25l"
+ANSI_SHOW_CURSOR = "\x1b[?25h"
+ANSI_PASS_BADGE = "\x1b[1;37;42m PASS \x1b[0m"   # white-on-green
+ANSI_FAIL_BADGE = "\x1b[1;37;101m FAIL \x1b[0m"  # white-on-red
 
-run_bash() {
-  echo "=== bash ==="
-  bats tests/bash
-}
 
-run_lint() {
-  echo "=== lint ==="
-  yamllint .
-  ansible-lint
-}
+def format_duration(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    return f"{s // 60}m {s % 60:02d}s"
 
-prepare_homebrew_image() {
-  # MOLECULE_HOMEBREW_IMAGE, when set, names a fully-qualified image ref
-  # (e.g. `ghcr.io/syndic/dotfiles-homebrew-molecule:latest`) to pull and
-  # retag as the local one. CI sets it in tests.yml's homebrew shard. On
-  # any failure — pull error, unset registry, network blip, image not yet
-  # published — fall back to a local `docker build` so CI is never blocked
-  # waiting on the publish workflow, and a PR that *changes* the Dockerfile
-  # still gets tested against its own changes (the published copy would be
-  # one Dockerfile version behind).
-  if [[ -n "${MOLECULE_HOMEBREW_IMAGE:-}" ]]; then
-    echo "--- molecule: pulling homebrew base image from ${MOLECULE_HOMEBREW_IMAGE} ---"
-    if docker pull "${MOLECULE_HOMEBREW_IMAGE}" \
-       && docker tag "${MOLECULE_HOMEBREW_IMAGE}" dotfiles-homebrew-molecule:local; then
-      return 0
-    fi
-    echo "--- molecule: pull failed; falling back to local build ---" >&2
-  fi
-  echo "--- molecule: building roles/homebrew base image ---"
-  docker build -t dotfiles-homebrew-molecule:local roles/homebrew/molecule/
-}
 
-run_molecule() {
-  local target_role="${1:-}"
-  echo "=== molecule ==="
+# --------------------------------------------------------------------------- #
+# Suite definitions
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True, slots=True)
+class Suite:
+    """One named test suite — an argv that runs the whole thing as a single
+    subprocess. `prepare`, if set, runs serially before the suite starts;
+    used by homebrew to build/pull its molecule base image without racing
+    parallel sibling shards on `docker build`. Multi-command suites (lint,
+    molecule) wrap their commands in `bash -c '... && ...'` so they're
+    still one Popen-able invocation."""
 
-  local roles=()
-  if [[ -z "$target_role" ]]; then
-    for r in "${MOLECULE_ROLES[@]}"; do roles+=("roles/${r}"); done
-  else
-    local known=false
-    for r in "${MOLECULE_ROLES[@]}"; do
-      if [[ "$r" == "$target_role" ]]; then known=true; break; fi
-    done
-    if ! $known; then
-      echo "unknown molecule role: ${target_role} (known: ${MOLECULE_ROLES[*]})" >&2
-      return 2
-    fi
-    roles=("roles/${target_role}")
-  fi
+    name: str
+    argv: list[str]
+    prepare: Callable[[], None] | None = None
 
-  # The homebrew scenarios share a Linuxbrew-preinstalled base image. Either
-  # pull a prebuilt copy from ghcr (when MOLECULE_HOMEBREW_IMAGE is set —
-  # see .github/workflows/publish-molecule-images.yml) or build it locally.
-  # Either way the result is retagged to `dotfiles-homebrew-molecule:local`,
-  # which is what every scenario's `molecule.yml` references. Gated on the
-  # homebrew shard so the other matrix cells don't pay for an image they
-  # never use.
-  for role_dir in "${roles[@]}"; do
-    if [[ "$role_dir" == "roles/homebrew" ]]; then
-      prepare_homebrew_image
-      break
-    fi
-  done
 
-  local rc=0
-  # `molecule test --all` runs every scenario under the role's molecule/
-  # dir. Equivalent to `-s default` for roles with just one scenario, and
-  # picks up the multi-scenario homebrew role without per-role special-
-  # casing.
-  for role_dir in "${roles[@]}"; do
-    echo "--- molecule: ${role_dir} ---"
-    (cd "${role_dir}" && molecule test --all) || rc=$?
-  done
-  return $rc
-}
+def prepare_homebrew_image() -> None:
+    """Build or pull the Linuxbrew base image used by every homebrew molecule
+    scenario. Plumbed through Suite.prepare so the parallel runner and the
+    serial single-suite path both pick it up without case-by-case knowledge
+    of which role needs setup.
 
-case "${1:-all}" in
-  python)   run_python ;;
-  bash)     run_bash ;;
-  lint)     run_lint ;;
-  molecule) run_molecule "${2:-}" ;;
-  fast)     run_python; run_bash; run_lint ;;
-  all)      run_python; run_bash; run_lint; run_molecule ;;
-  *)        echo "usage: $0 [python|bash|lint|molecule [role]|fast|all]" >&2; exit 2 ;;
-esac
+    MOLECULE_HOMEBREW_IMAGE (set by CI) names a published image to pull and
+    retag. On pull failure — registry hiccup, image not yet published, PR
+    editing the Dockerfile — fall back to a local docker build so a fresh
+    Dockerfile is tested against its own changes."""
+    if image := os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip():
+        info(f"molecule: pulling homebrew base image from {image}")
+        try:
+            run(["docker", "pull", image], cwd=REPO_ROOT)
+            run(
+                ["docker", "tag", image, "dotfiles-homebrew-molecule:local"],
+                cwd=REPO_ROOT,
+            )
+            return
+        except subprocess.CalledProcessError:
+            warn("molecule: pull failed; falling back to local build")
+    info("molecule: building roles/homebrew base image")
+    run(
+        [
+            "docker",
+            "build",
+            "-t",
+            "dotfiles-homebrew-molecule:local",
+            "roles/homebrew/molecule/",
+        ],
+        cwd=REPO_ROOT,
+    )
+
+
+PYTHON_SUITE = Suite("python", ["pytest", "tests/python", "-v"])
+BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
+# `&&` so a yamllint failure short-circuits ansible-lint.
+LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])
+
+
+def molecule_role_suite(role: str) -> Suite:
+    """The factory is the *only* place that knows homebrew needs image prep.
+    Both run paths (serial and parallel) just call `suite.prepare()`."""
+    return Suite(
+        name=f"molecule:{role}",
+        argv=["bash", "-c", f"cd roles/{role} && molecule test --all"],
+        prepare=prepare_homebrew_image if role == "homebrew" else None,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Serial single-suite paths (no dashboard, exit code propagates)
+# --------------------------------------------------------------------------- #
+def run_single_suite(suite: Suite) -> int:
+    if suite.prepare is not None:
+        suite.prepare()
+    return subprocess.call(suite.argv, cwd=REPO_ROOT)
+
+
+def run_molecule(target_role: str | None) -> int:
+    info("=== molecule ===")
+    if target_role is not None and target_role not in MOLECULE_ROLES:
+        die(
+            f"unknown molecule role: {target_role} "
+            f"(known: {', '.join(MOLECULE_ROLES)})"
+        )
+    roles = MOLECULE_ROLES if target_role is None else [target_role]
+    rc = 0
+    for role in roles:
+        info(f"--- molecule: roles/{role} ---")
+        if (result := run_single_suite(molecule_role_suite(role))) != 0:
+            rc = result
+    return rc
+
+
+# --------------------------------------------------------------------------- #
+# Parallel orchestrator
+# --------------------------------------------------------------------------- #
+@dataclass(slots=True)
+class SuiteRun:
+    """One suite's parallel-run state. `result` is None until the suite
+    exits; once set, it's `(rc, elapsed_seconds)`."""
+
+    suite: Suite
+    proc: subprocess.Popen
+    log_path: Path
+    start_time: float
+    result: tuple[int, float] | None = None
+
+    @property
+    def name(self) -> str:
+        return self.suite.name
+
+
+class ParallelRunner:
+    """Spawns every suite as a subprocess writing to its own tempfile.
+    Use as a context manager — `__exit__` terminates survivors and removes
+    the tempdir, so cleanup happens once regardless of whether the loop
+    finished normally, raised, or was interrupted by SIGINT/SIGTERM."""
+
+    def __init__(self, suites: list[Suite]) -> None:
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="dotfiles-tests-run."))
+        self.runs: list[SuiteRun] = []
+        for s in suites:
+            # `:` is fine in filenames; `/` would not be — sanitize defensively.
+            log = self.tmpdir / f"{s.name.replace('/', '_')}.log"
+            log.touch()
+            # buffering=0: unbuffered fd so the subprocess's writes hit
+            # disk immediately and the dashboard's tail sees them on the
+            # next tick rather than waiting for python's userspace buffer.
+            # Popen dups the fd into the child; closing the parent handle
+            # doesn't disturb the child.
+            with open(log, "wb", buffering=0) as f:
+                proc = subprocess.Popen(
+                    s.argv, stdout=f, stderr=subprocess.STDOUT, cwd=REPO_ROOT,
+                )
+            self.runs.append(SuiteRun(s, proc, log, time.time()))
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        for r in self.runs:
+            if r.proc.poll() is None:
+                try:
+                    r.proc.terminate()
+                except ProcessLookupError:
+                    pass
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def poll(self) -> list[SuiteRun]:
+        """Return any SuiteRuns that have completed since the last call."""
+        newly_done = []
+        for r in self.runs:
+            if r.result is None and (rc := r.proc.poll()) is not None:
+                r.result = (rc, time.time() - r.start_time)
+                newly_done.append(r)
+        return newly_done
+
+    @property
+    def running(self) -> list[SuiteRun]:
+        return [r for r in self.runs if r.result is None]
+
+    @property
+    def all_done(self) -> bool:
+        return all(r.result is not None for r in self.runs)
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard rendering
+# --------------------------------------------------------------------------- #
+# Rows of breathing room above the dashboard. Also the safety margin that
+# keeps the dashboard from filling the viewport — if the dashboard ever
+# exceeds visible rows, the terminal scrolls during rendering and the
+# top of the dashboard goes into scrollback. Once there, the next tick's
+# cursor-up can't reach it (cursor movement is viewport-bound), and we
+# leave a stripe of stale dashboard in the user's scrollback forever.
+# Capping the dashboard at `rows - DASHBOARD_MARGIN` prevents that.
+DASHBOARD_MARGIN = 2
+
+
+def _tail_lines(path: Path, n: int) -> list[str]:
+    """Return up to the last `n` text lines of `path`, reading backward
+    in chunks. Avoids the O(log_size) cost of reading + splitting the
+    whole file each tick — a long-running molecule scenario can produce
+    a multi-MB log, and `read_text().splitlines()[-N:]` would dominate
+    the orchestrator's CPU on every dashboard refresh."""
+    if n <= 0:
+        return []
+    chunk = 8192
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            pos = f.tell()
+            buf = b""
+            while pos > 0 and buf.count(b"\n") <= n:
+                read_size = min(chunk, pos)
+                pos -= read_size
+                f.seek(pos)
+                buf = f.read(read_size) + buf
+    except (FileNotFoundError, OSError):
+        return []
+    return buf.decode("utf-8", errors="replace").splitlines()[-n:]
+
+
+def render_dashboard(runner: ParallelRunner) -> int:
+    """Print the live dashboard. Returns the number of lines emitted so the
+    next tick knows how many to clear via cursor-up + erase-to-end-of-screen.
+
+    Dashboard height is capped at `rows - DASHBOARD_MARGIN`. The per-suite
+    tail height is `min(MAX_LIVE_LINES_PER_SUITE, viewport_share)` — the
+    user-configured ceiling when the viewport has room, otherwise an
+    equal share of what's left after the dashboard + per-suite headers.
+    The share can compress to zero (headers only); when even the headers
+    don't fit, the dashboard collapses to a single header line naming
+    what's running."""
+    cols, rows = shutil.get_terminal_size((80, 24))
+    now = time.time()
+    timestamp = time.strftime("%H:%M:%S", time.localtime(now))
+    running = runner.running
+    completed = len(runner.runs) - len(running)
+    total = len(runner.runs)
+
+    header_text = f"live · {timestamp} · {completed}/{total} suites complete"
+
+    # Budget: each running suite costs 2 fixed rows for its
+    # announce_info banner (its leading \n is the visual separator
+    # between suite blocks). The dashboard header costs 2 (announce_warning's
+    # leading \n + the colored header itself).
+    available = rows - DASHBOARD_MARGIN
+    fixed_overhead = 2 + 2 * len(running)
+    if not running or fixed_overhead > available:
+        # Either nothing left to render (rare; we'd usually have broken
+        # the loop on all_done) or too many suites to fit even with no
+        # tails. Collapse to a single-line announce_warning naming what's
+        # running, keeping cursor-up math correct.
+        suffix = f" · running: {', '.join(r.name for r in running)}" if running else ""
+        announce_warning((header_text + suffix)[:cols - 2])
+        return 2
+
+    # MAX_LIVE_LINES_PER_SUITE is a ceiling, not a literal count — when
+    # the viewport budget per suite is smaller, the smaller value wins
+    # and every suite's tail compresses by the same amount.
+    live_lines_per_suite = min(
+        MAX_LIVE_LINES_PER_SUITE, (available - fixed_overhead) // len(running)
+    )
+
+    # Three-tier color hierarchy mirrors _dotfiles_common's palette:
+    # yellow announce_warning (top-level section boundary) for the
+    # dashboard header, blue announce_info (labeled sub-section) for the
+    # per-suite headers. announce_info's leading \n provides the visual
+    # separator between suite blocks — no explicit blank line needed.
+    announce_warning(header_text)
+    lines = 2
+    for r in running:
+        elapsed = int(now - r.start_time)
+        announce_info(f"{r.name} · {format_duration(elapsed)}")
+        lines += 2
+        if live_lines_per_suite > 0:
+            # Truncate each line to $cols so terminal wrap doesn't desync
+            # the next-tick line-count math.
+            tail = [log_line[:cols] for log_line in _tail_lines(r.log_path, live_lines_per_suite)]
+            if tail:
+                sys.stdout.write("\n".join(tail) + "\n")
+                lines += len(tail)
+    sys.stdout.flush()
+    return lines
+
+
+def clear_dashboard(lines: int) -> None:
+    if lines > 0:
+        # Move cursor up `lines` rows, then erase from cursor to end of
+        # display. Equivalent to `tput cuu N; tput ed`.
+        sys.stdout.write(f"\x1b[{lines}A\x1b[J")
+        sys.stdout.flush()
+
+
+def flush_completed(newly_done: list[SuiteRun]) -> None:
+    """For each suite that finished since the last poll, print a PASS
+    (yellow announce_warning) or FAIL (red announce_fail) banner followed
+    by the suite's full buffered output. This becomes permanent scrollback
+    as the dashboard redraws above it."""
+    for r in newly_done:
+        # poll() only returns SuiteRuns whose result has been set; the
+        # assert keeps the invariant visible to type-checkers.
+        assert r.result is not None
+        rc, elapsed = r.result
+        status = "PASS" if rc == 0 else "FAIL"
+        banner = f"{r.name} · {status} · {format_duration(elapsed)}"
+        (announce_warning if rc == 0 else announce_fail)(banner)
+        try:
+            with open(r.log_path, "rb") as f:
+                # Stream in copyfileobj's default chunk size rather than
+                # loading the full log into memory — molecule logs can be
+                # multi-MB and we only need to pipe them through.
+                shutil.copyfileobj(f, sys.stdout.buffer)
+            sys.stdout.flush()
+        except (FileNotFoundError, OSError):
+            pass
+
+
+def print_summary(runner: ParallelRunner) -> int:
+    """Print the per-suite summary. Returns 0 if all PASS, 1 otherwise.
+
+    Caller guarantees `runner.all_done`."""
+    announce_warning("summary")
+    max_name = max((len(r.name) for r in runner.runs), default=0)
+    any_failed = False
+    # Spawn order (matches dashboard order), not completion order — keeps
+    # the layout stable run-to-run for at-a-glance reading.
+    for r in runner.runs:
+        assert r.result is not None
+        rc, elapsed = r.result
+        badge = ANSI_PASS_BADGE if rc == 0 else ANSI_FAIL_BADGE
+        if rc != 0:
+            any_failed = True
+        print(f"  {r.name:<{max_name}}  {badge}  ({format_duration(elapsed)})")
+    return 1 if any_failed else 0
+
+
+# --------------------------------------------------------------------------- #
+# Multi-suite parallel driver
+# --------------------------------------------------------------------------- #
+def _sigterm_to_keyboard_interrupt(_signum: int, _frame: object) -> None:
+    """Reroute SIGTERM through KeyboardInterrupt so the ParallelRunner
+    context manager's __exit__ runs (terminating children, cleaning up
+    the tempdir) instead of Python's default abrupt termination. SIGINT
+    already raises KeyboardInterrupt by Python's default."""
+    raise KeyboardInterrupt
+
+
+def run_multi(include_molecule: bool) -> int:
+    suites = [PYTHON_SUITE, BASH_SUITE, LINT_SUITE]
+    if include_molecule:
+        suites.extend(molecule_role_suite(role) for role in MOLECULE_ROLES)
+
+    # Per-suite prepare hooks run serially before any parallel spawn —
+    # only homebrew has one today (its base image), and parallel
+    # `docker build` / `docker tag` against the same `:local` tag would
+    # race. The summary's molecule:homebrew wall-clock therefore reflects
+    # test work only, not image prep.
+    for s in suites:
+        if s.prepare is not None:
+            info(f"preparing {s.name}")
+            s.prepare()
+
+    interactive = sys.stdout.isatty()
+    signal.signal(signal.SIGTERM, _sigterm_to_keyboard_interrupt)
+
+    try:
+        if interactive:
+            sys.stdout.write(ANSI_HIDE_CURSOR)
+            sys.stdout.flush()
+
+        try:
+            with ParallelRunner(suites) as runner:
+                dashboard_lines = 0
+                while True:
+                    if interactive:
+                        clear_dashboard(dashboard_lines)
+                        dashboard_lines = 0
+
+                    flush_completed(runner.poll())
+                    if runner.all_done:
+                        break
+
+                    if interactive:
+                        dashboard_lines = render_dashboard(runner)
+
+                    time.sleep(TICK)
+        except KeyboardInterrupt:
+            # ParallelRunner.__exit__ has terminated survivors and
+            # cleaned up; we just need to surface the conventional
+            # SIGINT exit code.
+            return 130
+
+        return print_summary(runner)
+    finally:
+        if interactive:
+            sys.stdout.write(ANSI_SHOW_CURSOR)
+            sys.stdout.flush()
+
+
+# --------------------------------------------------------------------------- #
+# Dispatch
+# --------------------------------------------------------------------------- #
+USAGE = "usage: tests/run [python|bash|lint|molecule [role]|fast|all]"
+
+
+def main(argv: list[str]) -> int:
+    match argv:
+        case []:
+            return run_multi(include_molecule=True)
+        case ["python", *_]:
+            return run_single_suite(PYTHON_SUITE)
+        case ["bash", *_]:
+            return run_single_suite(BASH_SUITE)
+        case ["lint", *_]:
+            return run_single_suite(LINT_SUITE)
+        case ["molecule"]:
+            return run_molecule(None)
+        case ["molecule", role, *_]:
+            return run_molecule(role)
+        case ["fast", *_]:
+            return run_multi(include_molecule=False)
+        case ["all", *_]:
+            return run_multi(include_molecule=True)
+        case _:
+            print(USAGE, file=sys.stderr)
+            return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

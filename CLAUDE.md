@@ -381,6 +381,56 @@ molecule, ansible-lint, and yamllint).
 ./tests/run molecule <role>          # one role's scenarios (used by the CI matrix)
 ```
 
+`tests/run` imports `announce` / `info` / `warn` / `die` from
+`_dotfiles_common` so the bracket-style banners stay consistent with
+the bootstrap.
+
+**Multi-suite invocations (`all`, `fast`) run every suite in parallel**,
+buffering each suite's output to a tempfile. On a tty, a live dashboard
+shows the tail of each running suite's log — capped at
+`MAX_LIVE_LINES_PER_SUITE` (default 20) per suite, compressed equally
+across suites when the viewport can't fit that many for everyone (down
+to zero, headers only, if the terminal is tight). Refreshed every
+`TICK` (default 2) seconds via cursor-up + erase. The dashboard uses
+a three-tier colored hierarchy mirroring `_dotfiles_common`'s palette:
+
+- **Dashboard header** — yellow background `announce`-style banner
+  (`live · HH:MM:SS · X/N suites complete`), the top-level section
+  boundary. Otherwise the previous render's separators would be easy to
+  confuse with suite content scrolling past.
+- **Suite header** (one per running suite, above its tail block) — blue
+  background `info`-style banner (`<name> · <elapsed>`), the labeled
+  sub-section. Plain `[name | elapsed]` was easy to lose in molecule's
+  verbose colored scenario logs; the colored bracket reads as a section
+  start against any surrounding noise.
+- **Completion banner** (above each suite's full output as it flushes) —
+  yellow `announce`-style for PASS, red (`die`-style) for FAIL. Becomes
+  permanent scrollback as the dashboard redraws above.
+
+When everyone's done, the summary prints with per-suite green/red
+badges. Exit is non-zero iff any suite failed.
+
+On a non-tty (CI, piped) the live dashboard is skipped — completed-suite
+output still flushes as soon as each finishes (in completion order), the
+summary still prints at the end. The exit code semantics are identical.
+
+Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+semantics — no parallelism, no summary, exit code propagates directly.
+
+Two trade-offs the parallel mode pays:
+
+1. **Run-all-then-summarize.** A failing earlier suite no longer aborts
+   the run, so the others still run against a tree that may already be
+   invalid. The full picture is worth more than the early abort.
+2. **Homebrew base image prep is lifted out of the molecule shard** and
+   runs serially before the parallel block starts. Parallel `docker build`
+   / `docker tag` against the same `:local` tag would race, and the bash
+   shards' output would interleave on stdout (we buffer per-suite, but the
+   docker daemon writes to its own log streams). The summary's
+   `molecule:homebrew` time then reflects test work only, not image prep
+   — arguably more honest, but worth knowing when comparing wall-clocks
+   against pre-parallel runs.
+
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
 under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,
 flatpak, and homebrew roles are covered. Most roles have a single `default/`

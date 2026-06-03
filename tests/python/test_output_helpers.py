@@ -1,5 +1,6 @@
-"""Tests for phase2's output helpers — confirm routing (stdout vs stderr) and
-ANSI escape codes are present so visual styling lands on the right stream."""
+"""Tests for the shared output helpers in _dotfiles_common — confirm
+routing (stdout vs stderr) and ANSI escape codes are present so visual
+styling lands on the right stream."""
 import os
 import shutil
 import pytest
@@ -15,12 +16,41 @@ def _pin_terminal_cols(monkeypatch, cols):
     monkeypatch.setattr(shutil, "get_terminal_size", lambda *a, **k: fake_size)
 
 
-def test_announce_writes_to_stdout(capsys):
-    phase2.announce("Header")
+def test_announce_warning_writes_to_stdout(capsys):
+    phase2.announce_warning("Header")
     out = capsys.readouterr()
     assert "Header" in out.out
     assert out.err == ""
     assert "\x1b[1;37;43m" in out.out  # yellow background
+
+
+def test_announce_info_writes_to_stdout(capsys):
+    """announce_info is the blue full-banner sibling of announce_warning
+    (yellow). Used by tests/run for the dashboard's per-suite sub-section
+    headers, hierarchically below the yellow announce_warning header
+    above them."""
+    import _dotfiles_common
+
+    _dotfiles_common.announce_info("Header")
+    out = capsys.readouterr()
+    assert "Header" in out.out
+    assert out.err == ""
+    assert "\x1b[1;37;44m" in out.out  # blue background
+    assert "\x1b[0m" in out.out         # reset
+
+
+def test_announce_fail_writes_to_stdout(capsys):
+    """announce_fail is the red sibling of announce_warning — same
+    shape, signals failure without exiting (use die() to exit).
+    tests/run uses it for the completion banner of a failing suite."""
+    import _dotfiles_common
+
+    _dotfiles_common.announce_fail("Header")
+    out = capsys.readouterr()
+    assert "Header" in out.out
+    assert out.err == ""
+    assert "\x1b[1;37;101m" in out.out  # red background
+    assert "\x1b[0m" in out.out          # reset
 
 
 def test_info_writes_to_stdout(capsys):
@@ -50,21 +80,21 @@ def test_die_writes_to_stderr_and_exits_1(capsys):
     assert "\x1b[1;37;101m" in out.err  # red background
 
 
-def test_centered_announce_writes_to_stdout(capsys, monkeypatch):
+def test_centered_announce_warning_writes_to_stdout(capsys, monkeypatch):
     _pin_terminal_cols(monkeypatch, 80)
-    phase2.centered_announce("hello")
+    phase2.centered_announce_warning("hello")
     out = capsys.readouterr()
     assert "hello" in out.out
     assert out.err == ""
     assert "\x1b[1;37;43m" in out.out  # yellow background
 
 
-def test_centered_announce_indents_proportional_to_terminal(capsys, monkeypatch):
+def test_centered_announce_warning_indents_proportional_to_terminal(capsys, monkeypatch):
     """The visible block is ' MSG ' (the ANSI banner literally pads the
     message with one space on each side), so the indent should be
     (cols - (len(msg) + 2)) // 2 to truly center the visible block."""
     _pin_terminal_cols(monkeypatch, 80)
-    phase2.centered_announce("hello")
+    phase2.centered_announce_warning("hello")
     lines = capsys.readouterr().out.splitlines()
     # Expect: ["", "<indent><ansi> hello <reset>"]
     assert lines[0] == ""
@@ -72,12 +102,12 @@ def test_centered_announce_indents_proportional_to_terminal(capsys, monkeypatch)
     assert lines[1].startswith(" " * expected_indent + "\x1b[")
 
 
-def test_centered_announce_clamps_indent_to_zero_when_msg_wider_than_terminal(
+def test_centered_announce_warning_clamps_indent_to_zero_when_msg_wider_than_terminal(
     capsys, monkeypatch
 ):
     """A message longer than the terminal must not produce a negative indent."""
     _pin_terminal_cols(monkeypatch, 5)
-    phase2.centered_announce("longer than the terminal")
+    phase2.centered_announce_warning("longer than the terminal")
     out = capsys.readouterr().out
     assert "longer than the terminal" in out
     # The line with the message should not start with whitespace from a
