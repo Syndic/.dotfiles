@@ -5,7 +5,7 @@ import os
 import shutil
 import pytest
 
-import phase2
+import _dotfiles_common as common
 
 
 def _pin_terminal_cols(monkeypatch, cols):
@@ -17,7 +17,7 @@ def _pin_terminal_cols(monkeypatch, cols):
 
 
 def test_announce_warning_writes_to_stdout(capsys):
-    phase2.announce_warning("Header")
+    common.announce_warning("Header")
     out = capsys.readouterr()
     assert "Header" in out.out
     assert out.err == ""
@@ -29,9 +29,7 @@ def test_announce_info_writes_to_stdout(capsys):
     (yellow). Used by tests/run for the dashboard's per-suite sub-section
     headers, hierarchically below the yellow announce_warning header
     above them."""
-    import _dotfiles_common
-
-    _dotfiles_common.announce_info("Header")
+    common.announce_info("Header")
     out = capsys.readouterr()
     assert "Header" in out.out
     assert out.err == ""
@@ -43,9 +41,7 @@ def test_announce_fail_writes_to_stdout(capsys):
     """announce_fail is the red sibling of announce_warning — same
     shape, signals failure without exiting (use die() to exit).
     tests/run uses it for the completion banner of a failing suite."""
-    import _dotfiles_common
-
-    _dotfiles_common.announce_fail("Header")
+    common.announce_fail("Header")
     out = capsys.readouterr()
     assert "Header" in out.out
     assert out.err == ""
@@ -54,7 +50,7 @@ def test_announce_fail_writes_to_stdout(capsys):
 
 
 def test_info_writes_to_stdout(capsys):
-    phase2.info("hello")
+    common.info("hello")
     out = capsys.readouterr()
     assert "hello" in out.out
     assert out.err == ""
@@ -63,7 +59,7 @@ def test_info_writes_to_stdout(capsys):
 
 
 def test_warn_writes_to_stderr(capsys):
-    phase2.warn("careful")
+    common.warn("careful")
     out = capsys.readouterr()
     assert out.out == ""
     assert "careful" in out.err
@@ -72,7 +68,7 @@ def test_warn_writes_to_stderr(capsys):
 
 def test_die_writes_to_stderr_and_exits_1(capsys):
     with pytest.raises(SystemExit) as exc:
-        phase2.die("boom")
+        common.die("boom")
     assert exc.value.code == 1
     out = capsys.readouterr()
     assert out.out == ""
@@ -82,7 +78,7 @@ def test_die_writes_to_stderr_and_exits_1(capsys):
 
 def test_centered_announce_warning_writes_to_stdout(capsys, monkeypatch):
     _pin_terminal_cols(monkeypatch, 80)
-    phase2.centered_announce_warning("hello")
+    common.centered_announce_warning("hello")
     out = capsys.readouterr()
     assert "hello" in out.out
     assert out.err == ""
@@ -94,7 +90,7 @@ def test_centered_announce_warning_indents_proportional_to_terminal(capsys, monk
     message with one space on each side), so the indent should be
     (cols - (len(msg) + 2)) // 2 to truly center the visible block."""
     _pin_terminal_cols(monkeypatch, 80)
-    phase2.centered_announce_warning("hello")
+    common.centered_announce_warning("hello")
     lines = capsys.readouterr().out.splitlines()
     # Expect: ["", "<indent><ansi> hello <reset>"]
     assert lines[0] == ""
@@ -107,7 +103,7 @@ def test_centered_announce_warning_clamps_indent_to_zero_when_msg_wider_than_ter
 ):
     """A message longer than the terminal must not produce a negative indent."""
     _pin_terminal_cols(monkeypatch, 5)
-    phase2.centered_announce_warning("longer than the terminal")
+    common.centered_announce_warning("longer than the terminal")
     out = capsys.readouterr().out
     assert "longer than the terminal" in out
     # The line with the message should not start with whitespace from a
