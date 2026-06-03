@@ -90,6 +90,40 @@ git *does* resolve, so `pre-commit install`/`run` work in a worktree container,
 as do `./tests/run lint` and `python3 dotfiles_manager.py check home_source`.
 The hooks also still gate every PR in CI.
 
+### Host timezone plumbing
+
+A sibling artifact rides in the same `.devcontainer/.git-plumbing/` directory:
+`host-timezone`, holding the host's IANA zone name (e.g. `America/Los_Angeles`).
+Without it the container defaults to `Etc/UTC` and timestamps in molecule and
+playbook output drift hours off the host's wall clock.
+
+The wiring reuses the host-git-common plumbing's lifecycle one-for-one — same
+`initializeCommand` write, same build-context COPY, same `[ -s … ]` shell-guard
+absence-tolerance. Only the per-artifact bits differ:
+
+- `initialize.sh` reads `readlink /etc/localtime` (works on macOS and most
+  modern Linux distros — both ship `/etc/localtime` as a symlink into a
+  zoneinfo db) and strips everything up to and including `zoneinfo/` to get
+  the zone name. Falls back to `/etc/timezone` (Debian/Ubuntu) when the
+  symlink isn't there. Rejects absolute paths and `..` segments before
+  writing, defense-in-depth on a hostile or broken host symlink target.
+- The Dockerfile, when the file is non-empty AND the named zoneinfo file
+  exists in the image, symlinks `/etc/localtime` to it, writes
+  `/etc/timezone`, and appends `TZ=<zone>` to `/etc/environment`. The
+  zoneinfo existence check guards against a partial `tzdata` install or an
+  unknown zone name; the container falls back to UTC quietly in that case.
+- No env vars in `devcontainer.json` — the `/etc/localtime` symlink is what
+  libc reads, so Python `datetime`, `date(1)`, Ansible's date facts, and
+  anything else that defers to libc local time all pick it up automatically.
+  `TZ` in `/etc/environment` covers PAM-managed login shells (the `su -
+  testuser` boundary the e2e harnesses cross); non-login `docker exec`
+  shells still resolve local time correctly via `/etc/localtime`.
+
+`tzdata` and the zoneinfo db are already in `mcr.microsoft.com/devcontainers/
+base:debian`, so no package install. CI's `devcontainer build` runs without
+`initializeCommand`, so `host-timezone` is absent there — the `[ -s … ]`
+guard makes that path a clean no-op and CI keeps its default UTC.
+
 ## The two-language split is intentional
 
 `install.sh` (bash) and `phase2.py` (Python) are two phases of the same

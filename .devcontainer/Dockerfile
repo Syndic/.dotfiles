@@ -35,9 +35,24 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # file (non-git checkout) is treated the same. Kept last so the apt layer above
 # stays cached when the path — and thus this layer — changes between worktrees.
 COPY .devcontainer/.git-plumbing/ /tmp/git-plumbing/
+# Two host-side artifacts ride in /tmp/git-plumbing:
+#   - host-git-common-path: the git-resolution mechanism (see block above).
+#   - host-timezone: the host's IANA zone (see CLAUDE.md "Host timezone
+#     plumbing"). tzdata + the zoneinfo db are already in the base image, so
+#     this is a pure symlink-and-export job. CI's `devcontainer build` doesn't
+#     run initializeCommand, so both files are absent there — the `[ -s ... ]`
+#     guards make that a clean no-op and the container keeps its default (UTC).
 RUN if [ -s /tmp/git-plumbing/host-git-common-path ]; then \
         p="$(cat /tmp/git-plumbing/host-git-common-path)"; \
         mkdir -p "$(dirname "$p")"; \
         ln -sfn /host-git-common "$p"; \
+    fi; \
+    if [ -s /tmp/git-plumbing/host-timezone ]; then \
+        tz="$(cat /tmp/git-plumbing/host-timezone)"; \
+        if [ -e "/usr/share/zoneinfo/$tz" ]; then \
+            ln -sfn "/usr/share/zoneinfo/$tz" /etc/localtime; \
+            echo "$tz" > /etc/timezone; \
+            echo "TZ=$tz" >> /etc/environment; \
+        fi; \
     fi; \
     rm -rf /tmp/git-plumbing
