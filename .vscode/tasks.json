@@ -3,7 +3,7 @@
   "tasks": [
     {
       "label": "Run all tests",
-      "detail": "Full suite - pytest + bats (tests/run)",
+      "detail": "Full suite (tests/run)",
       "type": "shell",
       "command": "./tests/run",
       "group": {
@@ -16,12 +16,12 @@
       "problemMatcher": []
     },
     {
-      "label": "Run bats tests",
-      "detail": "Bash suite only (tests/run bash)",
+      "label": "Run fast tests",
+      "detail": "Runs most tests (Does not include Molecule tests) (tests/run fast)",
       "type": "shell",
       "command": "./tests/run",
       "args": [
-        "bash"
+        "fast"
       ],
       "group": "test",
       "presentation": {

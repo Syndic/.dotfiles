@@ -5,6 +5,7 @@
     "tests/python"
   ],
   "taskManager.favorites": [
-    ".dotfiles/Workspace/Run all tests"
+    ".dotfiles/Workspace/Run all tests",
+    ".dotfiles/Workspace/Run fast tests"
   ]
 }

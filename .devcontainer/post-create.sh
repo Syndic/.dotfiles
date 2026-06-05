@@ -84,33 +84,19 @@ wait "$ansible_pid"   || rc=$?
 wait "$precommit_pid" || rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
 
-# Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit is on
-# PATH via remoteEnv (~/.local/bin), but that PATH may not be in effect during
-# postCreate, so call it by full path. The source-guard hook shells out to the
-# default `python3` (now ~/.venv's 3.9.6) regardless of pre-commit's own venv.
-#
-# Guarded on git actually resolving the repo. In a git *worktree*, `.git` is a
-# file pointing at `<main-repo>/.git/worktrees/<name>` — a host absolute path.
-# initialize.sh + the Dockerfile's symlink + the /host-git-common bind mount
-# normally make that path resolve in-container, but if any of those pieces is
-# absent (e.g. `devcontainer build` in CI, which never runs initializeCommand,
-# or a non-git checkout) git will fail. pre-commit can't install — or run —
-# without a resolvable git dir, so skip rather than abort post-create: a broken
-# last step would mark the whole container build as failed over a convenience
-# hook. The checks are still enforced in CI on every PR, and run locally via
-# `./tests/run lint` (which invokes yamllint + ansible-lint directly, no git
-# needed). Where git *does* resolve, this runs as before.
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  # pre-commit refuses to `install` when core.hooksPath is set — it can't own a
-  # hooks dir it doesn't control. We've observed core.hooksPath set on this repo
-  # to the very path git would use by default ($(git_common_dir)/hooks), making
-  # it a redundant no-op that only serves to block the install. Defensively
-  # clear it, but *only* when it's redundant: if it points somewhere else it was
-  # set deliberately (a custom hooks dir), so leave it and warn rather than
-  # silently clobbering intent. The unset is scoped with --worktree when the
-  # repo has per-worktree config enabled (extensions.worktreeConfig), else it
-  # falls back to the standard --local; either way it never touches global config.
-  #
+# pre-commit refuses to `install` when core.hooksPath is set — it can't own a
+# hooks dir it doesn't control. We've observed core.hooksPath set on this repo
+# to the very path git would use by default ($(git_common_dir)/hooks), making
+# it a redundant no-op that only serves to block the install. Defensively
+# clear it, but *only* when it's redundant: if it points somewhere else it was
+# set deliberately (a custom hooks dir), so leave it and warn rather than
+# silently clobbering intent. The unset is scoped with --worktree when the
+# repo has per-worktree config enabled (extensions.worktreeConfig), else it
+# falls back to the standard --local; either way it never touches global config.
+hooks_path="$(git config --get core.hooksPath || true)"
+if [ -n "$hooks_path" ]; then
+  default_hooks_path="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
+
   # Use bash's `-ef` (same-inode) test rather than string equality: in worktree
   # devcontainers the host-absolute path in `config.worktree` (e.g.
   # /Users/jjyanchar/.dotfiles/.git/hooks) is symlinked to /host-git-common/hooks
@@ -118,24 +104,21 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   # name the SAME directory through a symlink but compare unequal as text. `-ef`
   # resolves both and tests inode equality, so the redundant case is recognized
   # whether or not the worktree-fix symlink layer is in play.
-  hooks_path="$(git config --get core.hooksPath || true)"
-  if [ -n "$hooks_path" ]; then
-    default_hooks_path="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
-    if [ "$hooks_path" -ef "$default_hooks_path" ]; then
-      if [ "$(git config --get extensions.worktreeConfig || true)" = "true" ]; then
-        git config --worktree --unset core.hooksPath
-      else
-        git config --unset core.hooksPath
-      fi
-      echo "post-create: unset redundant core.hooksPath (equalled git's default $default_hooks_path)" >&2
+  if [ "$hooks_path" -ef "$default_hooks_path" ]; then
+    if [ "$(git config --get extensions.worktreeConfig || true)" = "true" ]; then
+      git config --worktree --unset core.hooksPath
     else
-      echo "post-create: core.hooksPath is set to a non-default path ($hooks_path) — leaving it alone" >&2
-      echo "post-create: 'pre-commit install' may fail; clear it manually if that's not intended" >&2
+      git config --unset core.hooksPath
     fi
+    echo "post-create: unset redundant core.hooksPath (equalled git's default $default_hooks_path)" >&2
+  else
+    echo "post-create: core.hooksPath is set to a non-default path ($hooks_path) - leaving it alone" >&2
+    echo "post-create: 'pre-commit install' may fail; clear it manually if that's not intended" >&2
   fi
-  "$HOME/.local/bin/pre-commit" install
-else
-  echo "post-create: skipping 'pre-commit install' — git dir not reachable in-container" >&2
-  echo "post-create: (likely a non-git checkout, or initialize.sh / the host-git-common mount didn't run)" >&2
-  echo "post-create: lint locally with './tests/run lint'; hooks still gate every PR in CI" >&2
 fi
+
+# Wire up the git hooks defined in .pre-commit-config.yaml. pre-commit is on
+# PATH via remoteEnv (~/.local/bin), but that PATH may not be in effect during
+# postCreate, so call it by full path. The source-guard hook shells out to the
+# default `python3` (now ~/.venv's 3.9.6) regardless of pre-commit's own venv.
+"$HOME/.local/bin/pre-commit" install
