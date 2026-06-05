@@ -308,7 +308,7 @@ def build_source_manifest(
     home_dir: Path,
     excludes: Sequence[str],
 ) -> Dict[str, List[Dict[str, str]]]:
-    """Build the effective directory/link plan for common + host overlay sources."""
+    """Build the effective directory-slot/link-slot plan for common + host overlay sources."""
     assert_no_nested_dotfiles_dirs(common_source_dir)
     assert_no_nested_dotfiles_dirs(host_source_dir)
     assert_no_symlinks_in_source(common_source_dir)
@@ -326,8 +326,8 @@ def build_source_manifest(
     for entry in iter_source_entries(host_source_dir):
         _merge_entry(merged_entries, entry)
 
-    directories = []
-    links = []
+    directory_slots = []
+    link_slots = []
 
     for relative_path in sorted(merged_entries):
         entry = merged_entries[relative_path]
@@ -339,7 +339,7 @@ def build_source_manifest(
         )
 
         if entry["type"] == "directory":
-            directories.append(
+            directory_slots.append(
                 {
                     "src": entry["src"],
                     "rel": relative_path,
@@ -350,7 +350,7 @@ def build_source_manifest(
             )
             continue
 
-        links.append(
+        link_slots.append(
             {
                 "src": entry["src"],
                 "rel": relative_path,
@@ -363,10 +363,14 @@ def build_source_manifest(
     stale_links = find_stale_managed_symlinks(
         resolved_managed_root_dir=resolved_managed_root_dir,
         home_dir=home_dir,
-        desired_link_paths=[entry["rel"] for entry in links],
+        desired_link_paths=[entry["rel"] for entry in link_slots],
     )
 
-    return {"directories": directories, "links": links, "stale_links": stale_links}
+    return {
+        "directory_slots": directory_slots,
+        "link_slots": link_slots,
+        "stale_links": stale_links,
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:

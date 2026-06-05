@@ -89,8 +89,8 @@ def test_build_manifest_prints_manifest_json(tmp_path, capsys):
     assert dotfiles_manager.main(_manifest_argv(tmp_path)) == 0
 
     manifest = json.loads(capsys.readouterr().out)
-    assert set(manifest) == {"directories", "links", "stale_links"}
-    rels = sorted(link["rel"] for link in manifest["links"])
+    assert set(manifest) == {"directory_slots", "link_slots", "stale_links"}
+    rels = sorted(link_slot["rel"] for link_slot in manifest["link_slots"])
     assert rels == [".gitconfig", ".zshrc"]
 
 
@@ -99,7 +99,7 @@ def test_build_manifest_applies_excludes(tmp_path, capsys):
 
     assert dotfiles_manager.main(argv) == 0
     manifest = json.loads(capsys.readouterr().out)
-    assert [link["rel"] for link in manifest["links"]] == [".gitconfig"]
+    assert [link_slot["rel"] for link_slot in manifest["link_slots"]] == [".gitconfig"]
 
 
 def test_build_manifest_accepts_double_encoded_excludes(tmp_path, capsys):
@@ -110,7 +110,7 @@ def test_build_manifest_accepts_double_encoded_excludes(tmp_path, capsys):
 
     assert dotfiles_manager.main(argv) == 0
     manifest = json.loads(capsys.readouterr().out)
-    assert [link["rel"] for link in manifest["links"]] == [".gitconfig"]
+    assert [link_slot["rel"] for link_slot in manifest["link_slots"]] == [".gitconfig"]
 
 
 def test_build_manifest_rejects_unparseable_excludes(tmp_path, capsys):

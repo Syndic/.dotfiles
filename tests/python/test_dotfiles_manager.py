@@ -134,8 +134,8 @@ def test_build_source_manifest_applies_overlays_and_excludes(tmp_path: Path) -> 
         excludes=[".cache", ".config/shared.conf"],
     )
 
-    assert [entry["rel"] for entry in manifest["directories"]] == [".config"]
-    assert manifest["links"] == [
+    assert [entry["rel"] for entry in manifest["directory_slots"]] == [".config"]
+    assert manifest["link_slots"] == [
         {
             "dest": str(home_dir / ".config" / "host-only.conf"),
             "managed_root": str((tmp_path / "home_source").resolve()),
@@ -186,8 +186,8 @@ def test_build_source_manifest_host_file_shadows_common_subtree(tmp_path: Path) 
         excludes=[],
     )
 
-    assert [entry["rel"] for entry in manifest["directories"]] == [".config"]
-    assert manifest["links"] == [
+    assert [entry["rel"] for entry in manifest["directory_slots"]] == [".config"]
+    assert manifest["link_slots"] == [
         {
             "dest": str(home_dir / ".config" / "nvim"),
             "managed_root": str((tmp_path / "home_source").resolve()),
@@ -218,7 +218,7 @@ def test_build_source_manifest_host_directory_overrides_common_file(tmp_path: Pa
         excludes=[],
     )
 
-    assert manifest["directories"] == [
+    assert manifest["directory_slots"] == [
         {
             "dest": str(home_dir / ".config"),
             "managed_root": str((tmp_path / "home_source").resolve()),
@@ -240,7 +240,7 @@ def test_build_source_manifest_host_directory_overrides_common_file(tmp_path: Pa
             "src": str(host_root / ".config" / "tool"),
         },
     ]
-    assert manifest["links"] == [
+    assert manifest["link_slots"] == [
         {
             "dest": str(home_dir / ".config" / "tool" / "config.toml"),
             "managed_root": str((tmp_path / "home_source").resolve()),
@@ -325,7 +325,7 @@ def test_stale_symlink_to_unexpected_managed_repo_path_is_still_managed(tmp_path
 
     assert manifest["stale_links"] == []
 
-    assert manifest["links"] == [
+    assert manifest["link_slots"] == [
         {
             "dest": str(home_dir / ".zshrc"),
             "managed_root": str(repo_root.resolve()),
