@@ -1,0 +1,66 @@
+---
+# Shared backup pipeline used by main.yml for both directory and file
+# conflicts. The caller does the type-specific stat + filter to produce
+# `targets`; this file runs the compute → action-list → warn → mv steps
+# that are identical between the two kinds.
+#
+# Inputs (passed via `include_tasks` + `vars:` so they don't leak):
+#   backup_kind — "directory" or "file"; used in user-facing task names
+#                 and the warning text.
+#   targets     — list of conflicting destination dicts, each shaped
+#                 {'dest': <abs path>}; already filtered by the caller.
+
+- name: "Reset backup action accumulator for kind={{ backup_kind }}"
+  ansible.builtin.set_fact:
+    dotfiles_backup_actions: []
+
+- name: "Compute backup metadata for conflicting targets of kind={{ backup_kind }}"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ dotfiles_manager_script }}"
+      - backup-info
+      - "{{ backup_target.dest }}"
+  loop: "{{ targets }}"
+  loop_control:
+    loop_var: backup_target
+  register: dotfiles_backup_info_results
+  changed_when: false
+
+- name: "Build backup action list for kind={{ backup_kind }}"
+  ansible.builtin.set_fact:
+    dotfiles_backup_actions: >-
+      {{
+        dotfiles_backup_actions + [{
+          'backup_index': (backup_info_result.stdout | from_json).index,
+          'backup_path': (backup_info_result.stdout | from_json).path,
+          'dest': backup_info_result.backup_target.dest
+        }]
+      }}
+  loop: "{{ dotfiles_backup_info_results.results | default([]) }}"
+  loop_control:
+    loop_var: backup_info_result
+
+- name: "Warn about repeated backups for kind={{ backup_kind }}"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: backing up {{ backup_action.dest }} to
+      {{ backup_action.backup_path }}. This is backup number
+      {{ backup_action.backup_index }}, which suggests a previously
+      created backup was left in place and the managed path was changed again.
+  loop: "{{ dotfiles_backup_actions }}"
+  loop_control:
+    loop_var: backup_action
+  when:
+    - backup_action.backup_index > 1
+
+- name: "Back up conflicting destinations of kind={{ backup_kind }}"
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ backup_action.dest }}"
+      - "{{ backup_action.backup_path }}"
+  changed_when: true
+  loop: "{{ dotfiles_backup_actions }}"
+  loop_control:
+    loop_var: backup_action

@@ -80,56 +80,11 @@
         - (directory_target_stat.stat.exists | default(false)) or (directory_target_stat.stat.islnk | default(false))
         - not (directory_target_stat.stat.isdir | default(false))
 
-    - name: Compute backup metadata for conflicting directories
-      ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ dotfiles_manager_script }}"
-          - backup-info
-          - "{{ directory_target.dest }}"
-      loop: "{{ dotfiles_conflicting_directory_targets | default([]) }}"
-      loop_control:
-        loop_var: directory_target
-      register: dotfiles_target_directory_backups
-      changed_when: false
-
-    - name: Build directory backup action list
-      ansible.builtin.set_fact:
-        dotfiles_directory_backup_actions: >-
-          {{
-            (dotfiles_directory_backup_actions | default([])) + [{
-              'backup_index': (directory_backup_result.stdout | from_json).index,
-              'backup_path': (directory_backup_result.stdout | from_json).path,
-              'dest': directory_backup_result.directory_target.dest
-            }]
-          }}
-      loop: "{{ dotfiles_target_directory_backups.results | default([]) }}"
-      loop_control:
-        loop_var: directory_backup_result
-
-    - name: Warn about repeated directory backups
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: backing up {{ directory_backup_action.dest }} to
-          {{ directory_backup_action.backup_path }}. This is backup number
-          {{ directory_backup_action.backup_index }}, which suggests a previously
-          created backup was left in place and the managed path was changed again.
-      loop: "{{ dotfiles_directory_backup_actions | default([]) }}"
-      loop_control:
-        loop_var: directory_backup_action
-      when:
-        - directory_backup_action.backup_index > 1
-
-    - name: Backup conflicting destination directories
-      ansible.builtin.command:
-        argv:
-          - mv
-          - "{{ directory_backup_action.dest }}"
-          - "{{ directory_backup_action.backup_path }}"
-      changed_when: true
-      loop: "{{ dotfiles_directory_backup_actions | default([]) }}"
-      loop_control:
-        loop_var: directory_backup_action
+    - name: Back up conflicting destination directories
+      ansible.builtin.include_tasks: backup_destination.yml
+      vars:
+        backup_kind: directory
+        targets: "{{ dotfiles_conflicting_directory_targets | default([]) }}"
 
     - name: Ensure destination directories exist
       ansible.builtin.file:
@@ -196,56 +151,11 @@
             )
           )
 
-    - name: Compute backup metadata for conflicting files
-      ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ dotfiles_manager_script }}"
-          - backup-info
-          - "{{ file_target.dest }}"
-      loop: "{{ dotfiles_conflicting_file_targets | default([]) }}"
-      loop_control:
-        loop_var: file_target
-      register: dotfiles_target_link_backups
-      changed_when: false
-
-    - name: Build file backup action list
-      ansible.builtin.set_fact:
-        dotfiles_file_backup_actions: >-
-          {{
-            (dotfiles_file_backup_actions | default([])) + [{
-              'backup_index': (file_backup_result.stdout | from_json).index,
-              'backup_path': (file_backup_result.stdout | from_json).path,
-              'dest': file_backup_result.file_target.dest
-            }]
-          }}
-      loop: "{{ dotfiles_target_link_backups.results | default([]) }}"
-      loop_control:
-        loop_var: file_backup_result
-
-    - name: Warn about repeated file backups
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: backing up {{ file_backup_action.dest }} to
-          {{ file_backup_action.backup_path }}. This is backup number
-          {{ file_backup_action.backup_index }}, which suggests a previously
-          created backup was left in place and the managed path was changed again.
-      loop: "{{ dotfiles_file_backup_actions | default([]) }}"
-      loop_control:
-        loop_var: file_backup_action
-      when:
-        - file_backup_action.backup_index > 1
-
-    - name: Backup conflicting destination files
-      ansible.builtin.command:
-        argv:
-          - mv
-          - "{{ file_backup_action.dest }}"
-          - "{{ file_backup_action.backup_path }}"
-      changed_when: true
-      loop: "{{ dotfiles_file_backup_actions | default([]) }}"
-      loop_control:
-        loop_var: file_backup_action
+    - name: Back up conflicting destination files
+      ansible.builtin.include_tasks: backup_destination.yml
+      vars:
+        backup_kind: file
+        targets: "{{ dotfiles_conflicting_file_targets | default([]) }}"
 
     - name: Create destination dotfiles symlinks
       ansible.builtin.file:
