@@ -83,11 +83,11 @@ no env var of any kind. Multiple worktrees run concurrently: each carries its
 own symlink/path file, bakes its own host-absolute symlink into its own image,
 and binds its own `/host-git-common`.
 
-`post-create.sh` still guards `pre-commit install` on `git rev-parse`
-succeeding (skipping with a warning if git is somehow unreachable) so a failing
-last step can't mark the whole build as failed — but with the above in place
-git *does* resolve, so `pre-commit install`/`run` work in a worktree container,
-as do `./tests/run lint` and `python3 dotfiles_manager.py check home_source`.
+With the above in place git *does* resolve, so `pre-commit install`/`run` work
+in a worktree container, as do `./tests/run lint` and `python3 dotfiles_manager.py
+check home_source`. `initialize.sh` and `post-create.sh` no longer guard for the
+absent-git case — `set -e` plus a real git call fails loudly if a dev shell
+can't reach git, which is the correct outcome for a dev-environment bootstrap.
 The hooks also still gate every PR in CI.
 
 ### Host timezone plumbing

@@ -65,21 +65,14 @@ mkdir -p "$(dirname "$pathfile")"
 
 cd "$workspace"
 
-if common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
-  # ln -sfn: replace any existing symlink in place (don't nest a new link inside
-  # an old one) so re-runs after the main repo moves point at the new location.
-  ln -sfn "$common" "$link"
-  printf '%s\n' "$common" >"$pathfile"
-else
-  # Not a git checkout (shouldn't happen for this repo, but stay safe): make the
-  # mount source a real-but-empty dir so Docker doesn't auto-create a stray path,
-  # and leave the path file empty so the Dockerfile's symlink step no-ops. git
-  # then falls back to normal discovery (which no-ops), and post-create.sh's
-  # guarded `pre-commit install` skips.
-  rm -rf "$link"
-  mkdir -p "$link"
-  : >"$pathfile"
-fi
+# `set -e` above turns a failing git rev-parse into a hard exit, which is what
+# we want: this script is a dev-environment bootstrap, and no useful
+# environment exists for a non-git tree here. ln -sfn replaces any existing
+# symlink in place (don't nest a new link inside an old one) so re-runs after
+# the main repo moves point at the new location.
+common="$(git rev-parse --path-format=absolute --git-common-dir)"
+ln -sfn "$common" "$link"
+printf '%s\n' "$common" >"$pathfile"
 
 # Host timezone — discover the IANA zone name (e.g. "America/Los_Angeles") and
 # persist it so the Dockerfile can apply it to the image. Without this, the

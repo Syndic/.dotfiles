@@ -20,9 +20,28 @@ repos:
   # does not see the devcontainer's pipx ansible venv, so the Galaxy
   # collections in requirements.yml are picked up from
   # ~/.ansible/collections (installed by post-create.sh / phase2.py).
+  #
+  # `files:` gates the hook on commits that actually touch Ansible inputs,
+  # so unrelated commits don't pay the multi-second lint cost. When it
+  # does fire, `pass_filenames: false` keeps the run whole-repo — needed
+  # because ansible-lint resolves roles, vars, and includes across files
+  # and a per-file run misses cross-file findings.
   - repo: https://github.com/ansible/ansible-lint
     rev: v26.4.0
     hooks:
       - id: ansible-lint
         pass_filenames: false
-        always_run: true
+        # (?x) = verbose regex (whitespace ignored), so the alternation can
+        # wrap across lines without exceeding yamllint's 120-char limit.
+        files: |
+          (?x)^(
+            roles/ |
+            group_vars/ |
+            host_vars/ |
+            inventory\.yml |
+            site\.yml |
+            uninstall\.yml |
+            requirements\.yml |
+            ansible\.cfg |
+            \.ansible-lint
+          )
