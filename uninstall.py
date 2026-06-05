@@ -38,6 +38,7 @@ from _dotfiles_common import (
 from dotfiles_manager import (
     backup_path_info,
     find_stale_managed_symlinks,
+    parse_backup_index,
 )
 
 DOTFILES_DIR = Path.home() / ".dotfiles"
@@ -181,19 +182,18 @@ def build_symlink_actions(home: Path, managed_root: Path):
 def _latest_backup(target_path: Path) -> Path | None:
     """Return the highest-indexed <name>.backup-N sibling, or None.
 
-    Mirrors dotfiles_manager.backup_path_info's naming."""
+    Uses dotfiles_manager.parse_backup_index so the parse side stays in lockstep
+    with backup_path_info's format side."""
     parent = target_path.parent
-    prefix = f"{target_path.name}.backup-"
-    best = None
+    if not parent.is_dir():
+        return None
+    best: Path | None = None
     best_idx = 0
-    if parent.is_dir():
-        for sibling in parent.iterdir():
-            if not sibling.name.startswith(prefix):
-                continue
-            suffix = sibling.name[len(prefix):]
-            if suffix.isdigit() and int(suffix) > best_idx:
-                best_idx = int(suffix)
-                best = sibling
+    for sibling in parent.iterdir():
+        idx = parse_backup_index(sibling.name, target_path.name)
+        if idx is not None and idx > best_idx:
+            best_idx = idx
+            best = sibling
     return best
 
 
