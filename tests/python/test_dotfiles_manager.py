@@ -10,6 +10,7 @@ from dotfiles_manager import (
     build_source_manifest,
     find_stale_managed_symlinks,
     next_backup_path,
+    parse_backup_index,
 )
 
 
@@ -43,6 +44,29 @@ def test_backup_path_info_reports_index(tmp_path: Path) -> None:
         "index": 2,
         "path": str(tmp_path / ".zshrc.backup-2"),
     }
+
+
+def test_parse_backup_index_returns_none_for_non_backup_name() -> None:
+    assert parse_backup_index(".zshrc", ".zshrc") is None
+    assert parse_backup_index(".vimrc.backup-1", ".zshrc") is None
+    assert parse_backup_index(".zshrc.bak-1", ".zshrc") is None
+
+
+def test_parse_backup_index_returns_none_for_non_digit_suffix() -> None:
+    assert parse_backup_index(".zshrc.backup-foo", ".zshrc") is None
+    assert parse_backup_index(".zshrc.backup-1a", ".zshrc") is None
+
+
+def test_parse_backup_index_returns_index_for_digit_suffix() -> None:
+    assert parse_backup_index(".zshrc.backup-1", ".zshrc") == 1
+    assert parse_backup_index(".zshrc.backup-42", ".zshrc") == 42
+
+
+def test_parse_backup_index_returns_none_for_empty_suffix() -> None:
+    # Belt-and-suspenders: "".isdigit() is False, so a bare trailing dash
+    # doesn't get mistaken for index 0.
+    assert "".isdigit() is False
+    assert parse_backup_index(".zshrc.backup-", ".zshrc") is None
 
 
 def test_assert_no_nested_dotfiles_dirs_rejects_nested_repo_copy(tmp_path: Path) -> None:

@@ -60,23 +60,37 @@ def assert_no_symlinks_in_source(source_root: Path) -> None:
     )
 
 
+def parse_backup_index(sibling_name: str, target_name: str) -> Optional[int]:
+    """Return the integer index from '<target_name>.backup-N' filenames, or
+    None if sibling_name isn't a backup of target_name.
+
+    Canonical parser for the '.backup-N' naming scheme. Consumers that need to
+    find the next available index (backup_path_info) or the highest existing
+    index (uninstall._latest_backup) both build on this — keeping the
+    "is this a backup file? what index?" decision in one place so the parse
+    and format sides can't drift.
+    """
+    prefix = f"{target_name}.backup-"
+    if not sibling_name.startswith(prefix):
+        return None
+    suffix = sibling_name[len(prefix):]
+    # `"".isdigit()` is False, so empty-suffix '<name>.backup-' returns None.
+    return int(suffix) if suffix.isdigit() else None
+
+
 def backup_path_info(target_path: Path) -> Dict[str, object]:
     """Return backup path metadata for the next available '<name>.backup-N' path."""
     parent = target_path.parent
-    prefix = "{name}.backup-".format(name=target_path.name)
     highest_seen = 0
 
     if parent.is_dir():
         for sibling in parent.iterdir():
-            if not sibling.name.startswith(prefix):
-                continue
-
-            suffix = sibling.name[len(prefix) :]
-            if suffix.isdigit():
-                highest_seen = max(highest_seen, int(suffix))
+            idx = parse_backup_index(sibling.name, target_path.name)
+            if idx is not None:
+                highest_seen = max(highest_seen, idx)
 
     next_index = highest_seen + 1
-    backup_path = target_path.with_name("{name}{index}".format(name=prefix, index=next_index))
+    backup_path = target_path.with_name(f"{target_path.name}.backup-{next_index}")
 
     return {"path": str(backup_path), "index": next_index}
 
