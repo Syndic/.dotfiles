@@ -1,66 +1,70 @@
 ---
-# Shared backup pipeline used by main.yml for both directory and file
-# conflicts. The caller does the type-specific stat + filter to produce
-# `targets`; this file runs the compute → action-list → warn → mv steps
-# that are identical between the two kinds.
+# Shared blocker-backup pipeline used by main.yml for both directory slots
+# and link slots. The caller does the slot-kind-specific stat + filter to
+# produce `blockers`; this file runs the compute → action-list → warn → mv
+# steps that are identical between the two slot kinds.
+#
+# A "blocker" is an unmanaged filesystem object occupying a slot that the
+# role needs to populate. Distinct from a stale managed symlink (which the
+# role owns and just removes — see "Remove managed symlinks before
+# retargeting" in main.yml).
 #
 # Inputs (passed via `include_tasks` + `vars:` so they don't leak):
-#   backup_kind — "directory" or "file"; used in user-facing task names
-#                 and the warning text.
-#   targets     — list of conflicting destination dicts, each shaped
-#                 {'dest': <abs path>}; already filtered by the caller.
+#   slot_kind — "directory" or "link"; used in user-facing task names.
+#   blockers  — list of dicts shaped {'dest': <abs path>}; already
+#               filtered by the caller to slot-kind-specific predicates.
 
-- name: "Reset backup action accumulator for kind={{ backup_kind }}"
+- name: "Reset blocker backup accumulator for slot_kind={{ slot_kind }}"
   ansible.builtin.set_fact:
-    dotfiles_backup_actions: []
+    dotfiles_blocker_backups: []
 
-- name: "Compute backup metadata for conflicting targets of kind={{ backup_kind }}"
+- name: "Compute backup paths for blockers of slot_kind={{ slot_kind }}"
   ansible.builtin.command:
     argv:
       - python3
       - "{{ dotfiles_manager_script }}"
       - backup-info
-      - "{{ backup_target.dest }}"
-  loop: "{{ targets }}"
+      - "{{ blocker.dest }}"
+  loop: "{{ blockers }}"
   loop_control:
-    loop_var: backup_target
-  register: dotfiles_backup_info_results
+    loop_var: blocker
+  register: dotfiles_blocker_info_results
   changed_when: false
 
-- name: "Build backup action list for kind={{ backup_kind }}"
+- name: "Build blocker backup action list for slot_kind={{ slot_kind }}"
   ansible.builtin.set_fact:
-    dotfiles_backup_actions: >-
+    dotfiles_blocker_backups: >-
       {{
-        dotfiles_backup_actions + [{
-          'backup_index': (backup_info_result.stdout | from_json).index,
-          'backup_path': (backup_info_result.stdout | from_json).path,
-          'dest': backup_info_result.backup_target.dest
+        dotfiles_blocker_backups + [{
+          'backup_index': (blocker_info.stdout | from_json).index,
+          'backup_path': (blocker_info.stdout | from_json).path,
+          'dest': blocker_info.blocker.dest
         }]
       }}
-  loop: "{{ dotfiles_backup_info_results.results | default([]) }}"
+  loop: "{{ dotfiles_blocker_info_results.results | default([]) }}"
   loop_control:
-    loop_var: backup_info_result
+    loop_var: blocker_info
 
-- name: "Warn about repeated backups for kind={{ backup_kind }}"
+- name: "Warn about repeated blocker backups for slot_kind={{ slot_kind }}"
   ansible.builtin.debug:
     msg: >-
-      WARNING: backing up {{ backup_action.dest }} to
-      {{ backup_action.backup_path }}. This is backup number
-      {{ backup_action.backup_index }}, which suggests a previously
+      WARNING: backing up {{ blocker_backup.dest }} to
+      {{ blocker_backup.backup_path }}. This is backup number
+      {{ blocker_backup.backup_index }}, which suggests a previously
       created backup was left in place and the managed path was changed again.
-  loop: "{{ dotfiles_backup_actions }}"
+  loop: "{{ dotfiles_blocker_backups }}"
   loop_control:
-    loop_var: backup_action
+    loop_var: blocker_backup
   when:
-    - backup_action.backup_index > 1
+    - blocker_backup.backup_index > 1
 
-- name: "Back up conflicting destinations of kind={{ backup_kind }}"
+- name: "Move blockers aside for slot_kind={{ slot_kind }}"
   ansible.builtin.command:
     argv:
       - mv
-      - "{{ backup_action.dest }}"
-      - "{{ backup_action.backup_path }}"
+      - "{{ blocker_backup.dest }}"
+      - "{{ blocker_backup.backup_path }}"
   changed_when: true
-  loop: "{{ dotfiles_backup_actions }}"
+  loop: "{{ dotfiles_blocker_backups }}"
   loop_control:
-    loop_var: backup_action
+    loop_var: blocker_backup

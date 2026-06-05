@@ -48,119 +48,119 @@
 
     - name: Parse effective dotfiles manifest JSON
       ansible.builtin.set_fact:
-        dotfiles_target_directories: "{{ (dotfiles_manifest_command.stdout | from_json).directories }}"
-        dotfiles_target_links: "{{ (dotfiles_manifest_command.stdout | from_json).links }}"
-        dotfiles_stale_managed_links: "{{ (dotfiles_manifest_command.stdout | from_json).stale_links }}"
+        dotfiles_directory_slots: "{{ (dotfiles_manifest_command.stdout | from_json).directory_slots }}"
+        dotfiles_link_slots: "{{ (dotfiles_manifest_command.stdout | from_json).link_slots }}"
+        dotfiles_stale_links: "{{ (dotfiles_manifest_command.stdout | from_json).stale_links }}"
 
     - name: Remove stale managed symlinks
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent
-      loop: "{{ dotfiles_stale_managed_links | default([]) }}"
+      loop: "{{ dotfiles_stale_links | default([]) }}"
 
-    - name: Inspect destination directory paths
+    - name: Stat directory slots
       ansible.builtin.stat:
         path: "{{ item.dest }}"
         follow: false
-      loop: "{{ dotfiles_target_directories | default([]) }}"
-      register: dotfiles_target_directory_stats
+      loop: "{{ dotfiles_directory_slots | default([]) }}"
+      register: dotfiles_directory_slot_stats
 
-    - name: Collect conflicting destination directories
+    - name: Find directory slot blockers
       ansible.builtin.set_fact:
-        dotfiles_conflicting_directory_targets: >-
+        dotfiles_directory_slot_blockers: >-
           {{
-            (dotfiles_conflicting_directory_targets | default([])) + [{
-              'dest': directory_target_stat.item.dest
+            (dotfiles_directory_slot_blockers | default([])) + [{
+              'dest': directory_slot_stat.item.dest
             }]
           }}
-      loop: "{{ dotfiles_target_directory_stats.results | default([]) }}"
+      loop: "{{ dotfiles_directory_slot_stats.results | default([]) }}"
       loop_control:
-        loop_var: directory_target_stat
+        loop_var: directory_slot_stat
       when:
-        - (directory_target_stat.stat.exists | default(false)) or (directory_target_stat.stat.islnk | default(false))
-        - not (directory_target_stat.stat.isdir | default(false))
+        - (directory_slot_stat.stat.exists | default(false)) or (directory_slot_stat.stat.islnk | default(false))
+        - not (directory_slot_stat.stat.isdir | default(false))
 
-    - name: Back up conflicting destination directories
+    - name: Back up directory slot blockers
       ansible.builtin.include_tasks: backup_destination.yml
       vars:
-        backup_kind: directory
-        targets: "{{ dotfiles_conflicting_directory_targets | default([]) }}"
+        slot_kind: directory
+        blockers: "{{ dotfiles_directory_slot_blockers | default([]) }}"
 
-    - name: Ensure destination directories exist
+    - name: Populate directory slots
       ansible.builtin.file:
         path: "{{ item.dest }}"
         state: directory
         mode: "0755"
-      loop: "{{ dotfiles_target_directories | default([]) }}"
+      loop: "{{ dotfiles_directory_slots | default([]) }}"
 
-    - name: Inspect destination symlink paths
+    - name: Stat link slots
       ansible.builtin.stat:
         path: "{{ item.dest }}"
         follow: false
-      loop: "{{ dotfiles_target_links | default([]) }}"
-      register: dotfiles_target_link_stats
+      loop: "{{ dotfiles_link_slots | default([]) }}"
+      register: dotfiles_link_slot_stats
 
-    - name: Collect managed symlinks that need retargeting
+    - name: Find managed symlinks needing retarget
       ansible.builtin.set_fact:
-        dotfiles_links_to_retarget: >-
+        dotfiles_managed_symlinks_to_retarget: >-
           {{
-            (dotfiles_links_to_retarget | default([])) + [{
-              'dest': link_target_stat.item.dest
+            (dotfiles_managed_symlinks_to_retarget | default([])) + [{
+              'dest': link_slot_stat.item.dest
             }]
           }}
-      loop: "{{ dotfiles_target_link_stats.results | default([]) }}"
+      loop: "{{ dotfiles_link_slot_stats.results | default([]) }}"
       loop_control:
-        loop_var: link_target_stat
+        loop_var: link_slot_stat
       when:
-        - link_target_stat.stat.islnk | default(false)
+        - link_slot_stat.stat.islnk | default(false)
         - >
-          ((link_target_stat.stat.lnk_source | default('')) == link_target_stat.item.managed_root) or
-          ((link_target_stat.stat.lnk_source | default('')).startswith(link_target_stat.item.managed_root ~ '/'))
-        - (link_target_stat.stat.lnk_target | default('')) != link_target_stat.item.src
+          ((link_slot_stat.stat.lnk_source | default('')) == link_slot_stat.item.managed_root) or
+          ((link_slot_stat.stat.lnk_source | default('')).startswith(link_slot_stat.item.managed_root ~ '/'))
+        - (link_slot_stat.stat.lnk_target | default('')) != link_slot_stat.item.src
 
     - name: Remove managed symlinks before retargeting
       ansible.builtin.file:
-        path: "{{ link_to_retarget.dest }}"
+        path: "{{ managed_symlink_to_retarget.dest }}"
         state: absent
-      loop: "{{ dotfiles_links_to_retarget | default([]) }}"
+      loop: "{{ dotfiles_managed_symlinks_to_retarget | default([]) }}"
       loop_control:
-        loop_var: link_to_retarget
+        loop_var: managed_symlink_to_retarget
 
-    - name: Collect conflicting destination files
+    - name: Find link slot blockers
       ansible.builtin.set_fact:
-        dotfiles_conflicting_file_targets: >-
+        dotfiles_link_slot_blockers: >-
           {{
-            (dotfiles_conflicting_file_targets | default([])) + [{
-              'dest': link_target_stat.item.dest
+            (dotfiles_link_slot_blockers | default([])) + [{
+              'dest': link_slot_stat.item.dest
             }]
           }}
-      loop: "{{ dotfiles_target_link_stats.results | default([]) }}"
+      loop: "{{ dotfiles_link_slot_stats.results | default([]) }}"
       loop_control:
-        loop_var: link_target_stat
+        loop_var: link_slot_stat
       when:
-        - (link_target_stat.stat.exists | default(false)) or (link_target_stat.stat.islnk | default(false))
+        - (link_slot_stat.stat.exists | default(false)) or (link_slot_stat.stat.islnk | default(false))
         - not (
-            (link_target_stat.stat.islnk | default(false)) and
-            (link_target_stat.stat.lnk_target | default('')) == link_target_stat.item.src
+            (link_slot_stat.stat.islnk | default(false)) and
+            (link_slot_stat.stat.lnk_target | default('')) == link_slot_stat.item.src
           )
         - not (
-            (link_target_stat.stat.islnk | default(false)) and
+            (link_slot_stat.stat.islnk | default(false)) and
             (
-              ((link_target_stat.stat.lnk_source | default('')) == link_target_stat.item.managed_root) or
-              ((link_target_stat.stat.lnk_source | default('')).startswith(link_target_stat.item.managed_root ~ '/'))
+              ((link_slot_stat.stat.lnk_source | default('')) == link_slot_stat.item.managed_root) or
+              ((link_slot_stat.stat.lnk_source | default('')).startswith(link_slot_stat.item.managed_root ~ '/'))
             )
           )
 
-    - name: Back up conflicting destination files
+    - name: Back up link slot blockers
       ansible.builtin.include_tasks: backup_destination.yml
       vars:
-        backup_kind: file
-        targets: "{{ dotfiles_conflicting_file_targets | default([]) }}"
+        slot_kind: link
+        blockers: "{{ dotfiles_link_slot_blockers | default([]) }}"
 
-    - name: Create destination dotfiles symlinks
+    - name: Populate link slots
       ansible.builtin.file:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
         state: link
         force: false
-      loop: "{{ dotfiles_target_links | default([]) }}"
+      loop: "{{ dotfiles_link_slots | default([]) }}"
