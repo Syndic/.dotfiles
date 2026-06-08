@@ -88,15 +88,9 @@
       "settings": {
         "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
         "python.useEnvironmentsExtension": false,
-        // fnando.linter ships a working yamllint default (auto-detects
-        // .yamllint, streams the buffer over stdin, parsable output).
-        // The one override we need: add "ansible" to the language list.
-        // redhat.ansible reclassifies role/play YAML from "yaml" to
-        // "ansible", and our .ansible-lint config has `skip_list: [yaml]`
-        // (see CLAUDE.md "Lint" — yamllint is its own pre-commit step to
-        // avoid double-reporting). Without this override, fnando.linter
-        // would skip exactly the files the yamllint pre-commit gate is
-        // most likely to catch.
+        // Add "ansible" so role/play YAML (reclassified by redhat.ansible)
+        // still gets yamllint diagnostics — .ansible-lint skips yaml rules.
+        // See CLAUDE.md "Lint".
         "linter.linters": {
           "yamllint": {
             "languages": ["yaml", "ansible"]

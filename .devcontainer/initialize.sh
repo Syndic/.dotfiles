@@ -65,11 +65,8 @@ mkdir -p "$(dirname "$pathfile")"
 
 cd "$workspace"
 
-# `set -e` above turns a failing git rev-parse into a hard exit, which is what
-# we want: this script is a dev-environment bootstrap, and no useful
-# environment exists for a non-git tree here. ln -sfn replaces any existing
-# symlink in place (don't nest a new link inside an old one) so re-runs after
-# the main repo moves point at the new location.
+# Fail loud on missing git (see CLAUDE.md "Worktree git resolution").
+# ln -sfn replaces any existing symlink in place rather than nesting.
 common="$(git rev-parse --path-format=absolute --git-common-dir)"
 ln -sfn "$common" "$link"
 printf '%s\n' "$common" >"$pathfile"
