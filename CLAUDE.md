@@ -39,6 +39,22 @@ The exceptions are the bootstrap surfaces themselves — `install.sh` and
 prereqs they install themselves. Those get exercised end-to-end by
 `tests/e2e-linux.sh` (also containerized).
 
+## Comment style — lean terse, and feel free to tighten what's already here
+
+Default to short, single-line comments that name the non-obvious WHY at
+the line they describe. Don't mirror the dense rationale-prose blocks
+that already exist in many files here (especially under `.devcontainer/`,
+`phase2.py`, `tests/run`) — those are historical, not a style to match.
+The architectural rationale for those mechanisms lives in this CLAUDE.md;
+inline comments should at most point to the relevant section, not restate
+it.
+
+When editing a file whose existing comments feel oversized for the rent
+they pay, tightening them as part of the change is welcome and doesn't
+need a separate task. Leave the load-bearing facts; cut the prose around
+them. (If you're unsure whether a comment is load-bearing, surface the
+proposed cut before applying it.)
+
 **Worktree git resolution.** When the devcontainer is brought up on a git
 *worktree* via the `devcontainer` CLI (how this project's containers are
 typically launched), git would not resolve inside the container by default:
