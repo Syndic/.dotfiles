@@ -81,7 +81,7 @@ load-bearing.
 | `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`. |
 | `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` (cross-platform) + `groups/<group>.Brewfile` (per `purpose` and `os` group sets; macOS-only entries live in `groups/macos.Brewfile`) + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew. |
 | `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
-| `home_source/common/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Host files override common files at the same path. |
+| `home_source/common/`, `home_source/groups/<group>/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Layered the same way as the package vars: common → per-group (one per active group set, e.g. `personal`/`macos`) → host. Later layers override earlier ones at the same relative path. |
 | `tests/` | bats + pytest unit suites, per-role molecule scenarios, and Linux e2e harnesses (see [`tests/`](tests/)). |
 | `.devcontainer/` | Debian devcontainer with ansible / ansible-lint / molecule / pytest / pre-commit pre-installed. |
 
@@ -90,13 +90,15 @@ load-bearing.
 ### Add or change a dotfile
 
 Drop the file under `home_source/common/<path>` (mirroring its location
-under `$HOME`). For host-specific overrides, use
+under `$HOME`). For group-scoped overrides — e.g. only on `personal`
+machines or only on `macos` machines — use
+`home_source/groups/<group>/<path>`; for host-specific overrides, use
 `home_source/hosts/<host>/<path>`. Then re-run the install command — the
-`dotfiles` role builds the effective tree (host files override common at
-the same path), backs up any conflicting file in `$HOME` to
-`<name>.backup-N`, and replaces it with a symlink into the repo. Use
-`dotfiles_excludes` in host_vars to drop a common-only path on a
-specific host without needing a placeholder file.
+`dotfiles` role builds the effective tree by layering common → per-group
+(one layer per active group set, in `group_sets` order) → host, with
+later layers overriding earlier ones at the same relative path. It backs
+up any conflicting file in `$HOME` to `<name>.backup-N`, then replaces
+it with a symlink into the repo.
 
 ### Add a package
 

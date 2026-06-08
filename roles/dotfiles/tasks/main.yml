@@ -1,48 +1,70 @@
 ---
 # dotfiles role
-# Merge home_source/common with home_source/hosts/<inventory_hostname>,
-# then symlink the effective tree into dotfiles_home_dir.
+# Merge the layered home_source overlays (common + group_<set>_dotfiles for
+# each set + host), then symlink the effective tree into dotfiles_home_dir.
 
-- name: Check whether the common dotfiles source tree exists
-  ansible.builtin.stat:
-    path: "{{ dotfiles_common_source_dir }}"
-  register: dotfiles_common_source_dir_state
+# Init guarantees dotfiles_group_source_dirs_layer is defined even when
+# group_sets is empty (the resolve loop below runs zero times in that case).
+- name: Initialize dotfiles_group_source_dirs_layer
+  ansible.builtin.set_fact:
+    dotfiles_group_source_dirs_layer: []
 
-- name: Check whether the host dotfiles source tree exists
+- name: Resolve dotfiles group-set source directories
+  ansible.builtin.set_fact:
+    dotfiles_group_source_dirs_layer: >-
+      {{ dotfiles_group_source_dirs_layer
+         + [lookup('vars', 'group_' ~ item ~ '_dotfiles')] }}
+  loop: "{{ group_sets }}"
+  loop_control:
+    label: "group_{{ item }}_dotfiles"
+
+- name: Stat each dotfiles source layer
   ansible.builtin.stat:
-    path: "{{ dotfiles_host_source_dir }}"
-  register: dotfiles_host_source_dir_state
+    path: "{{ item }}"
+  loop: >-
+    {{ [common_dotfiles | default('')]
+       + dotfiles_group_source_dirs_layer
+       + [host_dotfiles | default(dotfiles_default_host_source_dir)] }}
+  register: dotfiles_source_dir_stats
+  when: item | length > 0
+  loop_control:
+    label: "{{ item }}"
+
+- name: Collect the dotfiles source layers that exist on disk
+  ansible.builtin.set_fact:
+    dotfiles_present_source_dirs: >-
+      {{ dotfiles_source_dir_stats.results
+         | selectattr('stat', 'defined')
+         | selectattr('stat.isdir', 'defined')
+         | selectattr('stat.isdir')
+         | map(attribute='item')
+         | list }}
 
 - name: Skip dotfiles role when no source tree is present
   ansible.builtin.debug:
     msg: >-
-      no dotfiles source tree found at {{ dotfiles_common_source_dir }} or
-      {{ dotfiles_host_source_dir }}; skipping
-  when:
-    - not (dotfiles_common_source_dir_state.stat.isdir | default(false))
-    - not (dotfiles_host_source_dir_state.stat.isdir | default(false))
+      no dotfiles source tree found among the configured layers; skipping
+  when: dotfiles_present_source_dirs | length == 0
 
 - name: Manage dotfiles symlinks
-  when:
-    - (dotfiles_common_source_dir_state.stat.isdir | default(false)) or
-      (dotfiles_host_source_dir_state.stat.isdir | default(false))
+  when: dotfiles_present_source_dirs | length > 0
   block:
+    - name: Build the --source-dir argv tail
+      ansible.builtin.set_fact:
+        dotfiles_source_dir_argv: >-
+          {{ dotfiles_source_dir_argv | default([])
+             + ['--source-dir', item] }}
+      loop: "{{ dotfiles_present_source_dirs }}"
+
     - name: Compute effective dotfiles manifest
       ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ dotfiles_manager_script }}"
-          - build-manifest
-          - --common-dir
-          - "{{ dotfiles_common_source_dir }}"
-          - --host-dir
-          - "{{ dotfiles_host_source_dir }}"
-          - --managed-root
-          - "{{ dotfiles_managed_root_dir }}"
-          - --home-dir
-          - "{{ dotfiles_home_dir }}"
-          - --excludes-json
-          - "{{ dotfiles_excludes | to_json }}"
+        argv: >-
+          {{ ['python3',
+              dotfiles_manager_script,
+              'build-manifest',
+              '--managed-root', dotfiles_managed_root_dir,
+              '--home-dir', dotfiles_home_dir]
+             + dotfiles_source_dir_argv }}
       register: dotfiles_manifest_command
       changed_when: false
 

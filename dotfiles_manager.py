@@ -119,22 +119,6 @@ def normalize_relative_path(path_text: str) -> str:
     return "/".join(normalized_parts)
 
 
-def is_excluded(relative_path: str, excludes: Sequence[str]) -> bool:
-    """Return true when relative_path is excluded directly or by an excluded parent."""
-    relative_path = normalize_relative_path(relative_path)
-
-    for excluded_path in excludes:
-        normalized_exclude = normalize_relative_path(excluded_path)
-        if not normalized_exclude:
-            continue
-        if relative_path == normalized_exclude:
-            return True
-        if relative_path.startswith(normalized_exclude + "/"):
-            return True
-
-    return False
-
-
 def iter_source_entries(source_root: Path) -> List[Dict[str, str]]:
     """Return source entries below source_root without following symlinked directories."""
     if not source_root.is_dir():
@@ -214,13 +198,12 @@ def iter_home_symlinks(home_dir: Path) -> List[Dict[str, str]]:
 
 
 def managed_target_candidates(
-    common_source_dir: Path,
-    host_source_dir: Path,
+    source_dirs: Sequence[Path],
     relative_path: str,
 ) -> List[str]:
     """Return all repo-side source paths this tool could manage for relative_path."""
     relative = Path(normalize_relative_path(relative_path))
-    return [str(common_source_dir / relative), str(host_source_dir / relative)]
+    return [str(source_dir / relative) for source_dir in source_dirs]
 
 
 def path_is_within_root(path: Path, root: Path) -> bool:
@@ -302,29 +285,26 @@ def _merge_entry(
 
 
 def build_source_manifest(
-    common_source_dir: Path,
-    host_source_dir: Path,
+    source_dirs: Sequence[Path],
     managed_root_dir: Path,
     home_dir: Path,
-    excludes: Sequence[str],
 ) -> Dict[str, List[Dict[str, str]]]:
-    """Build the effective directory-slot/link-slot plan for common + host overlay sources."""
-    assert_no_nested_dotfiles_dirs(common_source_dir)
-    assert_no_nested_dotfiles_dirs(host_source_dir)
-    assert_no_symlinks_in_source(common_source_dir)
-    assert_no_symlinks_in_source(host_source_dir)
+    """Build the effective directory-slot/link-slot plan for layered overlay sources.
+
+    `source_dirs` is the ordered list of layers — common first, then any
+    intermediate group layers, then host last. Later layers override earlier
+    ones at the same relative path.
+    """
+    for source_dir in source_dirs:
+        assert_no_nested_dotfiles_dirs(source_dir)
+        assert_no_symlinks_in_source(source_dir)
 
     resolved_managed_root_dir = managed_root_dir.resolve(strict=False)
-    normalized_excludes = [normalize_relative_path(path_text) for path_text in excludes]
     merged_entries = {}  # type: Dict[str, Dict[str, str]]
 
-    for entry in iter_source_entries(common_source_dir):
-        if is_excluded(entry["rel"], normalized_excludes):
-            continue
-        _merge_entry(merged_entries, entry)
-
-    for entry in iter_source_entries(host_source_dir):
-        _merge_entry(merged_entries, entry)
+    for source_dir in source_dirs:
+        for entry in iter_source_entries(source_dir):
+            _merge_entry(merged_entries, entry)
 
     directory_slots = []
     link_slots = []
@@ -333,8 +313,7 @@ def build_source_manifest(
         entry = merged_entries[relative_path]
         destination = str(home_dir / Path(relative_path))
         managed_targets = managed_target_candidates(
-            common_source_dir=common_source_dir,
-            host_source_dir=host_source_dir,
+            source_dirs=source_dirs,
             relative_path=relative_path,
         )
 
@@ -399,11 +378,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "build-manifest",
         help="build the effective directory/link manifest for home_source overlays",
     )
-    manifest_parser.add_argument("--common-dir", type=Path, required=True)
-    manifest_parser.add_argument("--host-dir", type=Path, required=True)
+    manifest_parser.add_argument(
+        "--source-dir",
+        type=Path,
+        action="append",
+        dest="source_dirs",
+        required=True,
+        help="overlay source directory; pass once per layer in order "
+             "(common, group..., host). Later layers override earlier ones.",
+    )
     manifest_parser.add_argument("--managed-root", type=Path, required=True)
     manifest_parser.add_argument("--home-dir", type=Path, required=True)
-    manifest_parser.add_argument("--excludes-json", default="[]")
 
     return parser
 
@@ -430,29 +415,17 @@ def _run_backup_info(target_path: Path) -> int:
 
 
 def _run_build_manifest(
-    common_dir: Path,
-    host_dir: Path,
+    source_dirs: Sequence[Path],
     managed_root: Path,
     home_dir: Path,
-    excludes_json: str,
 ) -> int:
     try:
-        raw_excludes = json.loads(excludes_json)
-        if isinstance(raw_excludes, str):
-            raw_excludes = json.loads(raw_excludes)
-        if not isinstance(raw_excludes, list) or not all(
-            isinstance(item, str) for item in raw_excludes
-        ):
-            raise ValueError("Expected excludes JSON to decode to a list of strings")
-
         manifest = build_source_manifest(
-            common_source_dir=common_dir,
-            host_source_dir=host_dir,
+            source_dirs=source_dirs,
             managed_root_dir=managed_root,
             home_dir=home_dir,
-            excludes=raw_excludes,
         )
-    except (json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:
         print(exc, file=sys.stderr)
         return 1
 
@@ -471,11 +444,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return _run_backup_info(args.target_path)
     if args.command == "build-manifest":
         return _run_build_manifest(
-            common_dir=args.common_dir,
-            host_dir=args.host_dir,
+            source_dirs=args.source_dirs,
             managed_root=args.managed_root,
             home_dir=args.home_dir,
-            excludes_json=args.excludes_json,
         )
 
     raise AssertionError("unreachable")

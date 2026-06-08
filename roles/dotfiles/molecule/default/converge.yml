@@ -10,12 +10,16 @@
     _container_root: /opt/dotfiles-molecule
     _container_fixture_root: "{{ _container_root }}/home_source"
     _test_home: /root/testhome
+    # Scenario is independent of the repo's group_vars; declare the layered
+    # vars the role consumes inline. Empty group_sets keeps the role's
+    # per-set lookup loop a no-op, leaving common + host as the only layers.
+    group_sets: []
+    common_dotfiles: "{{ _container_fixture_root }}/common"
   roles:
     - role: dotfiles
       vars:
         dotfiles_manager_script: "{{ _container_root }}/dotfiles_manager.py"
         dotfiles_managed_root_dir: "{{ _container_root }}"
-        dotfiles_common_source_dir: "{{ _container_fixture_root }}/common"
         # Host overlay intentionally absent — exercises the "common only" branch.
-        dotfiles_host_source_dir: "{{ _container_fixture_root }}/hosts/nonexistent"
+        host_dotfiles: "{{ _container_fixture_root }}/hosts/nonexistent"
         dotfiles_home_dir: "{{ _test_home }}"

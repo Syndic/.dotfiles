@@ -17,6 +17,11 @@
 # casks, macOS-only formulae, packages you only want on Macs.
 group_os_brewfile: "{{ playbook_dir }}/brewfiles/groups/macos.Brewfile"
 
+# Dotfiles overlay for the macos group. macOS-only home_source files go
+# here. Stat-and-skip in the dotfiles role tolerates the directory not
+# existing yet.
+group_os_dotfiles: "{{ playbook_dir }}/home_source/groups/macos"
+
 # macOS-system-preference layers, consumed by roles/macos_defaults.
 # Empty by default — populate when you have settings every Mac in your
 # fleet should share. Per-host customization goes in host_vars/<host>.yml.

@@ -70,6 +70,11 @@ group_sets:
 # macos layer (`brewfiles/groups/macos.Brewfile`), not here.
 common_brewfile: "{{ playbook_dir }}/brewfiles/common.Brewfile"
 
+# Cross-platform dotfiles overlay — files here are symlinked into $HOME on
+# every host. Per-set group overlays go under home_source/groups/<group>/;
+# per-host overlays under home_source/hosts/<host>/.
+common_dotfiles: "{{ playbook_dir }}/home_source/common"
+
 # apt packages (Linux only; the apt role is gated to Debian in site.yml, so
 # these lists are simply unused on macOS hosts).
 common_apt: []
