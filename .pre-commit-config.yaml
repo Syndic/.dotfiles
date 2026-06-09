@@ -25,15 +25,15 @@ repos:
       - id: ansible-lint
         pass_filenames: false
         # (?x) = verbose regex; wraps under yamllint's 120-char limit.
+        # Root-level .yml/.yaml without a leading dot catches new top-level
+        # playbooks automatically; excludes `.pre-commit-config.yaml` etc.
         files: |
           (?x)^(
             roles/ |
             group_vars/ |
             host_vars/ |
-            inventory\.yml |
-            site\.yml |
-            uninstall\.yml |
-            requirements\.yml |
+            playbooks/ |
             ansible\.cfg |
-            \.ansible-lint
+            \.ansible-lint |
+            [^./][^/]*\.ya?ml$
           )
