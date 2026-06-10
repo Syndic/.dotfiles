@@ -142,6 +142,12 @@ role variable defaults to true in
 4. Run the install command above with `--host <hostname>` on the target
    machine.
 
+Host-specific dotfiles overlays are optional. The `dotfiles` role picks
+up `home_source/hosts/<hostname>/` automatically if it exists — drop
+files there to override `common/` or `groups/<group>/` on this host
+only. Set `host_dotfiles` in `host_vars/<hostname>.yml` if you need the
+overlay rooted somewhere other than the default path.
+
 ## Tests
 
 Run them from the devcontainer — see [Dev environment](#dev-environment)

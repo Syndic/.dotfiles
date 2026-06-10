@@ -684,10 +684,13 @@ gate.
 - `host_vars/<name>.yml` is the per-host pivot. It points at
   `brewfiles/hosts/<name>.Brewfile` (file-based brew layer) and optionally
   sets `host_apt: [...]` / `host_flatpak: [...]` (list-based layers for
-  Linux hosts). Adding a new host means a `host_vars/<name>.yml` + a
-  Brewfile, plus assigning the host to one group per group-set (today just
-  `purpose: personal | work` — see `inventory.yml` for the current set
-  list).
+  Linux hosts). `host_dotfiles` is also available for a non-default
+  home_source overlay root, but the role defaults to
+  `home_source/hosts/<inventory_hostname>/` so an empty or absent host
+  override doesn't need a declaration. Adding a new host means a
+  `host_vars/<name>.yml` + a Brewfile, plus assigning the host to one
+  group per group-set (today just `purpose: personal | work` — see
+  `inventory.yml` for the current set list).
 - The universal Brewfile layer lives at `brewfiles/common.Brewfile`.
 - Group Brewfile layers live in `brewfiles/groups/`.
 - **Package-layering variable naming convention.** Canonical spec lives in
@@ -753,13 +756,18 @@ gate.
   the galaxy install once by hand. The trade is deliberate: parse-time
   resolution catches a missing/renamed/version-skewed collection at
   syntax-check time rather than partway through a Darwin run.
-- The `home_source/` tree (`common/` plus `hosts/<name>/` overlays) holds
-  the files symlinked into `$HOME`. It must contain **only plain files and
-  directories** — no symlinks (they'd be linked as a symlink-to-symlink
-  chain and break managed-link detection) and no nested `.dotfiles`
-  directories. Both are enforced by `dotfiles_manager.py check` (the
-  `dotfiles-source-guard` pre-commit hook) and again at runtime in
-  `build_source_manifest`.
+- The `home_source/` tree holds the files symlinked into `$HOME`. Same
+  three-layer shape as the package vars: `common/` + per-group
+  `groups/<group>/` (one per active group set) + per-host `hosts/<name>/`,
+  resolved via the `common_dotfiles` / `group_<set>_dotfiles` /
+  `host_dotfiles` vars. Later layers override earlier ones at the same
+  relative path. The role stat-and-skips absent layers, so a tree with
+  only `common/` (today's state) is fine. It must contain **only plain
+  files and directories** — no symlinks (they'd be linked as a
+  symlink-to-symlink chain and break managed-link detection) and no
+  nested `.dotfiles` directories. Both are enforced by
+  `dotfiles_manager.py check` (the `dotfiles-source-guard` pre-commit
+  hook) and again at runtime in `build_source_manifest`.
 - **Don't hardcode brew prefixes in `home_source/` shell rc files.** macOS
   Apple Silicon (`/opt/homebrew`), macOS Intel (`/usr/local`), and Linuxbrew
   (`/home/linuxbrew/.linuxbrew` or `~/.linuxbrew`) all differ.
