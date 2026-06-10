@@ -1,66 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# devcontainer.json `initializeCommand` — runs ON THE HOST, before the image is
-# built and the container created, on every `devcontainer up`. Its job: make the
-# repo's git metadata reachable inside the container at THE SAME ABSOLUTE PATH it
-# has on the host, for ANY checkout layout (full clone, the main worktree, or a
-# linked worktree living anywhere on disk).
-#
-# Why this exists. When the `devcontainer` CLI opens a git *worktree*, the
-# worktree's `.git` is a FILE reading `gitdir: <main-repo>/.git/worktrees/<name>`
-# — a host-absolute path outside the workspace. That path isn't mounted, so every
-# in-container git command fails. (VS Code's Dev Containers extension special-
-# cases this; the CLI does not.)
-#
-# The constraint that shapes the mechanism: devcontainer.json's `mounts`,
-# `runArgs`, and `build.args` are resolved at config-parse time and can only
-# interpolate `${localEnv:VAR}` / `${localWorkspaceFolder}` — NOT a value an
-# initializeCommand computes (a child process can't set the CLI's env). So the
-# freshly-discovered absolute common-dir path can't be named as a mount target
-# directly. We bridge it WITHOUT any GIT_* override and WITHOUT a system-wide env
-# var by splitting the work between a static bind mount and the image build:
-#
-#   1. Drop a symlink at a fixed, workspace-relative path
-#      (.devcontainer/.host-git-common) pointing at the real common dir. Docker
-#      follows the symlink host-side when it binds it, so devcontainer.json can
-#      name a STATIC mount source ("${localWorkspaceFolder}/.devcontainer/
-#      .host-git-common") that resolves to wherever the main repo actually is,
-#      and bind it to a static container path (/host-git-common).
-#   2. Persist the absolute common-dir path to
-#      .git-plumbing/host-git-common-path. It lands in the build context
-#      (context: "..") so the Dockerfile can read it and recreate that exact
-#      host-absolute path inside the image as a symlink to /host-git-common.
-#      With that in place the worktree's `.git` file resolves natively — git
-#      reads its real contents and follows the host-absolute pointer, no
-#      GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE needed.
-#
-#      The path file lives inside a tracked .git-plumbing/ dir (anchored by a
-#      committed README.md) rather than as a bare gitignored sibling. Reason:
-#      buildx errors on a COPY whose source glob matches zero files (the
-#      classic .pat[h] optional-COPY trick works on the legacy builder but
-#      not buildx), so the Dockerfile COPYs the *directory* — which always
-#      exists — and treats the file inside as optional via a shell
-#      `[ -s ... ]` test. CI's `devcontainer build` doesn't run
-#      initializeCommand, so the path file is genuinely absent there; the
-#      tracked README makes the COPY a guaranteed no-op in that case.
-#
-# Both runtime artifacts (symlink + path file) are gitignored and regenerated
-# on every `up`, so nothing the host tracks is touched and the values can
-# never go stale. The scheme works for several worktrees concurrently: each
-# carries its own symlink/path file and bakes its own host-absolute symlink
-# into its own image, binding its own /host-git-common — no cross-container
-# collision.
+# initializeCommand: discover host-side git common dir + IANA timezone and
+# drop them in .git-plumbing/ for the Dockerfile to consume.
+# Full rationale: CLAUDE.md "Worktree git resolution" + "Host timezone plumbing".
 
-here="$(cd "$(dirname "$0")" && pwd)"        # the .devcontainer dir (host abs)
-workspace="$(cd "$here/.." && pwd)"          # repo/worktree root (host abs)
+here="$(cd "$(dirname "$0")" && pwd)"
+workspace="$(cd "$here/.." && pwd)"
 link="$here/.host-git-common"
 pathfile="$here/.git-plumbing/host-git-common-path"
 tzfile="$here/.git-plumbing/host-timezone"
 
-# The .git-plumbing dir is tracked (via its README), so it normally exists
-# already; mkdir -p covers stray cases like a manual deletion without
-# changing behavior.
 mkdir -p "$(dirname "$pathfile")"
 
 cd "$workspace"
@@ -71,17 +21,7 @@ common="$(git rev-parse --path-format=absolute --git-common-dir)"
 ln -sfn "$common" "$link"
 printf '%s\n' "$common" >"$pathfile"
 
-# Host timezone — discover the IANA zone name (e.g. "America/Los_Angeles") and
-# persist it so the Dockerfile can apply it to the image. Without this, the
-# container defaults to Etc/UTC and timestamps in molecule/playbook output drift
-# 7-8h off the host. See CLAUDE.md "Host timezone plumbing".
-#
-# Two host shapes:
-#   - /etc/localtime is a symlink into the zoneinfo db (macOS, most modern
-#     Linux). Strip everything up to and including `zoneinfo/` to get the zone.
-#   - /etc/timezone exists as a plain text file (Debian/Ubuntu, some others).
-# An empty result is fine — the Dockerfile guards on `[ -s ]` and falls back to
-# the image's default zone.
+# Discover host IANA zone; empty result → Dockerfile falls back to image default.
 tz=""
 if target="$(readlink /etc/localtime 2>/dev/null)"; then
   case "$target" in
@@ -91,10 +31,8 @@ fi
 if [ -z "$tz" ] && [ -r /etc/timezone ]; then
   tz="$(tr -d '[:space:]' </etc/timezone)"
 fi
-# Reject path traversal or absolute paths defensively — the Dockerfile uses the
-# value to build /usr/share/zoneinfo/$tz, so a hostile or broken /etc/localtime
-# target shouldn't be able to point that elsewhere. The Dockerfile additionally
-# checks the resolved zoneinfo file exists before applying.
+# Reject traversal / absolute paths so a hostile localtime symlink can't
+# redirect the Dockerfile's /usr/share/zoneinfo/$tz construction.
 case "$tz" in
   /* | *..*) tz="" ;;
 esac

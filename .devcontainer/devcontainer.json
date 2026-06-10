@@ -10,81 +10,38 @@
       "configureZshAsDefaultShell": false,
       "upgradePackages": false
     },
-    // No `python` feature: post-create.sh provisions both the frozen 3.9.6 and
-    // the tooling Python with uv (prebuilt python-build-standalone binaries),
-    // which is far faster than the feature's from-source compiles. See
-    // CLAUDE.md's "Python 3.9 pin" section for the pin sites.
+    // No `python` feature: post-create.sh uses uv (see CLAUDE.md "Python 3.9 pin").
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    // Runs a self-contained docker daemon inside the container so molecule's
-    // docker driver can spin up child containers for the per-role scenarios
-    // under `./tests/run molecule`. Self-contained (not the host's docker)
-    // because the docker-outside-of-docker / shared-socket path triggers an
-    // apt-module deserialization failure on the geerlingguy debian images
-    // when run from inside another container — likely a namespace/cgroup
-    // interaction with the parent container. Self-contained dockerd dodges
-    // it cleanly.
-    //
-    // `moby: false` selects upstream docker-ce instead of the `moby` package
-    // (the latter doesn't have a Debian trixie build, our base image's
-    // distro).
+    // Self-contained dockerd for molecule scenarios — docker-outside-of-docker
+    // triggers an apt-module deserialization failure on the geerlingguy debian
+    // images (likely namespace/cgroup interaction). moby: false picks
+    // docker-ce because moby lacks a Debian trixie build.
     "ghcr.io/devcontainers/features/docker-in-docker:3": {
       "moby": false
     }
   },
-  // Make git fully resolve inside the container for ANY checkout layout — a
-  // full clone, the main worktree, or a linked worktree living anywhere on
-  // disk — when launched via the `devcontainer` CLI (which, unlike VS Code's
-  // Dev Containers extension, does not special-case worktrees). The git common
-  // dir ends up reachable at THE SAME ABSOLUTE PATH it has on the host, so the
-  // worktree's .git file resolves natively (no GIT_* overrides). The pieces
-  // below work together; see .devcontainer/initialize.sh and the Dockerfile for
-  // the full rationale and the parse-time-substitution constraint behind them.
-  //
-  // initializeCommand runs on the host first and drops two gitignored artifacts:
-  // a symlink `.devcontainer/.host-git-common` -> the real git common dir, and
-  // `.devcontainer/.git-plumbing/host-git-common-path` holding that dir's
-  // absolute path. Both are regenerated every `up`, so they never go stale and
-  // the host tracks nothing. The `.git-plumbing/` directory itself is tracked
-  // (see its README) so the Dockerfile's COPY of it succeeds even when the
-  // path file inside is absent — buildx errors on COPY globs matching zero
-  // files. The Dockerfile reads the path file from the build context and
-  // recreates the host-absolute path in the image as a symlink to
-  // /host-git-common.
+  // Worktree-aware git resolution — full rationale in CLAUDE.md
+  // "Worktree git resolution".
   "initializeCommand": ".devcontainer/initialize.sh",
   "mounts": [
-    // Bind the symlink (a static, workspace-relative SOURCE) to the static
-    // container path the Dockerfile points the host-absolute path at. Docker
-    // follows the symlink host-side, so this resolves to wherever the real git
-    // common dir lives without the config naming that dynamic path. No
-    // ${localEnv} / no system-wide env var.
+    // Docker follows the symlink host-side, so this static source resolves
+    // to wherever the real git common dir lives without env vars.
     "source=${localWorkspaceFolder}/.devcontainer/.host-git-common,target=/host-git-common,type=bind"
   ],
-  // Mount the workspace at its real host path (not the default /workspaces/<name>)
-  // so the worktree's own files — and the .git file's back-pointer — line up
-  // verbatim with the host-absolute paths git follows.
+  // Workspace at its real host path so the .git back-pointer lines up verbatim.
   "workspaceFolder": "${localWorkspaceFolder}",
   "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
   "remoteUser": "vscode",
   "postCreateCommand": ".devcontainer/post-create.sh",
-  // post-create.sh builds three uv environments; prepend their bin dirs so the
-  // bare commands tests/run invokes (`pytest`, `ansible*`, `molecule`,
-  // `ansible-lint`, `pre-commit`) resolve, and so `python3` defaults to the
-  // frozen 3.9.6 in ~/.venv:
-  //   ~/.venv/bin         — pytest under the frozen 3.9.6 (and default python3)
-  //   ~/.venv-ansible/bin — the Ansible dev stack under the tooling Python
-  //   ~/.local/bin        — uv tool installs (pre-commit)
-  // Keep this in sync with the env layout in post-create.sh.
+  // PATH for the three uv venvs post-create.sh builds. Keep in sync with that file.
   "remoteEnv": {
     "PATH": "/home/vscode/.venv/bin:/home/vscode/.venv-ansible/bin:/home/vscode/.local/bin:${containerEnv:PATH}"
   },
   "customizations": {
     "vscode": {
-      // Pin the Python extension (and its Testing UI) to ~/.venv, the uv venv
-      // built on the frozen 3.9.6 where pytest lives (see post-create.sh). The
-      // Python Environments extension is turned off because its auto-discovery
-      // ignores defaultInterpreterPath here (verified); classic interpreter
-      // management does honor it.
+      // Pin to ~/.venv (frozen 3.9.6 + pytest). useEnvironmentsExtension off
+      // because that extension ignores defaultInterpreterPath here.
       "settings": {
         "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
         "python.useEnvironmentsExtension": false,
