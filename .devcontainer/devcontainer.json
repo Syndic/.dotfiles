@@ -87,10 +87,19 @@
       // management does honor it.
       "settings": {
         "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
-        "python.useEnvironmentsExtension": false
+        "python.useEnvironmentsExtension": false,
+        // Add "ansible" so role/play YAML (reclassified by redhat.ansible)
+        // still gets yamllint diagnostics — .ansible-lint skips yaml rules.
+        // See CLAUDE.md "Lint".
+        "linter.linters": {
+          "yamllint": {
+            "languages": ["yaml", "ansible"]
+          }
+        }
       },
       "extensions": [
         "cnshenj.vscode-task-manager",
+        "fnando.linter",
         "github.vscode-github-actions",
         "gruntfuggly.todo-tree",
         "jetmartin.bats",

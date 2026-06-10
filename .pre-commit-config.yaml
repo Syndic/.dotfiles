@@ -15,14 +15,25 @@ repos:
       - id: yamllint
         args: [--strict]
 
-  # ansible-lint runs against the whole repo (config in .ansible-lint).
-  # The hook installs its own isolated venv on the latest Python — it
-  # does not see the devcontainer's pipx ansible venv, so the Galaxy
-  # collections in requirements.yml are picked up from
-  # ~/.ansible/collections (installed by post-create.sh / phase2.py).
+  # ansible-lint config in .ansible-lint; collections picked up from
+  # ~/.ansible/collections (post-create.sh / phase2.py installs them).
+  # `files:` gates on Ansible inputs; `pass_filenames: false` keeps the
+  # actual run whole-repo so cross-file findings still surface.
   - repo: https://github.com/ansible/ansible-lint
     rev: v26.4.0
     hooks:
       - id: ansible-lint
         pass_filenames: false
-        always_run: true
+        # (?x) = verbose regex; wraps under yamllint's 120-char limit.
+        # Root-level .yml/.yaml without a leading dot catches new top-level
+        # playbooks automatically; excludes `.pre-commit-config.yaml` etc.
+        files: |
+          (?x)^(
+            roles/ |
+            group_vars/ |
+            host_vars/ |
+            playbooks/ |
+            ansible\.cfg |
+            \.ansible-lint |
+            [^./][^/]*\.ya?ml$
+          )
