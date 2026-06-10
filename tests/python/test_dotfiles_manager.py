@@ -106,66 +106,68 @@ def test_build_source_manifest_rejects_symlink_in_source(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="contains symlinks"):
         build_source_manifest(
-            common_source_dir=common_root,
-            host_source_dir=host_root,
+            source_dirs=[common_root, host_root],
             managed_root_dir=tmp_path / "home_source",
             home_dir=home_dir,
-            excludes=[],
         )
 
 
-def test_build_source_manifest_applies_overlays_and_excludes(tmp_path: Path) -> None:
+def test_build_source_manifest_layers_common_groups_host(tmp_path: Path) -> None:
+    """Multi-layer merge: common < group1 < group2 < host, later layers
+    override earlier ones at the same relative path."""
     common_root = tmp_path / "home_source" / "common"
+    group_purpose_root = tmp_path / "home_source" / "groups" / "personal"
+    group_os_root = tmp_path / "home_source" / "groups" / "macos"
     host_root = tmp_path / "home_source" / "hosts" / "laptop24"
     home_dir = tmp_path / "home"
 
+    # common-only entry, plus a value that every layer overrides.
     write_file(common_root / ".zshrc", "common zshrc")
-    write_file(common_root / ".config" / "shared.conf", "shared")
-    write_file(common_root / ".config" / "override.conf", "common override")
-    write_file(common_root / ".cache" / "ignored.txt", "ignored")
-    write_file(host_root / ".config" / "override.conf", "host override")
+    write_file(common_root / ".config" / "shared.conf", "common shared")
+    # group_purpose overrides .config/shared.conf and adds purpose-only file.
+    write_file(group_purpose_root / ".config" / "shared.conf", "purpose shared")
+    write_file(group_purpose_root / ".config" / "purpose-only.conf", "purpose only")
+    # group_os overrides .config/shared.conf again and adds an os-only file.
+    write_file(group_os_root / ".config" / "shared.conf", "os shared")
+    write_file(group_os_root / ".config" / "os-only.conf", "os only")
+    # host overrides .config/shared.conf and adds a host-only file.
+    write_file(host_root / ".config" / "shared.conf", "host shared")
     write_file(host_root / ".config" / "host-only.conf", "host only")
 
     manifest = build_source_manifest(
-        common_source_dir=common_root,
-        host_source_dir=host_root,
+        source_dirs=[common_root, group_purpose_root, group_os_root, host_root],
         managed_root_dir=tmp_path / "home_source",
         home_dir=home_dir,
-        excludes=[".cache", ".config/shared.conf"],
     )
 
     assert [entry["rel"] for entry in manifest["directory_slots"]] == [".config"]
-    assert manifest["link_slots"] == [
-        {
-            "dest": str(home_dir / ".config" / "host-only.conf"),
-            "managed_root": str((tmp_path / "home_source").resolve()),
-            "managed_targets": [
-                str(common_root / ".config" / "host-only.conf"),
-                str(host_root / ".config" / "host-only.conf"),
-            ],
-            "rel": ".config/host-only.conf",
-            "src": str(host_root / ".config" / "host-only.conf"),
-        },
-        {
-            "dest": str(home_dir / ".config" / "override.conf"),
-            "managed_root": str((tmp_path / "home_source").resolve()),
-            "managed_targets": [
-                str(common_root / ".config" / "override.conf"),
-                str(host_root / ".config" / "override.conf"),
-            ],
-            "rel": ".config/override.conf",
-            "src": str(host_root / ".config" / "override.conf"),
-        },
-        {
-            "dest": str(home_dir / ".zshrc"),
-            "managed_root": str((tmp_path / "home_source").resolve()),
-            "managed_targets": [
-                str(common_root / ".zshrc"),
-                str(host_root / ".zshrc"),
-            ],
-            "rel": ".zshrc",
-            "src": str(common_root / ".zshrc"),
-        },
+
+    rel_to_src = {entry["rel"]: entry["src"] for entry in manifest["link_slots"]}
+    # Each contributor lands a file the later layers don't touch.
+    assert rel_to_src[".zshrc"] == str(common_root / ".zshrc")
+    assert rel_to_src[".config/purpose-only.conf"] == str(
+        group_purpose_root / ".config" / "purpose-only.conf"
+    )
+    assert rel_to_src[".config/os-only.conf"] == str(
+        group_os_root / ".config" / "os-only.conf"
+    )
+    assert rel_to_src[".config/host-only.conf"] == str(
+        host_root / ".config" / "host-only.conf"
+    )
+    # The contested rel goes to the last layer that defined it (host).
+    assert rel_to_src[".config/shared.conf"] == str(
+        host_root / ".config" / "shared.conf"
+    )
+
+    # managed_targets enumerates every layer's candidate, in layer order.
+    shared = next(
+        entry for entry in manifest["link_slots"] if entry["rel"] == ".config/shared.conf"
+    )
+    assert shared["managed_targets"] == [
+        str(common_root / ".config" / "shared.conf"),
+        str(group_purpose_root / ".config" / "shared.conf"),
+        str(group_os_root / ".config" / "shared.conf"),
+        str(host_root / ".config" / "shared.conf"),
     ]
     assert manifest["stale_links"] == []
 
@@ -179,11 +181,9 @@ def test_build_source_manifest_host_file_shadows_common_subtree(tmp_path: Path) 
     write_file(host_root / ".config" / "nvim", "host file")
 
     manifest = build_source_manifest(
-        common_source_dir=common_root,
-        host_source_dir=host_root,
+        source_dirs=[common_root, host_root],
         managed_root_dir=tmp_path / "home_source",
         home_dir=home_dir,
-        excludes=[],
     )
 
     assert [entry["rel"] for entry in manifest["directory_slots"]] == [".config"]
@@ -211,11 +211,9 @@ def test_build_source_manifest_host_directory_overrides_common_file(tmp_path: Pa
     write_file(host_root / ".config" / "tool" / "config.toml", "host child")
 
     manifest = build_source_manifest(
-        common_source_dir=common_root,
-        host_source_dir=host_root,
+        source_dirs=[common_root, host_root],
         managed_root_dir=tmp_path / "home_source",
         home_dir=home_dir,
-        excludes=[],
     )
 
     assert manifest["directory_slots"] == [
@@ -279,27 +277,30 @@ def test_build_source_manifest_reports_stale_managed_symlinks(tmp_path: Path) ->
     host_root = tmp_path / "home_source" / "hosts" / "mini26"
     home_dir = tmp_path / "home"
 
+    # .zshrc stays in common; .config/shared.conf was previously linked from
+    # an earlier run but is no longer present in any source layer — exercise
+    # the stale-symlink branch by leaving the home-side symlink in place
+    # without a corresponding source entry.
     write_file(common_root / ".zshrc", "common zshrc")
-    write_file(common_root / ".config" / "shared.conf", "shared")
+    stray_source = tmp_path / "home_source" / "stray" / "shared.conf"
+    write_file(stray_source, "stray shared")
     home_dir.mkdir(parents=True, exist_ok=True)
     (home_dir / ".zshrc").symlink_to(common_root / ".zshrc")
     (home_dir / ".config").mkdir(parents=True, exist_ok=True)
-    (home_dir / ".config" / "shared.conf").symlink_to(common_root / ".config" / "shared.conf")
+    (home_dir / ".config" / "shared.conf").symlink_to(stray_source)
 
     manifest = build_source_manifest(
-        common_source_dir=common_root,
-        host_source_dir=host_root,
+        source_dirs=[common_root, host_root],
         managed_root_dir=tmp_path / "home_source",
         home_dir=home_dir,
-        excludes=[".config/shared.conf"],
     )
 
     assert manifest["stale_links"] == [
         {
             "path": str(home_dir / ".config" / "shared.conf"),
             "rel": ".config/shared.conf",
-            "resolved_target": str((common_root / ".config" / "shared.conf").resolve(strict=False)),
-            "target": str(common_root / ".config" / "shared.conf"),
+            "resolved_target": str(stray_source.resolve(strict=False)),
+            "target": str(stray_source),
         }
     ]
 
@@ -316,11 +317,9 @@ def test_stale_symlink_to_unexpected_managed_repo_path_is_still_managed(tmp_path
     (home_dir / ".zshrc").symlink_to(repo_root / "README.md")
 
     manifest = build_source_manifest(
-        common_source_dir=common_root,
-        host_source_dir=host_root,
+        source_dirs=[common_root, host_root],
         managed_root_dir=repo_root,
         home_dir=home_dir,
-        excludes=[],
     )
 
     assert manifest["stale_links"] == []

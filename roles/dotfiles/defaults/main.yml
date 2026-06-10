@@ -1,10 +1,12 @@
 ---
 dotfiles_home_source_dir: "{{ playbook_dir }}/home_source"
-dotfiles_common_source_dir: "{{ dotfiles_home_source_dir }}/common"
-dotfiles_host_source_dir: "{{ dotfiles_home_source_dir }}/hosts/{{ inventory_hostname }}"
 dotfiles_managed_root_dir: "{{ playbook_dir }}"
 dotfiles_home_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}"
-dotfiles_excludes: []
+# Default per-host overlay layer. `host_dotfiles` follows the layered-var
+# naming convention (see group_vars/all.yml) and so isn't role-prefixed;
+# the tasks consume it as `host_dotfiles | default(dotfiles_default_host_source_dir)`
+# so a host_vars override wins without having to redeclare the default.
+dotfiles_default_host_source_dir: "{{ dotfiles_home_source_dir }}/hosts/{{ inventory_hostname }}"
 # Path to dotfiles_manager.py. Defaults to playbook_dir for real use (the
 # playbook lives at the repo root next to the script). Overridable so molecule
 # scenarios — where playbook_dir is the scenario dir, not the repo root — can

@@ -7,6 +7,11 @@
 # Brewfile layer shared by all personal machines (used on both macOS and Linux).
 group_purpose_brewfile: "{{ playbook_dir }}/brewfiles/groups/personal.Brewfile"
 
+# Dotfiles overlay shared by all personal machines (used on both macOS and
+# Linux). Stat-and-skip in the dotfiles role tolerates the directory not
+# existing yet.
+group_purpose_dotfiles: "{{ playbook_dir }}/home_source/groups/personal"
+
 # apt / flatpak layers shared by all personal Linux machines. Unused on
 # macOS personal hosts (the apt/flatpak roles are gated to Linux in site.yml).
 group_purpose_apt: []

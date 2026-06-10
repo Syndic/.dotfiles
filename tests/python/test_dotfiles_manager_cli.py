@@ -68,21 +68,18 @@ def test_backup_info_prints_json(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 # build-manifest
 # ---------------------------------------------------------------------------
-def _manifest_argv(tmp_path, excludes_json=None):
+def _manifest_argv(tmp_path):
     common = tmp_path / "home_source" / "common"
     host = tmp_path / "home_source" / "hosts" / "laptop24"
     write_file(common / ".zshrc", "common zshrc")
     write_file(host / ".gitconfig", "host gitconfig")
-    argv = [
+    return [
         "build-manifest",
-        "--common-dir", str(common),
-        "--host-dir", str(host),
+        "--source-dir", str(common),
+        "--source-dir", str(host),
         "--managed-root", str(tmp_path / "home_source"),
         "--home-dir", str(tmp_path / "home"),
     ]
-    if excludes_json is not None:
-        argv += ["--excludes-json", excludes_json]
-    return argv
 
 
 def test_build_manifest_prints_manifest_json(tmp_path, capsys):
@@ -94,44 +91,28 @@ def test_build_manifest_prints_manifest_json(tmp_path, capsys):
     assert rels == [".gitconfig", ".zshrc"]
 
 
-def test_build_manifest_applies_excludes(tmp_path, capsys):
-    argv = _manifest_argv(tmp_path, excludes_json='[".zshrc"]')
+def test_build_manifest_accepts_many_source_dirs(tmp_path, capsys):
+    """--source-dir is repeatable; later layers override earlier ones."""
+    common = tmp_path / "home_source" / "common"
+    group_root = tmp_path / "home_source" / "groups" / "personal"
+    host = tmp_path / "home_source" / "hosts" / "laptop24"
+    write_file(common / ".zshrc", "common")
+    write_file(group_root / ".zshrc", "group")
+    write_file(host / ".zshrc", "host")
 
+    argv = [
+        "build-manifest",
+        "--source-dir", str(common),
+        "--source-dir", str(group_root),
+        "--source-dir", str(host),
+        "--managed-root", str(tmp_path / "home_source"),
+        "--home-dir", str(tmp_path / "home"),
+    ]
     assert dotfiles_manager.main(argv) == 0
     manifest = json.loads(capsys.readouterr().out)
-    assert [link_slot["rel"] for link_slot in manifest["link_slots"]] == [".gitconfig"]
-
-
-def test_build_manifest_accepts_double_encoded_excludes(tmp_path, capsys):
-    """--excludes-json may arrive as a JSON string that itself contains JSON;
-    _run_build_manifest decodes a second time when the first decode yields a
-    str. Exercise that branch explicitly."""
-    argv = _manifest_argv(tmp_path, excludes_json='"[\\".zshrc\\"]"')
-
-    assert dotfiles_manager.main(argv) == 0
-    manifest = json.loads(capsys.readouterr().out)
-    assert [link_slot["rel"] for link_slot in manifest["link_slots"]] == [".gitconfig"]
-
-
-def test_build_manifest_rejects_unparseable_excludes(tmp_path, capsys):
-    argv = _manifest_argv(tmp_path, excludes_json="not-json")
-
-    assert dotfiles_manager.main(argv) == 1
-    assert capsys.readouterr().err != ""
-
-
-def test_build_manifest_rejects_non_list_excludes(tmp_path, capsys):
-    argv = _manifest_argv(tmp_path, excludes_json="{}")
-
-    assert dotfiles_manager.main(argv) == 1
-    assert "list of strings" in capsys.readouterr().err
-
-
-def test_build_manifest_rejects_non_string_exclude_items(tmp_path, capsys):
-    argv = _manifest_argv(tmp_path, excludes_json="[1, 2]")
-
-    assert dotfiles_manager.main(argv) == 1
-    assert "list of strings" in capsys.readouterr().err
+    assert [link_slot["src"] for link_slot in manifest["link_slots"]] == [
+        str(host / ".zshrc")
+    ]
 
 
 def test_build_manifest_reports_nested_dotfiles(tmp_path, capsys):
@@ -142,8 +123,8 @@ def test_build_manifest_reports_nested_dotfiles(tmp_path, capsys):
 
     argv = [
         "build-manifest",
-        "--common-dir", str(common),
-        "--host-dir", str(host),
+        "--source-dir", str(common),
+        "--source-dir", str(host),
         "--managed-root", str(tmp_path / "home_source"),
         "--home-dir", str(tmp_path / "home"),
     ]
