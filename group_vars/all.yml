@@ -10,9 +10,10 @@ ansible_python_interpreter: "{{ ansible_playbook_python }}"
 # -----------------------------------------------------------------------------
 # Package & settings layering convention
 #
-# For each package backend (brewfile, apt, flatpak) and for the macOS
+# For each package backend (brewfile, apt, flatpak), for the macOS
 # settings inputs (macos_defaults, dockitems_persist, dockitems_remove),
-# values come from three scopes that the role concatenates at run time:
+# and for the dotfiles overlay roots (dotfiles), values come from three
+# scopes that the role concatenates at run time:
 #
 #   common_<thing>              applied to all hosts; lives in this file
 #   group_<set>_<thing>         applied per group within a group set;
