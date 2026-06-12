@@ -163,6 +163,13 @@ copies the host gitconfig between `postCreate` and `postStart`. The
   the mount is Docker-Desktop-specific and would dangle under colima /
   OrbStack / podman. A socat-based engine-agnostic relay is the known
   alternative; not worth the setup until a non-DD engine is on the table.
+  Docker Desktop intercepts that path even though it isn't physically on
+  the host; on other engines it isn't intercepted *and* doesn't exist, so
+  the bind would fail at container start. `initialize.sh` checks
+  `docker info` for "Docker Desktop"; if absent it `sudo touch`es a
+  placeholder at the magic path so the bind succeeds (agent forwarding
+  won't be functional there, which is fine — CI's smoke job just needs
+  the container to start).
 - **SSH agent socket ownership** — Docker Desktop bind-mounts the magic
   socket root-owned mode 660. The remoteUser is `vscode` (uid 1000), so
   it can't connect to a root-owned socket. `post-start.sh` `chown`s it to
