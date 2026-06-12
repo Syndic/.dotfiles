@@ -10,6 +10,7 @@ workspace="$(cd "$here/.." && pwd)"
 link="$here/.host-git-common"
 pathfile="$here/.git-plumbing/host-git-common-path"
 tzfile="$here/.git-plumbing/host-timezone"
+gitconfigfile="$here/.git-plumbing/host-gitconfig"
 
 mkdir -p "$(dirname "$pathfile")"
 
@@ -37,3 +38,11 @@ case "$tz" in
   /* | *..*) tz="" ;;
 esac
 printf '%s\n' "$tz" >"$tzfile"
+
+# Snapshot host ~/.gitconfig for post-start.sh to install when the Dev
+# Containers extension hasn't already done so. Empty file if absent.
+if [ -r "$HOME/.gitconfig" ]; then
+  cp "$HOME/.gitconfig" "$gitconfigfile"
+else
+  : >"$gitconfigfile"
+fi
