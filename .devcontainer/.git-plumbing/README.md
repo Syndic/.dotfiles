@@ -14,6 +14,11 @@ image. Both files are gitignored and written on every `devcontainer up` by
   host's timezone. The Dockerfile reads it and symlinks `/etc/localtime`,
   so container timestamps match the host. See "Host timezone plumbing"
   in `CLAUDE.md`.
+- `host-gitconfig` — snapshot of the host's `~/.gitconfig`. `post-start.sh`
+  installs it into the container only when `~/.gitconfig` is empty (i.e.
+  the `devcontainer` CLI path; VS Code's Dev Containers extension copies
+  it for itself). See "Signed commits under devcontainer CLI" in
+  `CLAUDE.md`.
 
 This directory exists in git (via this README) so the Dockerfile's
 `COPY .devcontainer/.git-plumbing/ …` step always finds a source — buildx
