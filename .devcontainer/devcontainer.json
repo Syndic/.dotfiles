@@ -49,16 +49,20 @@
       // Pin to ~/.venv (frozen 3.9.6 + pytest). useEnvironmentsExtension off
       // because that extension ignores defaultInterpreterPath here.
       "settings": {
-        "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
-        "python.useEnvironmentsExtension": false,
         // Add "ansible" so role/play YAML (reclassified by redhat.ansible)
         // still gets yamllint diagnostics — .ansible-lint skips yaml rules.
         // See CLAUDE.md "Lint".
         "linter.linters": {
           "yamllint": {
-            "languages": ["yaml", "ansible"]
+            "languages": [
+              "yaml",
+              "ansible"
+            ]
           }
-        }
+        },
+        "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
+        "python.useEnvironmentsExtension": false,
+        "todo-tree.ripgrep.ripgrep": "/usr/bin/rg"
       },
       "extensions": [
         "cnshenj.vscode-task-manager",
