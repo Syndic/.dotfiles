@@ -1,4 +1,24 @@
 {
+  "editor.autoIndentOnPaste": true,
+  "editor.formatOnPaste": true,
+  "editor.formatOnSave": true,
+  "editor.rulers": [
+    100,
+    120
+  ],
+  "files.insertFinalNewline": true,
+  "linter.linters": {
+    "yamllint": {
+      "languages": [
+        "yaml",
+        "ansible"
+      ]
+    }
+  },
+  "prettier.printWidth": 100,
+  "prettier.proseWrap": "always",
+  "prettier.trailingComma": "all",
+  "python.languageServer": "Default",
   "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
   "python.testing.pytestArgs": [
@@ -7,5 +27,21 @@
   "taskManager.favorites": [
     ".dotfiles/Workspace/Run all tests",
     ".dotfiles/Workspace/Run fast tests"
-  ]
+  ],
+  "todo-tree.filtering.excludeGlobs": [
+    "**/node_modules/*/**",
+    "**/docs/reminder-tags.md"
+  ],
+  "todo-tree.general.tags": [
+    "FIXME",
+    "HACK",
+    "TODO",
+    "TEND",
+    "NOTE",
+    "[]",
+    "[x]"
+  ],
+  "yaml.format.printWidth": 100,
+  "yaml.format.enable": false,
+  "yaml.format.proseWrap": "always",
 }
