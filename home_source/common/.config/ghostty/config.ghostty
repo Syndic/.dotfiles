@@ -44,8 +44,6 @@ palette = 15=#ffffff
 selection-background = #484848
 selection-foreground = cell-foreground
 
-bold-color = #ffffff
-
 # custom-shader = ~/crt.shader
 
 # background-opacity = .9
