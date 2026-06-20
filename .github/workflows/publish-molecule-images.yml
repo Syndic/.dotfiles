@@ -34,7 +34,7 @@ jobs:
   homebrew:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ghcr image paths must be lowercase. github.repository_owner returns
       # the casing of the GitHub org/user, which may be mixed-case — compute
