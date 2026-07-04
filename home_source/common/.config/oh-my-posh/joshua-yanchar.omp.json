@@ -260,7 +260,7 @@
           "trailing_diamond": "\ue0b0",
           "foreground": "p:upgradeText",
           "background": "p:upgradeBackground",
-          "template": "{{ url (print \" \uf071 Oh My Posh Upgrade available: \" .Version) \"https://ohmyposh.dev/docs/installation/macos#:~:text=brew%20update%20%26%26%20brew%20upgrade%20oh%2Dmy%2Dposh\" }}"
+          "template": "{{ url (print \" \uf071 Oh My Posh Upgrade available: \" .Version) \"https://ohmyposh.dev/docs/installation/macos\" }}"
         },
         {
           "type": "text",
