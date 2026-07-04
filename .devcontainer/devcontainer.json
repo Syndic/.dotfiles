@@ -17,7 +17,7 @@
     // triggers an apt-module deserialization failure on the geerlingguy debian
     // images (likely namespace/cgroup interaction). moby: false picks
     // docker-ce because moby lacks a Debian trixie build.
-    "ghcr.io/devcontainers/features/docker-in-docker:3": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
       "moby": false
     }
   },
