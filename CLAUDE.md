@@ -62,8 +62,8 @@ test:
 - **Its rationale runs past ~2 lines.** That length is architecture, not
   a line-local surprise; it has a home here.
 
-And when one change edits both the canonical doc and a file that consumes
-it, the consuming file gets a pointer — never a second copy of the same
+And when one change edits both a design doc and logic described by it,
+the implementation file gets a pointer — never a second copy of the same
 rationale. That co-edit is exactly when duplication gets created.
 
 When editing a file whose existing comments feel oversized for the rent
