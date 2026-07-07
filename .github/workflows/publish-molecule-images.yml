@@ -6,14 +6,8 @@
 # cells don't share docker layer caches across runs.
 #
 # Fires on main when an image source changes, on a monthly schedule, and
-# on manual dispatch. The monthly rebuild bounds base-image staleness: the
-# image bakes formulae (Linuxbrew + `hello`'s dependency closure) at build
-# time, and `brew outdated` in the homebrew molecule scenarios compares
-# them against live upstream — so a months-old image makes the gates
-# scenario's upgrade path do real, staleness-proportional `brew upgrade`
-# work every run. The schedule keeps that window small; the gates scenario
-# no longer *fails* on drift (it asserts the outdated check ran, not that
-# it found nothing), so this is a cost bound, not a correctness gate.
+# on manual dispatch. The monthly rebuild bounds base-image staleness —
+# see CLAUDE.md "Homebrew molecule scenarios" for why.
 #
 # PRs do NOT trigger publishing — they consume the latest published image
 # via the pull-with-fallback path in tests/run (falls back to local build
