@@ -3,14 +3,18 @@
 #
 # Two plays against the same container. The image pre-installs `hello`,
 # so a Brewfile of `brew "hello"` starts in the satisfied state — that's
-# what exercises the install gate. The upgrade gate has two paths
-# (var=true with no outdated; var=false), tested as the two plays.
+# what exercises the install gate. The upgrade gate has two paths, tested
+# as the two plays: var=true → the outdated check runs; var=false → it's
+# gated off entirely.
 #
-# Asserting on the role's internal task results (homebrew_bundle_result,
-# homebrew_outdated) is the cleanest way to distinguish "task ran and
-# did nothing" from "task was gated off entirely" — the former would
-# defeat the install-gate regression-cover for ae021b2, but only the
-# `register:` introspection can tell them apart.
+# The plays assert on the role's internal task results (homebrew_bundle_result,
+# homebrew_outdated): distinguishing "task ran and did nothing" from "task
+# was gated off entirely" is the install-gate regression-cover for ae021b2,
+# and only the `register:` introspection can tell those apart. Whether
+# `brew outdated` actually reports a formula is live upstream package state,
+# not the gate's behavior — so the true-path play asserts only that the
+# check *ran*, never that it found nothing (that coupling to upstream is
+# what let a stale base image turn this scenario red).
 
 - name: Converge — homebrew role (gates, upgrade=true)
   hosts: all
@@ -50,9 +54,8 @@
         that:
           - homebrew_outdated is defined
           - homebrew_outdated.skipped | default(false) is false
-          - homebrew_outdated.stdout | default('') | length == 0
         fail_msg: >-
-          Expected outdated check to run and report nothing; got
+          Expected the outdated check to run (not be gated off); got
           {{ homebrew_outdated | default('<undefined>') }}
 
 - name: Converge — homebrew role (gates, upgrade=false)

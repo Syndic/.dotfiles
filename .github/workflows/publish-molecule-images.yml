@@ -5,7 +5,10 @@
 # left every homebrew shard paying the ~5min cold image build, since matrix
 # cells don't share docker layer caches across runs.
 #
-# Only fires on main when an image source changes, plus manual dispatch.
+# Fires on main when an image source changes, on a monthly schedule, and
+# on manual dispatch. The monthly rebuild bounds base-image staleness —
+# see CLAUDE.md "Homebrew molecule scenarios" for why.
+#
 # PRs do NOT trigger publishing — they consume the latest published image
 # via the pull-with-fallback path in tests/run (falls back to local build
 # if pull fails, so a PR that *changes* the Dockerfile still gets tested
@@ -24,6 +27,8 @@ on:
     paths:
       - 'roles/homebrew/molecule/Dockerfile'
       - '.github/workflows/publish-molecule-images.yml'
+  schedule:
+    - cron: '0 8 1 * *'   # 1st of the month, 08:00 UTC — bounds image staleness
   workflow_dispatch:
 
 permissions:

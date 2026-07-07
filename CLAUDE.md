@@ -49,6 +49,23 @@ The architectural rationale for those mechanisms lives in this CLAUDE.md;
 inline comments should at most point to the relevant section, not restate
 it.
 
+Two mechanical tells catch a misplaced comment at write-time, with no
+judgment call — don't wait to be reminded of the principle, apply the
+test:
+
+- **It names files or mechanisms other than the one it sits in.** A
+  comment that has to explain other parts of the system to justify
+  itself is describing an *arrangement*, not a local gotcha — and
+  arrangements belong in this CLAUDE.md. Leave a one-line pointer at the
+  code. (A publish-workflow comment that explains the molecule gates
+  scenario is describing something outside its own file.)
+- **Its rationale runs past ~2 lines.** That length is architecture, not
+  a line-local surprise; it has a home here.
+
+And when one change edits both a design doc and logic described by it,
+the implementation file gets a pointer — never a second copy of the same
+rationale. That co-edit is exactly when duplication gets created.
+
 When editing a file whose existing comments feel oversized for the rent
 they pay, tightening them as part of the change is welcome and doesn't
 need a separate task. Leave the load-bearing facts; cut the prose around
@@ -616,13 +633,20 @@ What each scenario covers:
 - **`gates/`** — two converges in one play file against a single
   container. First play (`homebrew_upgrade_outdated: true`, default)
   asserts the install task is gated off (image satisfies the Brewfile)
-  and the outdated check runs but returns empty. Second play
+  and the outdated check *ran* (was not gated off). Second play
   (`homebrew_upgrade_outdated: false`) asserts the outdated check
   itself is skipped. Inline `post_tasks` introspect
   `homebrew_bundle_result` / `homebrew_outdated` — that's where those
   registered vars are in scope. `verify.yml` carries one external check
   (the baked formula survives both converges); the gate semantics
   themselves can only be observed via the registered task results.
+  The true-path play deliberately does **not** assert `brew outdated`
+  returned nothing: whether upstream has bumped a baked formula is live
+  package state, not the gate's behavior, and asserting on it coupled
+  the scenario to base-image freshness (a stale image reporting an
+  outdated transitive dep — e.g. `isl` via `gcc` — turned the scenario
+  red). The monthly image rebuild (below) keeps that upgrade path cheap;
+  the assertion change keeps it correct regardless.
 
 The single-container, two-play gates layout shares the image-install
 cost across both gate paths and lets the second play's pre-state inherit
@@ -640,7 +664,10 @@ tagged `dotfiles-homebrew-molecule:local`, which every scenario's
   `ghcr.io/syndic/dotfiles-homebrew-molecule:latest` (lowercased; ghcr
   requires it). The published image is built + pushed by
   `.github/workflows/publish-molecule-images.yml` on pushes to `main`
-  that touch the Dockerfile.
+  that touch the Dockerfile, **plus a monthly `schedule:` rebuild** that
+  bounds base-image staleness so the gates scenario's upgrade path
+  doesn't accumulate `brew upgrade` work as the baked formulae drift
+  from live upstream.
 - **Local `docker build`** otherwise (no env var) or as a fallback when
   the pull fails (registry hiccup, image not yet published, PR that
   changes the Dockerfile and therefore needs the *modified* version
