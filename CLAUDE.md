@@ -616,13 +616,20 @@ What each scenario covers:
 - **`gates/`** — two converges in one play file against a single
   container. First play (`homebrew_upgrade_outdated: true`, default)
   asserts the install task is gated off (image satisfies the Brewfile)
-  and the outdated check runs but returns empty. Second play
+  and the outdated check *ran* (was not gated off). Second play
   (`homebrew_upgrade_outdated: false`) asserts the outdated check
   itself is skipped. Inline `post_tasks` introspect
   `homebrew_bundle_result` / `homebrew_outdated` — that's where those
   registered vars are in scope. `verify.yml` carries one external check
   (the baked formula survives both converges); the gate semantics
   themselves can only be observed via the registered task results.
+  The true-path play deliberately does **not** assert `brew outdated`
+  returned nothing: whether upstream has bumped a baked formula is live
+  package state, not the gate's behavior, and asserting on it coupled
+  the scenario to base-image freshness (a stale image reporting an
+  outdated transitive dep — e.g. `isl` via `gcc` — turned the scenario
+  red). The monthly image rebuild (below) keeps that upgrade path cheap;
+  the assertion change keeps it correct regardless.
 
 The single-container, two-play gates layout shares the image-install
 cost across both gate paths and lets the second play's pre-state inherit
@@ -640,7 +647,10 @@ tagged `dotfiles-homebrew-molecule:local`, which every scenario's
   `ghcr.io/syndic/dotfiles-homebrew-molecule:latest` (lowercased; ghcr
   requires it). The published image is built + pushed by
   `.github/workflows/publish-molecule-images.yml` on pushes to `main`
-  that touch the Dockerfile.
+  that touch the Dockerfile, **plus a monthly `schedule:` rebuild** that
+  bounds base-image staleness so the gates scenario's upgrade path
+  doesn't accumulate `brew upgrade` work as the baked formulae drift
+  from live upstream.
 - **Local `docker build`** otherwise (no env var) or as a fallback when
   the pull fails (registry hiccup, image not yet published, PR that
   changes the Dockerfile and therefore needs the *modified* version

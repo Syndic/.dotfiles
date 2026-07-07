@@ -5,7 +5,16 @@
 # left every homebrew shard paying the ~5min cold image build, since matrix
 # cells don't share docker layer caches across runs.
 #
-# Only fires on main when an image source changes, plus manual dispatch.
+# Fires on main when an image source changes, on a monthly schedule, and
+# on manual dispatch. The monthly rebuild bounds base-image staleness: the
+# image bakes formulae (Linuxbrew + `hello`'s dependency closure) at build
+# time, and `brew outdated` in the homebrew molecule scenarios compares
+# them against live upstream — so a months-old image makes the gates
+# scenario's upgrade path do real, staleness-proportional `brew upgrade`
+# work every run. The schedule keeps that window small; the gates scenario
+# no longer *fails* on drift (it asserts the outdated check ran, not that
+# it found nothing), so this is a cost bound, not a correctness gate.
+#
 # PRs do NOT trigger publishing — they consume the latest published image
 # via the pull-with-fallback path in tests/run (falls back to local build
 # if pull fails, so a PR that *changes* the Dockerfile still gets tested
@@ -24,6 +33,8 @@ on:
     paths:
       - 'roles/homebrew/molecule/Dockerfile'
       - '.github/workflows/publish-molecule-images.yml'
+  schedule:
+    - cron: '0 8 1 * *'   # 1st of the month, 08:00 UTC — bounds image staleness
   workflow_dispatch:
 
 permissions:
