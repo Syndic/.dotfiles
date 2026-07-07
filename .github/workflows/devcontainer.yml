@@ -63,8 +63,7 @@ jobs:
           # the uv venvs and that remoteEnv put their bin dirs on PATH.
           runCmd: |
             set -euo pipefail
-            python3 --version
-            python3 --version | grep -q '^Python 3\.9\.'
+            python3 --version | grep '^Python 3\.9\.'
             bats --version
             pytest --version
             pre-commit --version
