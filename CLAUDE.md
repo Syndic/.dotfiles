@@ -49,6 +49,23 @@ The architectural rationale for those mechanisms lives in this CLAUDE.md;
 inline comments should at most point to the relevant section, not restate
 it.
 
+Two mechanical tells catch a misplaced comment at write-time, with no
+judgment call — don't wait to be reminded of the principle, apply the
+test:
+
+- **It names files or mechanisms other than the one it sits in.** A
+  comment that has to explain other parts of the system to justify
+  itself is describing an *arrangement*, not a local gotcha — and
+  arrangements belong in this CLAUDE.md. Leave a one-line pointer at the
+  code. (A publish-workflow comment that explains the molecule gates
+  scenario is describing something outside its own file.)
+- **Its rationale runs past ~2 lines.** That length is architecture, not
+  a line-local surprise; it has a home here.
+
+And when one change edits both the canonical doc and a file that consumes
+it, the consuming file gets a pointer — never a second copy of the same
+rationale. That co-edit is exactly when duplication gets created.
+
 When editing a file whose existing comments feel oversized for the rent
 they pay, tightening them as part of the change is welcome and doesn't
 need a separate task. Leave the load-bearing facts; cut the prose around
