@@ -212,6 +212,70 @@ path that doesn't exist in the container. Irrelevant: git only reads it for
 "Unable to open allowed keys file…" / "No principal matched" and the commit
 is still validly signed.
 
+### Devcontainer lock regeneration
+
+`.devcontainer/devcontainer-lock.json` pins each devcontainer *feature*
+(`version` + `resolved` digest + `integrity`), keyed by the **exact reference
+string including the tag** (`ghcr.io/devcontainers/features/git:1.3.7`).
+Renovate's `devcontainer` manager rewrites that tag on an upgrade but never
+touches the lock — Mend-hosted Renovate can't run `postUpgradeTasks`. Left
+alone, every Renovate devcontainer PR lands with a stale lock.
+
+**Features are pinned to full `MAJOR.MINOR.PATCH` tags** (in
+`devcontainer.json`), not floating majors. Specific version tags are immutable,
+so their resolved digest never drifts, and *every* upgrade — patch included —
+becomes an explicit Renovate edit to `devcontainer.json` that the regeneration
+below can react to. This is deliberate: it trades a few more (reviewed) Renovate
+PRs for a lock that never silently ages behind a floating tag.
+
+`regenerate_devcontainer_lock.py` (repo root) closes the gap. It runs
+`devcontainer upgrade --workspace-folder <ws> --dry-run` — which resolves every
+current reference to stdout with **no Docker build** — then reconciles that
+fresh resolution against the committed lock:
+
+- Keep the committed entry for any reference key already locked (an *unchanged*
+  reference — never re-pin it, so nothing can flap).
+- Adopt the freshly-resolved entry for a key absent from the committed lock.
+  Because the tag is part of the key, a Renovate version bump is a **key swap**:
+  the new `…/git:1.3.8` is absent from the committed lock (which still holds
+  `…/git:1.3.7`), so it's adopted; the old key, absent from the fresh
+  resolution, is dropped.
+- `serialize` = `json.dumps(indent=2) + "\n"`, which reproduces the CLI's lock
+  format byte-for-byte, so regenerated and CLI-written locks diff cleanly.
+
+`devcontainer upgrade --dry-run` is chosen over a plain `devcontainer build`:
+`build`/`up` writes the lock only on a *full successful image build* (needs
+Docker and would run this repo's host-specific `initializeCommand` worktree
+plumbing), whereas `--dry-run` is a registry-only resolve. The reconcile is what
+keeps `--dry-run`'s full re-resolution from flapping unchanged digests — do
+**not** commit `upgrade`'s output directly. The pure functions
+(`parse_features`, `reconcile`, `serialize`) carry all the logic and are unit-
+tested in `tests/python/test_regenerate_devcontainer_lock.py`; the driver's
+subprocess wiring is exercised by the workflow on real Renovate PRs.
+
+`.github/workflows/renovate-devcontainer-lock.yml` runs it: on `pull_request`
+touching `.devcontainer/devcontainer.json`, gated to `github.actor ==
+'renovate[bot]'`, it installs `@devcontainers/cli`, runs the script, and commits
+the regenerated lock back onto the PR branch. The commit is made by the
+**`commit-file-via-app` composite action referenced cross-repo from the public
+`Syndic/unnatural_designs` repo** (`@main` — that repo has no tags to pin-track,
+and the user owns it and keeps it stable). That action commits via the GraphQL
+`createCommitOnBranch` mutation with a GitHub-App token, which is **server-side
+web-flow signed** — the only bot push that satisfies this repo's signed-commit
+branch protection. The push is attributed to the App (not `renovate[bot]`), so
+`devcontainer.yml`'s smoke build retriggers and validates the bumped feature
+actually builds, while *this* workflow does not retrigger (the actor guard
+fails) — no loop. `renovate.json`'s `gitIgnoredAuthors` lists the App's bot
+email so Renovate doesn't treat the lock commit as a foreign edit and abandon
+the branch.
+
+**One-time infra prerequisite (external — the workflow is inert until done):**
+reuse the existing `unnatural-designs-renovate-helper` GitHub App — install it
+on `Syndic/.dotfiles`, then add repo **variable** `RENOVATE_HELPER_APP_ID` and
+repo **secret** `RENOVATE_HELPER_PRIVATE_KEY`. If the helper App is ever
+recreated, the `gitIgnoredAuthors` email in `renovate.json` must be updated in
+lockstep.
+
 ## The two-language split is intentional
 
 `install.sh` (bash) and `phase2.py` (Python) are two phases of the same
