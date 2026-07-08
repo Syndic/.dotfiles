@@ -1,18 +1,29 @@
 """Tests for regenerate_devcontainer_lock.py.
 
-The pure functions (parse_features, reconcile, serialize) carry all the logic;
-tests focus there. The driver's subprocess wiring is exercised end-to-end by the
-renovate-devcontainer-lock workflow on a real Renovate PR — mocking the CLI here
-would be low-value.
+The pure functions carry all the logic; tests focus there, plus the offline
+--verify-refs driver mode (no CLI/network). The upgrade+reconcile driver's
+subprocess wiring is exercised end-to-end by the renovate-devcontainer-lock
+workflow on a real Renovate PR — mocking the CLI here would be low-value.
 """
+import json
+import textwrap
 from pathlib import Path
 
-import pytest
-
-from regenerate_devcontainer_lock import parse_features, reconcile, serialize
+from regenerate_devcontainer_lock import (
+    REGEN_COMMAND,
+    config_feature_refs,
+    diff_refs,
+    main,
+    parse_features,
+    reconcile,
+    render_ref_mismatch,
+    serialize,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-COMMITTED_LOCK = REPO_ROOT / ".devcontainer" / "devcontainer-lock.json"
+DEVCONTAINER = REPO_ROOT / ".devcontainer"
+COMMITTED_LOCK = DEVCONTAINER / "devcontainer-lock.json"
+COMMITTED_CONFIG = DEVCONTAINER / "devcontainer.json"
 
 
 def _entry(version, digest):
@@ -105,3 +116,97 @@ class TestSerialize:
         # canonical format — a hand-edit that reformats it would fail here.
         raw = COMMITTED_LOCK.read_text(encoding="utf-8")
         assert serialize(parse_features(raw)) == raw
+
+
+class TestConfigFeatureRefs:
+    def test_line_comments_stripped(self):
+        text = textwrap.dedent("""\
+            {
+              // a leading comment
+              "features": {
+                "ghcr.io/x:1.0.0": {},  // trailing tag comment
+                "ghcr.io/y:2.0.0": {}
+              }
+            }
+        """)
+        assert config_feature_refs(text) == {"ghcr.io/x:1.0.0", "ghcr.io/y:2.0.0"}
+
+    def test_block_comments_stripped(self):
+        text = '{"features": {/* block */ "ghcr.io/x:1.0.0": {}}}'
+        assert config_feature_refs(text) == {"ghcr.io/x:1.0.0"}
+
+    def test_double_slash_inside_string_is_not_a_comment(self):
+        # A `//` inside a string value must survive — only real comments go.
+        text = textwrap.dedent("""\
+            {
+              "features": {"ghcr.io/x:1.0.0": {"onCreate": "echo https://ok"}}
+            }
+        """)
+        assert config_feature_refs(text) == {"ghcr.io/x:1.0.0"}
+
+    def test_trailing_comma_tolerated(self):
+        text = '{"features": {"ghcr.io/x:1.0.0": {},}}'
+        assert config_feature_refs(text) == {"ghcr.io/x:1.0.0"}
+
+    def test_absent_features_is_empty(self):
+        assert config_feature_refs('{"name": "x"}') == set()
+
+    def test_matches_committed_devcontainer_json(self):
+        # Integration guard: the real config's feature refs equal the real lock's
+        # keys, so the shipped pair is in sync (what --verify-refs asserts).
+        config_refs = config_feature_refs(COMMITTED_CONFIG.read_text(encoding="utf-8"))
+        lock_refs = set(parse_features(COMMITTED_LOCK.read_text(encoding="utf-8")))
+        assert config_refs == lock_refs
+        assert "ghcr.io/devcontainers/features/docker-in-docker:4.0.0" in config_refs
+
+
+class TestDiffRefs:
+    def test_in_sync(self):
+        assert diff_refs({"a", "b"}, {"a", "b"}) == ([], [])
+
+    def test_only_in_config(self):
+        assert diff_refs({"a", "b"}, {"a"}) == (["b"], [])
+
+    def test_only_in_lock(self):
+        assert diff_refs({"a"}, {"a", "b"}) == ([], ["b"])
+
+    def test_both_directions_sorted(self):
+        # A tag bump shows as one ref on each side (old key vs new key).
+        only_config, only_lock = diff_refs({"git:1.3.8", "z:1"}, {"git:1.3.7", "z:1"})
+        assert only_config == ["git:1.3.8"]
+        assert only_lock == ["git:1.3.7"]
+
+
+class TestRenderRefMismatch:
+    def test_includes_regen_command_and_refs(self):
+        msg = render_ref_mismatch(["git:1.3.8"], ["git:1.3.7"])
+        assert REGEN_COMMAND in msg
+        assert "git:1.3.8" in msg
+        assert "git:1.3.7" in msg
+
+
+class TestVerifyRefsMain:
+    """End-to-end of the offline --verify-refs mode (no CLI/network)."""
+
+    @staticmethod
+    def _workspace(tmp_path, config_refs, lock_refs):
+        dc = tmp_path / ".devcontainer"
+        dc.mkdir()
+        features = {ref: {} for ref in config_refs}
+        (dc / "devcontainer.json").write_text(
+            json.dumps({"features": features}), encoding="utf-8"
+        )
+        lock_features = {r: {"version": "1.0.0"} for r in lock_refs}
+        (dc / "devcontainer-lock.json").write_text(serialize(lock_features), encoding="utf-8")
+        return tmp_path
+
+    def test_in_sync_returns_zero(self, tmp_path):
+        ws = self._workspace(tmp_path, {"ghcr.io/x:1.0.0"}, {"ghcr.io/x:1.0.0"})
+        assert main(["--workspace-folder", str(ws), "--verify-refs"]) == 0
+
+    def test_out_of_sync_returns_one_and_prints_command(self, tmp_path, capsys):
+        ws = self._workspace(tmp_path, {"ghcr.io/x:2.0.0"}, {"ghcr.io/x:1.0.0"})
+        assert main(["--workspace-folder", str(ws), "--verify-refs"]) == 1
+        err = capsys.readouterr().err
+        assert REGEN_COMMAND in err
+        assert "ghcr.io/x:2.0.0" in err and "ghcr.io/x:1.0.0" in err

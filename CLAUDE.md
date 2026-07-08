@@ -269,6 +269,16 @@ fails) — no loop. `renovate.json`'s `gitIgnoredAuthors` lists the App's bot
 email so Renovate doesn't treat the lock commit as a foreign edit and abandon
 the branch.
 
+A `devcontainer-lock-consistency` **pre-commit hook** guards the *manual*-edit
+path the Renovate workflow doesn't cover (a human adding/removing/bumping a
+feature by hand). It runs `regenerate_devcontainer_lock.py --verify-refs`, an
+**offline** check that just compares the feature reference keys in
+`devcontainer.json` against the lock's keys — no CLI, no network, so it fits
+pre-commit's fast/local model. It can't regenerate (that needs the registry);
+on a mismatch it fails with the copy/paste `python3
+regenerate_devcontainer_lock.py` command. `config_feature_refs` (JSONC-tolerant)
+and the diff/message helpers are unit-tested alongside the reconcile logic.
+
 **One-time infra prerequisite (external — the workflow is inert until done):**
 reuse the existing `unnatural-designs-renovate-helper` GitHub App — install it
 on `Syndic/.dotfiles`, then add repo **variable** `RENOVATE_HELPER_APP_ID` and
