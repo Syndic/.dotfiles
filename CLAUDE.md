@@ -259,15 +259,19 @@ touching `.devcontainer/devcontainer.json`, gated to `github.actor ==
 the regenerated lock back onto the PR branch. The commit is made by the
 **`commit-file-via-app` composite action referenced cross-repo from the public
 `Syndic/unnatural_designs` repo** (`@main` — that repo has no tags to pin-track,
-and the user owns it and keeps it stable). That action commits via the GraphQL
-`createCommitOnBranch` mutation with a GitHub-App token, which is **server-side
-web-flow signed** — the only bot push that satisfies this repo's signed-commit
-branch protection. The push is attributed to the App (not `renovate[bot]`), so
-`devcontainer.yml`'s smoke build retriggers and validates the bumped feature
-actually builds, while *this* workflow does not retrigger (the actor guard
-fails) — no loop. `renovate.json`'s `gitIgnoredAuthors` lists the App's bot
-email so Renovate doesn't treat the lock commit as a foreign edit and abandon
-the branch.
+and the user owns it and keeps it stable). Floating on `@main` means changes to
+the action reach this repo without review; the failure mode is a red check on
+the next Renovate devcontainer PR, not a silent break. The action's README (in
+`unnatural_designs`, beside its `action.yml`) documents the input surface as a
+public contract and lists this repo as a consumer. That action commits via the
+GraphQL `createCommitOnBranch` mutation with a GitHub-App token, which is
+**server-side web-flow signed** — the only bot push that satisfies this repo's
+signed-commit branch protection. The push is attributed to the App (not
+`renovate[bot]`), so `devcontainer.yml`'s smoke build retriggers and validates
+the bumped feature actually builds, while *this* workflow does not retrigger
+(the actor guard fails) — no loop. `renovate.json`'s `gitIgnoredAuthors` lists
+the App's bot email so Renovate doesn't treat the lock commit as a foreign edit
+and abandon the branch.
 
 A `devcontainer-lock-consistency` **pre-commit hook** guards the *manual*-edit
 path the Renovate workflow doesn't cover (a human adding/removing/bumping a
