@@ -5,9 +5,6 @@
     "context": ".."
   },
   "features": {
-    // Features are pinned to exact versions so every upgrade is an explicit
-    // Renovate edit that regenerates the lock — see CLAUDE.md "Devcontainer lock
-    // regeneration".
     "ghcr.io/devcontainers/features/common-utils:2.5.9": {
       "installZsh": true,
       "configureZshAsDefaultShell": false,
