@@ -1,0 +1,55 @@
+---
+name: Renovate — regenerate devcontainer-lock.json
+
+# Renovate's `devcontainer` manager bumps a feature's version tag in
+# devcontainer.json but never updates devcontainer-lock.json (Mend-hosted
+# Renovate can't run postUpgradeTasks). On Renovate PRs this workflow
+# re-resolves the lock and commits the result back onto the PR branch with a
+# GitHub-App-signed commit. Full rationale — the upgrade+reconcile choice, the
+# pinning policy, and the signing/retrigger plumbing — is in CLAUDE.md
+# "Devcontainer lock regeneration".
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .devcontainer/devcontainer.json
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    name: Regenerate devcontainer-lock.json
+    # Renovate's own PRs only. The App's follow-up commit isn't renovate[bot],
+    # so committing the lock can't retrigger this workflow (no loop).
+    if: github.actor == 'renovate[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install the devcontainer CLI
+        run: npm install --global @devcontainers/cli
+
+      - name: Regenerate the lock
+        run: python3 regenerate_devcontainer_lock.py
+
+      # Signed via the GraphQL createCommitOnBranch mutation (server-side web-flow
+      # signing) so the push satisfies branch protection; no-op if the lock didn't
+      # change. Action referenced from the public unnatural_designs repo.
+      - name: Commit regenerated lock via signed App commit
+        uses: Syndic/unnatural_designs/.github/actions/commit-file-via-app@main
+        with:
+          app-id: ${{ vars.RENOVATE_HELPER_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_HELPER_PRIVATE_KEY }}
+          branch: ${{ github.head_ref }}
+          file-paths: |
+            .devcontainer/devcontainer-lock.json
+          commit-message: "chore(deps): regenerate devcontainer-lock.json"

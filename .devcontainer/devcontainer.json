@@ -5,19 +5,19 @@
     "context": ".."
   },
   "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
+    "ghcr.io/devcontainers/features/common-utils:2.5.9": {
       "installZsh": true,
       "configureZshAsDefaultShell": false,
       "upgradePackages": false
     },
     // No `python` feature: post-create.sh uses uv (see CLAUDE.md "Python 3.9 pin").
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/git:1.3.7": {},
+    "ghcr.io/devcontainers/features/github-cli:1.1.0": {},
     // Self-contained dockerd for molecule scenarios — docker-outside-of-docker
     // triggers an apt-module deserialization failure on the geerlingguy debian
     // images (likely namespace/cgroup interaction). moby: false picks
     // docker-ce because moby lacks a Debian trixie build.
-    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {
       "moby": false
     }
   },

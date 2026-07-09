@@ -9,6 +9,16 @@ repos:
         pass_filenames: false
         always_run: true
 
+      # Offline staleness guard: the lock's feature keys must match
+      # devcontainer.json. No CLI/network (regeneration stays in the Renovate
+      # workflow / manual runs) — see CLAUDE.md "Devcontainer lock regeneration".
+      - id: devcontainer-lock-consistency
+        name: check devcontainer-lock.json is in sync with devcontainer.json
+        entry: python3 regenerate_devcontainer_lock.py --verify-refs
+        language: system
+        pass_filenames: false
+        files: ^\.devcontainer/devcontainer(-lock)?\.json$
+
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.38.0
     hooks:
