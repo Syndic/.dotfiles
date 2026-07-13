@@ -286,8 +286,7 @@ and the diff/message helpers are unit-tested alongside the reconcile logic.
 **One-time infra prerequisite (external — the workflow is inert until done):**
 reuse the existing `unnatural-designs-renovate-helper` GitHub App — install it
 on `Syndic/.dotfiles`, then add repo **variable** `RENOVATE_HELPER_CLIENT_ID`
-(the App's Client ID) and repo **secret** `RENOVATE_HELPER_PRIVATE_KEY`. If the
-helper App is ever
+and repo **secret** `RENOVATE_HELPER_PRIVATE_KEY`. If the helper App is ever
 recreated, the `gitIgnoredAuthors` email in `renovate.json` must be updated in
 lockstep.
 
