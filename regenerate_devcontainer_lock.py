@@ -170,11 +170,6 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Lock file to write (default: <workspace-folder>/{DEFAULT_LOCK_RELPATH}).",
     )
     parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Exit non-zero if the lock would change; do not write it.",
-    )
-    parser.add_argument(
         "--verify-refs",
         action="store_true",
         help="Offline: fail if the lock's feature keys don't match devcontainer.json "
@@ -206,13 +201,6 @@ def main(argv: list[str] | None = None) -> int:
     if new_text == current_text:
         print(f"{lock_path}: already up to date.")
         return 0
-
-    if args.check:
-        print(
-            f"{lock_path}: OUT OF DATE — run regenerate_devcontainer_lock.py to update.",
-            file=sys.stderr,
-        )
-        return 1
 
     lock_path.write_text(new_text, encoding="utf-8")
     print(f"{lock_path}: regenerated.")
