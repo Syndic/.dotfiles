@@ -93,8 +93,9 @@ linked worktree anywhere on disk:
   succeeds even when the runtime-written file inside is absent — buildx
   errors on a COPY whose glob matches zero files, so the classic optional-
   COPY trick is not portable, and the tracked directory is the buildx-safe
-  workaround. CI's `devcontainer build` never runs `initializeCommand`, so
-  the path file is genuinely absent there; the Dockerfile's `[ -s … ]` shell
+  workaround. In CI the Dockerfile *build* runs before `initializeCommand`
+  populates the path file (which is gitignored, so uncommitted), so it's
+  absent from the build context there; the Dockerfile's `[ -s … ]` shell
   test keeps that case a clean no-op.
 - `devcontainer.json` binds the symlink (a static, `${localWorkspaceFolder}`-
   relative source — Docker follows it host-side) to a static `/host-git-common`.
@@ -153,9 +154,9 @@ absence-tolerance. Only the per-artifact bits differ:
   shells still resolve local time correctly via `/etc/localtime`.
 
 `tzdata` and the zoneinfo db are already in `mcr.microsoft.com/devcontainers/
-base:debian`, so no package install. CI's `devcontainer build` runs without
-`initializeCommand`, so `host-timezone` is absent there — the `[ -s … ]`
-guard makes that path a clean no-op and CI keeps its default UTC.
+base:debian`, so no package install. In CI the Dockerfile *build* runs before
+`initializeCommand`, so `host-timezone` is absent from the build context —
+the `[ -s … ]` guard makes that path a clean no-op and CI keeps its default UTC.
 
 ### Shared git index across stat domains
 
@@ -235,8 +236,10 @@ three for signing itself, the last two for the adjacent SSH operations
   `$HOME/.gitconfig` *only if that file is missing or empty*.
   `postStartCommand` runs after the Dev Containers extension's own
   gitconfig copy, so the empty-check naturally lets VS Code win when
-  it's involved; CI's `devcontainer build` never reaches postStart, so
-  the file is absent there and the script is a clean no-op. Same
+  it's involved. Under `devcontainers/ci` postStart *does* run (an
+  `up`-time hook, not the build phase), so the copy executes there if
+  the fresh container has no gitconfig — harmless, as the smoke job
+  doesn't read it. Same
   lifecycle/buildx-safety story as `host-git-common-path` and
   `host-timezone` — gitignored, regenerated every `up`, anchored by the
   tracked `.git-plumbing/README.md`.
