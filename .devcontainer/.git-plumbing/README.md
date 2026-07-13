@@ -1,7 +1,7 @@
 # Devcontainer host-plumbing artifacts
 
 Holds host-generated artifacts that bridge host state into the devcontainer
-image. Both files are gitignored and written on every `devcontainer up` by
+image. These files are gitignored and written on every `devcontainer up` by
 `../initialize.sh`:
 
 - `host-git-common-path` — absolute path of the host's git common directory
@@ -18,6 +18,16 @@ image. Both files are gitignored and written on every `devcontainer up` by
   installs it into the container only when `~/.gitconfig` is empty (i.e.
   the `devcontainer` CLI path; VS Code's Dev Containers extension copies
   it for itself). See "Signed commits under devcontainer CLI" in
+  `CLAUDE.md`.
+- `host-known-hosts` — snapshot of the host's `~/.ssh/known_hosts`.
+  `post-start.sh` installs it under the same missing-or-empty guard as the
+  gitconfig, so in-container `git push` over the SSH remote doesn't fail
+  "Host key verification failed". See "Signed commits under devcontainer
+  CLI" in `CLAUDE.md`.
+- `host-allowed-signers` — snapshot of the file named by the host's
+  `gpg.ssh.allowedSignersFile`. `post-start.sh` installs it and repoints
+  the config at the copy, so `git verify-commit` trusts our SSH-signed
+  commits in-container. See "Signed commits under devcontainer CLI" in
   `CLAUDE.md`.
 
 This directory exists in git (via this README) so the Dockerfile's

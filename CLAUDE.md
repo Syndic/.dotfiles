@@ -157,6 +157,39 @@ base:debian`, so no package install. CI's `devcontainer build` runs without
 `initializeCommand`, so `host-timezone` is absent there — the `[ -s … ]`
 guard makes that path a clean no-op and CI keeps its default UTC.
 
+### Shared git index across stat domains
+
+A consequence of the shared-common-dir design in "Worktree git resolution":
+host git and in-container git read and write the **same index file** (it lives
+in the common dir both resolve to), but they sit in different stat domains —
+the bind mount reports different uid/gid, inode, ctime, and sub-second mtime
+for the same files. Under git's default `core.checkStat`, an index written on
+one side reads as "everything modified" on the other *without any content
+comparison* (`diff-index` flags every tracked file), so checkout-type
+operations — rebase, merge, branch switch — refuse with "your local changes
+would be overwritten" on a clean tree. Plain commits never hit this (no
+checkout involved), which is why the breakage only surfaces on an in-container
+rebase/switch, not on signing.
+
+`initialize.sh` therefore sets `core.checkstat = minimal` and
+`core.trustctime = false` in the **repo-local** config. That config lives in
+the common dir, so one write covers both sides and every worktree. `minimal`
+reduces the stat check to whole-second mtime + file size — the two fields the
+bind mount preserves — making the index portable in both directions;
+`trustctime = false` guards against ctime-only divergence from metadata
+changes (chmod/chown) one side doesn't observe. Known trade-off: a same-size
+edit landing in the same whole second as the last index refresh can evade stat
+detection; git's racy-index protection (entries at least as new as the index
+get content-checked) covers the realistic window.
+
+`devcontainer.yml`'s smoke job asserts the setting landed via `git config
+--file .git/config` (the `--file` skips repo discovery, which would trip git's
+dubious-ownership check since the runner uid differs from the container uid).
+That assertion doubles as proof that `devcontainers/ci` **does** run
+`initializeCommand` during `up` — distinct from the Dockerfile *build* phase,
+which precedes it and therefore can't see the gitignored `.git-plumbing/`
+runtime files (why those consumers guard with `[ -s … ]`).
+
 ### Signed commits under devcontainer CLI
 
 The repo's branch protection requires signed commits, and the host signs with
@@ -169,7 +202,9 @@ the host ssh-agent through the VS Code Server's own SSH tunnel (a per-user
 socket published by the server process, *not* Docker Desktop's magic socket
 — that mount isn't even present in extension-launched containers) and
 copies the host gitconfig between `postCreate` and `postStart`. The
-`devcontainer` CLI does neither. The fix is three additive pieces:
+`devcontainer` CLI does neither. The fix is five additive pieces — the first
+three for signing itself, the last two for the adjacent SSH operations
+(host-key trust on push, allowed-signers trust on verify):
 
 - **SSH agent** — `devcontainer.json` binds Docker Desktop's magic socket
   `/run/host-services/ssh-auth.sock` (Desktop's documented mechanism for
@@ -205,12 +240,34 @@ copies the host gitconfig between `postCreate` and `postStart`. The
   lifecycle/buildx-safety story as `host-git-common-path` and
   `host-timezone` — gitignored, regenerated every `up`, anchored by the
   tracked `.git-plumbing/README.md`.
+- **`~/.ssh/known_hosts`** — `initialize.sh` snapshots it to
+  `.git-plumbing/host-known-hosts`; `post-start.sh` installs it to
+  `$HOME/.ssh/known_hosts` under the same missing-or-empty guard. Without
+  it, in-container `git push`/`fetch` over the SSH `origin`
+  (`git@github.com:…`) fails "Host key verification failed" — the base
+  image's `$HOME/.ssh` is empty and SSH refuses unknown fingerprints. The
+  ssh-agent forwarding above proves *who* you are; `known_hosts` proves the
+  server *is* GitHub, the separate second half SSH needs.
+- **`~/.ssh/allowed_signers`** — `initialize.sh` snapshots the file *named
+  by* `gpg.ssh.allowedSignersFile` (the setting is authoritative, not a
+  hardcoded `~/.ssh` path); `post-start.sh` installs it to
+  `$HOME/.ssh/allowed_signers` and repoints the config there. Without it
+  `git verify-commit` / `--show-signature` reports `U` ("Unable to open
+  allowed keys file…" / "No principal matched") — a good-but-untrusted
+  signature — because the copied gitconfig's `allowedSignersFile` names a
+  host path not mounted in the container. Signing itself never reads the
+  file, which is why commits still sign fine and only verification broke.
+  The repoint is keyed on the installed file (not "did we just copy it") so
+  it also fixes the VS Code path, which bridges the gitconfig but never the
+  file it names.
 
-`gpg.ssh.allowedSignersFile` in the copied gitconfig points to a host-only
-path that doesn't exist in the container. Irrelevant: git only reads it for
-`git verify-commit`, not for signing — `git log --show-signature` prints
-"Unable to open allowed keys file…" / "No principal matched" and the commit
-is still validly signed.
+The two `~/.ssh` installs share an `install_ssh_snapshot` helper in
+`post-start.sh` (the missing-or-empty guard + `mkdir`/`chmod 700 ~/.ssh` +
+`chmod 644` trio, otherwise duplicated verbatim). Neither snapshot carries
+secret material — `known_hosts` is public server fingerprints,
+`allowed_signers` is one line of public key plus principal email — so the
+gitignored build context (the Dockerfile COPYs the whole `.git-plumbing/`
+directory) is an appropriate home, same as `host-gitconfig`.
 
 ### Devcontainer lock regeneration
 

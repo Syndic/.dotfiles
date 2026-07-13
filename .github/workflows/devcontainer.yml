@@ -60,7 +60,11 @@ jobs:
           # ~/.venv on PATH via remoteEnv; a bump of the frozen pin would fail
           # here). `bats` confirms the Dockerfile apt install; `pytest`/
           # `pre-commit`/`ansible`/`ansible-lint` confirm post-create.sh built
-          # the uv venvs and that remoteEnv put their bin dirs on PATH.
+          # the uv venvs and that remoteEnv put their bin dirs on PATH. The
+          # checkstat assertion confirms initializeCommand ran and wrote the
+          # shared-index setting (see "Shared git index across stat domains" in
+          # CLAUDE.md); `--file` skips repo discovery, which would trip git's
+          # dubious-ownership check (runner uid != container uid).
           runCmd: |
             set -euo pipefail
             python3 --version | grep '^Python 3\.9\.'
@@ -69,6 +73,7 @@ jobs:
             pre-commit --version
             ansible --version
             ansible-lint --version
+            test "$(git config --file .git/config --get core.checkstat)" = minimal
 
       - if: steps.changes.outputs.changed != 'true'
         run: echo "No devcontainer changes in this PR; skipping build."
