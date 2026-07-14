@@ -41,6 +41,8 @@ __pycache__/
 /.devcontainer/.git-plumbing/host-git-common-path
 /.devcontainer/.git-plumbing/host-timezone
 /.devcontainer/.git-plumbing/host-gitconfig
+/.devcontainer/.git-plumbing/host-known-hosts
+/.devcontainer/.git-plumbing/host-allowed-signers
 
 # ── Runtime state ─────────────────────────────────────────────────────────────────────────────────
 # phase2.py writes this after a successful install so uninstall.py can default

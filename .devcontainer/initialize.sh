@@ -11,6 +11,8 @@ link="$here/.host-git-common"
 pathfile="$here/.git-plumbing/host-git-common-path"
 tzfile="$here/.git-plumbing/host-timezone"
 gitconfigfile="$here/.git-plumbing/host-gitconfig"
+knownhostsfile="$here/.git-plumbing/host-known-hosts"
+allowedsignersfile="$here/.git-plumbing/host-allowed-signers"
 
 mkdir -p "$(dirname "$pathfile")"
 
@@ -21,6 +23,12 @@ cd "$workspace"
 common="$(git rev-parse --path-format=absolute --git-common-dir)"
 ln -sfn "$common" "$link"
 printf '%s\n' "$common" >"$pathfile"
+
+# Host and container share this index but see different stat metadata for the
+# same files; restrict git's stat checks to fields the bind mount preserves —
+# see "Shared git index across stat domains" in CLAUDE.md.
+git config core.checkstat minimal
+git config core.trustctime false
 
 # Discover host IANA zone; empty result → Dockerfile falls back to image default.
 tz=""
@@ -45,6 +53,25 @@ if [ -r "$HOME/.gitconfig" ]; then
   cp "$HOME/.gitconfig" "$gitconfigfile"
 else
   : >"$gitconfigfile"
+fi
+
+# Snapshot host ~/.ssh/known_hosts so in-container `git push` over the SSH
+# remote doesn't hit "Host key verification failed" on first contact (the base
+# image's $HOME/.ssh is empty). Empty file if absent → post-start guard no-ops.
+if [ -r "$HOME/.ssh/known_hosts" ]; then
+  cp "$HOME/.ssh/known_hosts" "$knownhostsfile"
+else
+  : >"$knownhostsfile"
+fi
+
+# Snapshot the file named by gpg.ssh.allowedSignersFile (authoritative, not a
+# hardcoded ~/.ssh path) so `git verify-commit` trusts our SSH-signed commits
+# in-container. Empty file when unset or unreadable.
+signers_src="$(git config --type=path --get gpg.ssh.allowedSignersFile 2>/dev/null || true)"
+if [ -n "$signers_src" ] && [ -r "$signers_src" ]; then
+  cp "$signers_src" "$allowedsignersfile"
+else
+  : >"$allowedsignersfile"
 fi
 
 # Pre-create the magic ssh-agent socket placeholder on hosts where Docker
