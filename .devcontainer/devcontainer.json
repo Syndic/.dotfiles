@@ -11,7 +11,7 @@
       "upgradePackages": false
     },
     // No `python` feature: post-create.sh uses uv (see CLAUDE.md "Python 3.9 pin").
-    "ghcr.io/devcontainers/features/git:1.3.7": {},
+    "ghcr.io/devcontainers/features/git:1.3.8": {},
     "ghcr.io/devcontainers/features/github-cli:1.1.0": {},
     // Self-contained dockerd for molecule scenarios — docker-outside-of-docker
     // triggers an apt-module deserialization failure on the geerlingguy debian
