@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           # Frozen at the macOS CLT version phase2.py runs under. See the
           # "Python 3.9 pin" section in CLAUDE.md for the rationale.
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
@@ -78,7 +78,7 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           # Match the devcontainer's tooling-Python pin (`tooling_python` in
           # .devcontainer/post-create.sh) so CI and local dev exercise the
