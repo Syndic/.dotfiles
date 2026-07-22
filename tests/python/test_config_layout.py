@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -149,6 +150,47 @@ def test_macos_defaults_role_wires_layered_lists_and_dock() -> None:
     assert "geerlingguy.mac.dock" in tasks
     assert "macos_defaults_configure_dock" in tasks
     assert "macos_defaults_extras_script" in tasks
+
+
+def _renovate_config() -> dict:
+    """renovate.json is consumed only by Mend-hosted Renovate, so nothing
+    else in CI would catch a syntax error — the first symptom would be
+    silently stalled dependency updates. Parsing it here is the gate."""
+    return json.loads((REPO_ROOT / "renovate.json").read_text())
+
+
+def test_renovate_batches_non_major_updates_in_one_group() -> None:
+    """The catch-all that collapses routine bumps into a single PR. See
+    CLAUDE.md "Dependency updates" for why the axis is update type rather
+    than manager, and why pin/digest are excluded (a digest-only change is
+    a re-tag — a supply-chain signal that deserves its own PR)."""
+    rules = _renovate_config()["packageRules"]
+    catch_all = [rule for rule in rules if rule.get("groupName") == "all non-major dependencies"]
+
+    assert len(catch_all) == 1, "expected exactly one non-major catch-all rule"
+    assert catch_all[0]["matchUpdateTypes"] == ["minor", "patch"]
+
+
+def test_renovate_catch_all_rule_sorts_last() -> None:
+    """Renovate merges matching packageRules in order, last writer wins.
+    A groupName set by a later rule would beat the catch-all and split the
+    batch back out, so the catch-all has to be the final entry."""
+    rules = _renovate_config()["packageRules"]
+
+    assert rules[-1].get("groupName") == "all non-major dependencies", (
+        "the non-major catch-all must be the last packageRules entry"
+    )
+
+
+def test_renovate_catch_all_does_not_group_majors() -> None:
+    """Majors must fall through to their own branch so a breaking bump is
+    never buried in a batch of routine ones."""
+    rules = _renovate_config()["packageRules"]
+
+    for rule in rules:
+        assert "major" not in rule.get("matchUpdateTypes", []), (
+            f"rule {rule.get('groupName') or rule.get('description')!r} groups major updates"
+        )
 
 
 def test_host_brewfiles_live_under_brewfiles_hosts() -> None:

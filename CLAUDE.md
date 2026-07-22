@@ -286,7 +286,9 @@ alone, every Renovate devcontainer PR lands with a stale lock.
 so their resolved digest never drifts, and *every* upgrade — patch included —
 becomes an explicit Renovate edit to `devcontainer.json` that the regeneration
 below can react to. This is deliberate: it trades a few more (reviewed) Renovate
-PRs for a lock that never silently ages behind a floating tag.
+edits — batched into the non-major group rather than one PR each, see
+"Dependency updates" — for a lock that never silently ages behind a floating
+tag.
 
 `regenerate_devcontainer_lock.py` (repo root) closes the gap. It runs
 `devcontainer upgrade --workspace-folder <ws> --dry-run` — which resolves every
@@ -892,6 +894,45 @@ automatically; trigger from the Actions tab when you want a real-Linux
 check — a single dispatch runs both jobs in parallel. Kept in its own
 workflow file so the manual trigger doesn't entangle the `tests.yml`
 gate.
+
+## Dependency updates
+
+`renovate.json` batches **every non-major update into one PR** via a
+catch-all `packageRule` (`matchUpdateTypes: [minor, patch]`, groupName
+`all non-major dependencies`). Majors don't match it, so each lands on
+its own branch and gets reviewed alone.
+
+Grouping is by **update type, not by manager**. Manager is the wrong axis:
+what decides whether a bump is safe to merge is how far it moves the
+version, not which tool parses the file — so a manager-axis grouping
+re-fragments every time a new pin style is added. Before this rule
+existed there was no grouping at all, and the uv docker tag alone
+accounted for 11 of the repo's first 24 Renovate PRs.
+
+Two things about the rule are load-bearing:
+
+- **It must stay last in `packageRules`.** Renovate merges matching rules
+  in order, last writer wins, and preset rules from `config:recommended`
+  merge in *ahead* of the repo's own. A `groupName` set by an earlier rule
+  would otherwise beat the catch-all and split the batch back out. (Today
+  the only sibling rule sets `enabled` alone, which the catch-all never
+  overwrites — so order is currently belt-and-braces, not a live
+  dependency. Don't rely on that staying true.)
+- **It's written out rather than pulled in as `group:allNonMajor`.** A
+  preset's `packageRules` merge ahead of the repo's, which would put the
+  catch-all *first* and let any repo rule override it.
+
+`pin` and `digest` are deliberately **not** in `matchUpdateTypes`. A digest
+update means a re-tag — the same version string resolving to a new SHA —
+which is the supply-chain signal worth its own PR, not something to bury in
+a batch of routine bumps.
+
+The trade-off accepted: one bad dependency blocks the rest of the batch.
+Reversible in a one-line edit if that ever bites.
+
+Two Renovate-adjacent mechanisms have their own sections: the devcontainer
+feature pinning policy and lock regeneration under "Devcontainer lock
+regeneration", and the frozen-vs-tracked Python pins under "Python 3.9 pin".
 
 ## Conventions
 

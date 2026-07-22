@@ -14,6 +14,12 @@
       "matchDepNames": ["python"],
       "matchFileNames": [".github/workflows/tests.yml"],
       "enabled": false
+    },
+    {
+      "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch"
     }
   ],
   "customManagers": [
