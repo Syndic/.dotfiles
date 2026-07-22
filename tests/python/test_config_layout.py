@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 
@@ -157,6 +158,83 @@ def _renovate_config() -> dict:
     else in CI would catch a syntax error — the first symptom would be
     silently stalled dependency updates. Parsing it here is the gate."""
     return json.loads((REPO_ROOT / "renovate.json").read_text())
+
+
+# `uses: owner/repo[/path]@<40-hex sha> # v<major>.<minor>.<patch>`. The version
+# comment is what Renovate reads to compute the next update, so all three
+# components are required — see the assertion's docstring.
+_PINNED_USES_RE = re.compile(
+    r"uses:\s+(?P<action>[\w.-]+/[\w./-]+)@(?P<ref>\S+)(?:\s+#\s*(?P<version>\S+))?"
+)
+_FULL_SEMVER_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+# The one `uses:` that floats by design; renovate.json carries the matching
+# `pinDigests: false` carve-out. See CLAUDE.md "Devcontainer lock regeneration".
+_UNPINNED_ACTION_ALLOWLIST = {"Syndic/unnatural_designs/.github/actions/commit-file-via-app"}
+
+
+def test_workflow_actions_are_sha_pinned_to_full_semver() -> None:
+    """Every `uses:` must be a 40-hex commit SHA with a full three-component
+    version comment.
+
+    The SHA is what Actions resolves — a tag is mutable, a commit is not.
+    The comment must carry all three components because a bare-major comment
+    (`# v7`) tracks the floating `v7` tag: every `v7.x` release then moves the
+    SHA under a fixed version string, which Renovate reports as a `digest`
+    update and which renovate.json's catch-all deliberately does not batch.
+    Routine upgrades would arrive wearing a supply-chain signal's clothing.
+
+    This can't self-heal — under `helpers:pinGitHubActionDigestsToSemver`'s
+    versioning regex, minor and patch are optional, so `v7` and `v7.0.0`
+    compare equal and Renovate never offers the rewrite. A hand-written `@v7`
+    stays wrong until a human notices, which is why this is a test."""
+    workflows = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+    assert workflows, "no workflows found — did the path move?"
+
+    problems = []
+    seen = 0
+    for workflow in workflows:
+        for lineno, line in enumerate(workflow.read_text().splitlines(), start=1):
+            match = _PINNED_USES_RE.search(line)
+            if not match:
+                continue
+            seen += 1
+            action, ref, version = match.group("action", "ref", "version")
+            if action in _UNPINNED_ACTION_ALLOWLIST:
+                continue
+            where = f"{workflow.name}:{lineno} {action}"
+            if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                problems.append(f"{where} is not pinned to a 40-hex SHA (got @{ref})")
+            elif version is None:
+                problems.append(f"{where} has no `# <version>` comment")
+            elif not _FULL_SEMVER_RE.match(version):
+                problems.append(f"{where} comment `# {version}` is not full semver (want vX.Y.Z)")
+
+    assert not problems, "\n".join(problems)
+    assert seen >= len(workflows), "regex matched suspiciously few `uses:` lines"
+
+
+def test_renovate_pins_action_digests_to_semver() -> None:
+    """The preset is what keeps the version comments accurate through
+    updates. Without it the pins are still valid but go stale silently."""
+    assert "helpers:pinGitHubActionDigestsToSemver" in _renovate_config()["extends"]
+
+
+def test_renovate_exempts_the_floating_cross_repo_action() -> None:
+    """The allowlisted `@main` action needs a matching carve-out, or the
+    preset's `pinDigests: true` would SHA-pin it and quietly reverse a
+    documented decision. (Renovate does pin branch refs, not just tags — it
+    routes them to the github-digest datasource.)"""
+    rules = _renovate_config()["packageRules"]
+    carve_outs = [rule for rule in rules if rule.get("pinDigests") is False]
+
+    assert len(carve_outs) == 1, "expected exactly one pinDigests carve-out"
+    patterns = set(carve_outs[0]["matchPackageNames"])
+    # Renovate's github-actions manager strips the subpath: an action at
+    # `owner/repo/some/path@ref` gets packageName `owner/repo`. Match on that.
+    for allowed in _UNPINNED_ACTION_ALLOWLIST:
+        owner_repo = "/".join(allowed.split("/")[:2])
+        assert owner_repo in patterns, f"carve-out {patterns} doesn't cover {owner_repo}"
 
 
 def test_renovate_batches_non_major_updates_in_one_group() -> None:
