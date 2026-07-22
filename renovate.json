@@ -22,6 +22,18 @@
       "pinDigests": false
     },
     {
+      "description": "Join digest updates on deliberately-floating base image tags to the non-major batch. On a floating tag a moving digest IS the routine update mechanism, not a re-tag, so the solo-PR treatment digests get by default would be pure noise. Immutable version tags keep that default. See CLAUDE.md's 'Base image pins' section.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "geerlingguy/docker-debian12-ansible",
+        "mcr.microsoft.com/devcontainers/base",
+        "debian"
+      ],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch"
+    },
+    {
       "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major dependencies",
@@ -29,6 +41,14 @@
     }
   ],
   "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the molecule scenarios' base image. molecule.yml is not a file any built-in manager parses, so without this the pinned digest would never be refreshed and the scenarios would silently rot on a fixed image.",
+      "managerFilePatterns": ["/^roles/[^/]+/molecule/[^/]+/molecule\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*image: [^\\s:]+:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ]
+    },
     {
       "customType": "regex",
       "description": "Keep the devcontainer's tooling-Python pin (`tooling_python` in post-create.sh) current. Only the annotated assignment is matched, so the frozen 3.9.6 in the same file is never touched.",

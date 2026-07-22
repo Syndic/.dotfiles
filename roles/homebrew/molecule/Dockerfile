@@ -21,7 +21,8 @@
 # Scenarios connect ansible as this user via `ansible_user: linuxbrew` in
 # each molecule.yml. No sudo: the homebrew role has no `become:` and the
 # converges never escalate.
-FROM debian:bookworm-slim
+# Digest-pinned: `bookworm-slim` floats as Debian ships point releases.
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

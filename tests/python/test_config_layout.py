@@ -238,15 +238,88 @@ def test_renovate_exempts_the_floating_cross_repo_action() -> None:
 
 
 def test_renovate_batches_non_major_updates_in_one_group() -> None:
-    """The catch-all that collapses routine bumps into a single PR. See
-    CLAUDE.md "Dependency updates" for why the axis is update type rather
-    than manager, and why pin/digest are excluded (a digest-only change is
-    a re-tag — a supply-chain signal that deserves its own PR)."""
+    """The catch-all that collapses routine minor/patch bumps into a single
+    PR. Identified by its matcher, not its groupName — the base-image digest
+    rule shares the groupName to land in the same batch (see that test). See
+    CLAUDE.md "Dependency updates" for why the axis is update type, and why
+    digest is excluded from the catch-all by default (a moving digest on an
+    immutable version tag is a re-tag — a supply-chain signal that deserves
+    its own PR)."""
     rules = _renovate_config()["packageRules"]
-    catch_all = [rule for rule in rules if rule.get("groupName") == "all non-major dependencies"]
+    catch_all = [rule for rule in rules if rule.get("matchUpdateTypes") == ["minor", "patch"]]
 
-    assert len(catch_all) == 1, "expected exactly one non-major catch-all rule"
-    assert catch_all[0]["matchUpdateTypes"] == ["minor", "patch"]
+    assert len(catch_all) == 1, "expected exactly one minor/patch catch-all rule"
+    assert catch_all[0]["groupName"] == "all non-major dependencies"
+
+
+def test_renovate_batches_floating_base_image_digests() -> None:
+    """The three base images pinned to a floating tag + digest (see CLAUDE.md
+    "Base image pins") get their digest updates funneled into the same batch
+    as routine bumps — on a floating tag a moving digest IS the update
+    mechanism, so a solo PR per digest would be noise. The rule must share the
+    catch-all's groupName and be scoped to digest updates on exactly those
+    packages, so an immutable-tag image elsewhere still gets the default
+    solo-PR treatment."""
+    rules = _renovate_config()["packageRules"]
+    digest_rules = [
+        rule
+        for rule in rules
+        if rule.get("matchUpdateTypes") == ["digest"]
+        and rule.get("groupName") == "all non-major dependencies"
+    ]
+
+    assert len(digest_rules) == 1, "expected exactly one base-image digest-batching rule"
+    assert digest_rules[0]["matchDatasources"] == ["docker"]
+    assert set(digest_rules[0]["matchPackageNames"]) == {
+        "geerlingguy/docker-debian12-ansible",
+        "mcr.microsoft.com/devcontainers/base",
+        "debian",
+    }
+
+
+def test_renovate_custom_manager_tracks_molecule_images() -> None:
+    """molecule.yml is parsed by no built-in Renovate manager, so without a
+    customManager the pinned digests would never refresh and the scenarios
+    would silently rot on a fixed image. Assert the manager exists and its
+    matchStrings capture the four groups Renovate needs to resolve and rewrite
+    a digest: datasource, depName, currentValue (the tag), currentDigest."""
+    managers = _renovate_config()["customManagers"]
+    molecule_mgrs = [
+        m for m in managers if any("molecule" in p for p in m.get("managerFilePatterns", []))
+    ]
+
+    assert len(molecule_mgrs) == 1, "expected one molecule.yml customManager"
+    match_string = molecule_mgrs[0]["matchStrings"][0]
+    for group in ("?<datasource>", "?<depName>", "?<currentValue>", "?<currentDigest>"):
+        assert group in match_string, f"matchStrings missing capture group {group}"
+
+
+def test_molecule_base_images_are_digest_pinned() -> None:
+    """Every registry-pulled molecule image must carry a @sha256 digest, and
+    every digest-pinned line must sit under a `# renovate:` annotation the
+    customManager keys on (an unannotated pin would freeze forever). The
+    homebrew scenarios are exempt — they reference a locally-built
+    `:local` tag, not a registry image."""
+    scenarios = sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml"))
+    assert scenarios, "no molecule scenarios found — did the layout move?"
+
+    problems = []
+    for scenario in scenarios:
+        lines = scenario.read_text().splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if not stripped.startswith("image:"):
+                continue
+            image = stripped[len("image:") :].strip()
+            if image.endswith(":local"):
+                continue  # locally-built homebrew base, not registry-pulled
+            rel = scenario.relative_to(REPO_ROOT)
+            if "@sha256:" not in image:
+                problems.append(f"{rel}:{lineno} registry image not digest-pinned: {image}")
+            elif "# renovate:" not in lines[lineno - 2]:
+                problems.append(f"{rel}:{lineno} digest pin lacks a preceding `# renovate:` annotation")
+
+    assert not problems, "\n".join(problems)
 
 
 def test_renovate_catch_all_rule_sorts_last() -> None:
