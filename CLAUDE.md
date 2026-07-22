@@ -323,7 +323,9 @@ the regenerated lock back onto the PR branch. The commit is made by the
 `Syndic/unnatural_designs` repo** (`@main` — that repo has no tags to pin-track,
 and the user owns it and keeps it stable). Floating on `@main` means changes to
 the action reach this repo without review; the failure mode is a red check on
-the next Renovate devcontainer PR, not a silent break. The action's README (in
+the next Renovate devcontainer PR, not a silent break. It is the one `uses:` in
+the repo that isn't SHA-pinned — a `pinDigests: false` carve-out keeps it that
+way; see "GitHub Action pins". The action's README (in
 `unnatural_designs`, beside its `action.yml`) documents the input surface as a
 public contract and lists this repo as a consumer. That action commits via the
 GraphQL `createCommitOnBranch` mutation with a GitHub-App token, which is
@@ -933,6 +935,35 @@ Reversible in a one-line edit if that ever bites.
 Two Renovate-adjacent mechanisms have their own sections: the devcontainer
 feature pinning policy and lock regeneration under "Devcontainer lock
 regeneration", and the frozen-vs-tracked Python pins under "Python 3.9 pin".
+
+### GitHub Action pins
+
+Every `uses:` under `.github/` is SHA-pinned with a **full three-component
+semver comment** — `actions/checkout@3d3c42e5… # v7.0.1`. The SHA is what
+Actions resolves (a tag is mutable; a commit is not); the comment is what
+Renovate reads to compute the next version, and what a human reads to know
+what's pinned. `helpers:pinGitHubActionDigestsToSemver` in `extends` is what
+keeps the comment accurate through updates.
+
+**The comment must carry all three components.** A bare-major comment
+(`# v7`) tracks the *floating* `v7` tag, so every `v7.x` release moves the
+SHA underneath a fixed version string — which Renovate reports as a `digest`
+update. Since `digest` is excluded from the non-major batch (above), that
+turns every routine upgrade into its own PR wearing a supply-chain signal's
+clothing, which is precisely backwards.
+
+**It does not self-heal.** The preset's versioning regex makes minor and
+patch optional, so `v7` and `v7.0.0` compare *equal* and Renovate never
+offers the rewrite. The preset can keep a full-semver comment accurate
+through updates; it cannot expand one after the initial pin. So a
+hand-written `uses:` that lands as `@v7` stays wrong until someone notices.
+`test_workflow_actions_are_sha_pinned_to_full_semver` is the guard — adding
+an action with a bare-major or 2-component comment fails the python suite.
+
+One deliberate exception: the cross-repo `commit-file-via-app` action floats
+on `@main` (see "Devcontainer lock regeneration" for why), so a
+`pinDigests: false` carve-out in `renovate.json` exempts it and the test
+allowlists it.
 
 ## Conventions
 

@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":dependencyDashboard"
+    ":dependencyDashboard",
+    "helpers:pinGitHubActionDigestsToSemver"
   ],
   "gitIgnoredAuthors": [
     "294636956+unnatural-designs-renovate-helper[bot]@users.noreply.github.com"
@@ -14,6 +15,11 @@
       "matchDepNames": ["python"],
       "matchFileNames": [".github/workflows/tests.yml"],
       "enabled": false
+    },
+    {
+      "description": "Keep the cross-repo commit-file-via-app action floating on @main; helpers:pinGitHubActionDigestsToSemver would otherwise SHA-pin it. Deliberate — see CLAUDE.md's 'Devcontainer lock regeneration' section.",
+      "matchPackageNames": ["Syndic/unnatural_designs"],
+      "pinDigests": false
     },
     {
       "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
