@@ -965,6 +965,45 @@ on `@main` (see "Devcontainer lock regeneration" for why), so a
 `pinDigests: false` carve-out in `renovate.json` exempts it and the test
 allowlists it.
 
+### Base image pins
+
+Every registry-pulled container base is pinned to a **digest**, not a bare
+tag: `.devcontainer/Dockerfile` (`mcr.microsoft.com/devcontainers/base:debian`
+and the `COPY --from` uv image), `roles/homebrew/molecule/Dockerfile`
+(`debian:bookworm-slim`), and the five non-homebrew molecule scenarios
+(`geerlingguy/docker-debian12-ansible:latest`). The tag stays for
+readability; the `@sha256:…` is what actually makes the pull reproducible.
+`test_molecule_base_images_are_digest_pinned` enforces this for the molecule
+scenarios (the homebrew scenarios are exempt — they reference a locally-built
+`:local` image, not a registry pull).
+
+Two of these can't be pinned any other way: `geerlingguy/docker-debian12-
+ansible` publishes **only** a `latest` tag, and the devcontainer/molecule
+Debian bases float by design as point releases ship. So the digest is the
+sole stable handle — without it a rebuilt `latest` silently changes the test
+substrate, which is the failure mode already recorded under "Homebrew
+molecule scenarios" (a stale base turned the gates scenario red).
+
+The Renovate wiring is two parts:
+
+- **A `customManager`** matching `roles/*/molecule/*/molecule.yml`. That file
+  is parsed by no built-in manager, so without it the pinned digest would
+  freeze forever. It keys on a `# renovate:` annotation above each `image:`
+  line and captures datasource / depName / tag / digest. The Dockerfile pins
+  need no customManager — Renovate's `dockerfile` manager already reads
+  `FROM` and `COPY --from`.
+- **A digest-batching `packageRule`** that funnels digest updates on these
+  three packages into the `all non-major dependencies` batch. This is the
+  one deliberate crack in "digest gets its own PR" (see "Dependency
+  updates"): on a *floating* tag a moving digest is the routine update
+  mechanism, not a re-tag, so a solo PR per digest would be pure noise. The
+  rule is scoped to exactly these package names by design — an immutable
+  version tag (say a future `debian:12.11`) keeps the default solo-PR digest
+  treatment, because there a moving digest really would be a re-tag worth its
+  own review. The rule shares the catch-all's `groupName` and sits *before*
+  it; both assign the same group, so order between them is immaterial (the
+  catch-all's minor/patch matcher never matches a digest anyway).
+
 ## Conventions
 
 - Output helpers exist in both bash (`announce`, `info`, `die` — all write
