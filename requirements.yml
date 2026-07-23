@@ -1,8 +1,11 @@
 ---
-# Ansible Galaxy collection dependencies.
+# Runtime Ansible Galaxy collection dependencies — what the playbook needs.
 # Installed by phase2.py's install_galaxy_requirements() step, which runs
 # `ansible-galaxy collection install -r requirements.yml` after Ansible
 # itself is on the box and before the playbook runs.
+#
+# Test-only collections live in requirements-dev.yml; see CLAUDE.md
+# "Galaxy collections come from requirements files, not a bundle".
 #
 # Unpinned by design — matches the Brewfile convention in this repo
 # (no version pins on shared tooling). If a Galaxy update ever breaks a
