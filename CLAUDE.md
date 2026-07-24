@@ -991,7 +991,16 @@ The Renovate wiring is two parts:
   freeze forever. It keys on a `# renovate:` annotation above each `image:`
   line and captures datasource / depName / tag / digest. The Dockerfile pins
   need no customManager — Renovate's `dockerfile` manager already reads
-  `FROM` and `COPY --from`.
+  `FROM` and `COPY --from`. It **must** set `versioningTemplate: docker`: a
+  customManager with no `versioning` capture group and no template defaults to
+  `semver-coerced`, and the `latest` tag can't be coerced to semver — which
+  silently suppresses the digest update while the dependency still shows as
+  detected on the dashboard. This exact bug shipped (the `versioningTemplate`
+  was simply omitted) and was caught only because the #107 canary forced a
+  real Renovate run; `test_renovate_custom_manager_tracks_molecule_images`
+  now guards it. The built-in `dockerfile` manager doesn't need this — it
+  defaults to `docker` versioning for the same images, which is why the
+  debian/uv digest pins updated correctly while the molecule ones didn't.
 - **A digest-batching `packageRule`** that funnels digest updates on these
   three packages into the `all non-major dependencies` batch. This is the
   one deliberate crack in "digest gets its own PR" (see "Dependency

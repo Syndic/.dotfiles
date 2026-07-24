@@ -282,16 +282,34 @@ def test_renovate_custom_manager_tracks_molecule_images() -> None:
     customManager the pinned digests would never refresh and the scenarios
     would silently rot on a fixed image. Assert the manager exists and its
     matchStrings capture the four groups Renovate needs to resolve and rewrite
-    a digest: datasource, depName, currentValue (the tag), currentDigest."""
+    a digest: datasource, depName, currentValue (the tag), currentDigest.
+
+    Also assert versioningTemplate is `docker`. A customManager with no
+    versioning capture group and no versioningTemplate defaults to
+    `semver-coerced` (per Renovate's regex-manager docs), and the `latest`
+    tag can't be coerced to semver — which silently suppresses the digest
+    update while the dashboard still lists the dependency as detected. That
+    failure shipped in #106 and was caught by the #107 canary; this assertion
+    is the regression guard."""
     managers = _renovate_config()["customManagers"]
     molecule_mgrs = [
         m for m in managers if any("molecule" in p for p in m.get("managerFilePatterns", []))
     ]
 
     assert len(molecule_mgrs) == 1, "expected one molecule.yml customManager"
-    match_string = molecule_mgrs[0]["matchStrings"][0]
+    manager = molecule_mgrs[0]
+    match_string = manager["matchStrings"][0]
     for group in ("?<datasource>", "?<depName>", "?<currentValue>", "?<currentDigest>"):
         assert group in match_string, f"matchStrings missing capture group {group}"
+    # No `versioning` capture group in the regex, so the template is the only
+    # source — it must be set, and to docker (not the semver-coerced default).
+    assert "?<versioning>" not in match_string, (
+        "unexpected versioning capture group — the assertion below assumes the template is authoritative"
+    )
+    assert manager.get("versioningTemplate") == "docker", (
+        "molecule customManager must set versioningTemplate=docker; without it Renovate "
+        "defaults to semver-coerced and silently drops the digest update on the `latest` tag"
+    )
 
 
 def test_molecule_base_images_are_digest_pinned() -> None:

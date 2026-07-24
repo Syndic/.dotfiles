@@ -43,11 +43,12 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track the molecule scenarios' base image. molecule.yml is not a file any built-in manager parses, so without this the pinned digest would never be refreshed and the scenarios would silently rot on a fixed image.",
+      "description": "Track the molecule scenarios' base image. molecule.yml is not a file any built-in manager parses, so without this the pinned digest would never be refreshed and the scenarios would silently rot on a fixed image. versioningTemplate is docker (NOT the customManager default semver-coerced) — the `latest` tag can't be coerced to semver, which silently suppresses the digest update. See CLAUDE.md's 'Base image pins' section.",
       "managerFilePatterns": ["/^roles/[^/]+/molecule/[^/]+/molecule\\.yml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*image: [^\\s:]+:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
-      ]
+      ],
+      "versioningTemplate": "docker"
     },
     {
       "customType": "regex",
