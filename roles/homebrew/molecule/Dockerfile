@@ -22,7 +22,7 @@
 # each molecule.yml. No sudo: the homebrew role has no `become:` and the
 # converges never escalate.
 # Digest-pinned: `bookworm-slim` floats as Debian ships point releases.
-FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
