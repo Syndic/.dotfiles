@@ -20,7 +20,7 @@ jobs:
           # Frozen at the macOS CLT version phase2.py runs under. See the
           # "Python 3.9 pin" section in CLAUDE.md for the rationale.
           python-version: '3.9'
-      - run: pip install pytest
+      - run: pip install -r test-requirements.txt
       - run: pytest tests/python -v
 
   bash:
@@ -44,7 +44,7 @@ jobs:
         with:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      - run: pip install yamllint ansible-lint
+      - run: pip install -r lint-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
       - run: ansible-lint
@@ -86,11 +86,7 @@ jobs:
           # in renovate.json.
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      # ansible-core, not the full `ansible` bundle — see CLAUDE.md "Galaxy
-      # collections come from requirements files, not a bundle". docker +
-      # requests are the Python libs community.docker's container modules
-      # import; they're not pulled in by molecule itself.
-      - run: pip install ansible-core molecule 'molecule-plugins[docker]' docker requests
+      - run: pip install -r molecule-requirements.txt
       # Scenarios converge the real roles, so the runtime collections are
       # needed here too. Mirrors .devcontainer/post-create.sh.
       - run: ansible-galaxy collection install -r requirements.yml

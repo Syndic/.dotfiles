@@ -67,6 +67,14 @@
     },
     {
       "customType": "regex",
+      "description": "Keep the devcontainer's pre-commit pin (`pre_commit_version` in post-create.sh) current. Installed via `uv tool install`, which reads no requirements file, so the version is pinned inline like tooling_python.",
+      "managerFilePatterns": ["/^\\.devcontainer/post-create\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*pre_commit_version='(?<currentValue>[^']+)'"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Keep the molecule CI job's Python pin (`python-version` under setup-python) current — should track the devcontainer's `tooling_python` (post-create.sh) so local dev and CI agree on the interpreter.",
       "managerFilePatterns": ["/^\\.github/workflows/tests\\.yml$/"],
       "matchStrings": [

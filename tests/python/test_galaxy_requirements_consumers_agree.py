@@ -13,6 +13,12 @@ in a different file and language:
 Plus the scoping asymmetry: `phase2.py` installs the runtime file only,
 so a user's machine never downloads molecule's docker-driver collections.
 
+This file also guards the repo-wide pin stance (CLAUDE.md "Dependency
+updates") on the dependency surfaces it can see in plain text: every
+Galaxy collection and every pip requirement carries a version, and the
+two consumers install pip tooling from the pinned `*-requirements.txt`
+files rather than naming bare packages inline.
+
 Plain string parsing — `~/.venv` carries pytest + pytest-cov only; no
 PyYAML. See test_molecule_role_lists_agree.py for the same precedent."""
 
@@ -60,6 +66,26 @@ def _pip_install_lines(path: Path) -> list:
     ]
 
 
+def _pip_requirements_files() -> list:
+    """Root-level pinned pip requirements (`*-requirements.txt`)."""
+    return sorted(REPO_ROOT.glob("*-requirements.txt"))
+
+
+def _pip_pins(path: Path) -> list:
+    """(name, pinned) for each requirement line, comments/blanks dropped.
+
+    `name` is the requirement up to the first version/extra delimiter, so
+    `molecule-plugins[docker]==26.7.15` yields `molecule-plugins`."""
+    out = []
+    for raw in path.read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        name = re.split(r"[=<>!~\[]", line, maxsplit=1)[0].strip()
+        out.append((name, "==" in line))
+    return out
+
+
 def _collection_entries(path: Path) -> list:
     """(name, pinned) for every collection entry in a requirements file.
 
@@ -89,6 +115,32 @@ def test_every_collection_is_version_pinned() -> None:
         assert entries, f"{name}: no collection entries parsed"
         unpinned = [coll for coll, pinned in entries if not pinned]
         assert not unpinned, f"{name}: collections missing a version pin: {unpinned}"
+
+
+def test_every_pip_requirement_is_pinned() -> None:
+    # Same stance as the collections above, for the pip tooling files.
+    files = _pip_requirements_files()
+    assert files, "no *-requirements.txt files found"
+    for path in files:
+        pins = _pip_pins(path)
+        assert pins, f"{path.name}: no requirements parsed"
+        unpinned = [name for name, pinned in pins if not pinned]
+        assert not unpinned, f"{path.name}: requirements missing a == pin: {unpinned}"
+
+
+def test_consumers_install_pip_tooling_from_requirements_files() -> None:
+    # Every pip install in the devcontainer and CI must go through a pinned
+    # requirements file (`-r`), never bare package names — that's what keeps
+    # the pins authoritative. Inline `uv tool install pre-commit==X` is not a
+    # `pip install`, so it's out of scope here (pinned + Renovate-managed via
+    # the customManager in renovate.json).
+    for path in (POST_CREATE, TESTS_YML):
+        for line in _pip_install_lines(path):
+            assert "-r " in line, (
+                f"{path.relative_to(REPO_ROOT)} installs bare packages; move "
+                f"them into a pinned *-requirements.txt and use `-r`:\n  "
+                f"{line.strip()}"
+            )
 
 
 def test_post_create_installs_every_requirements_file() -> None:
@@ -122,7 +174,9 @@ def test_phase2_installs_only_the_runtime_requirements_file() -> None:
 def test_no_consumer_installs_the_full_ansible_bundle() -> None:
     # The regression this whole file exists for: `ansible` ships ~100
     # collections in its own site-packages, which then shadow-or-duplicate
-    # whatever ansible-galaxy puts in ~/.ansible/collections.
+    # whatever ansible-galaxy puts in ~/.ansible/collections. Now that pip
+    # installs go through requirements files, the bundle would sneak in
+    # there rather than on a command line — scan both.
     for path in (POST_CREATE, TESTS_YML):
         for line in _pip_install_lines(path):
             assert not BUNDLE_RE.search(line), (
@@ -130,3 +184,8 @@ def test_no_consumer_installs_the_full_ansible_bundle() -> None:
                 f"bundle; use `ansible-core` and declare collections in a "
                 f"requirements file:\n  {line.strip()}"
             )
+    for path in _pip_requirements_files():
+        bundle = [name for name, _ in _pip_pins(path) if name == "ansible"]
+        assert not bundle, (
+            f"{path.name} pins the full `ansible` bundle; use `ansible-core`"
+        )

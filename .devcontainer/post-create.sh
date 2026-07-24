@@ -16,18 +16,21 @@ tooling_python='3.14'
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
+# All pip installs come from pinned requirements files (Renovate-managed).
+# ansible-core, not `ansible` — the bundle's collections would be a second
+# resolution root. See CLAUDE.md "Galaxy collections come from requirements
+# files, not a bundle" and "Dependency updates".
 setup_test_env() {
   uv venv --python 3.9.6 "$HOME/.venv"
-  uv pip install --python "$HOME/.venv/bin/python" pytest pytest-cov
+  uv pip install --python "$HOME/.venv/bin/python" -r "$repo_root/test-requirements.txt"
 }
 
 setup_ansible_env() {
   uv venv --python "$tooling_python" "$HOME/.venv-ansible"
-  # ansible-core, not `ansible` — the bundle's collections would be a second
-  # resolution root. See CLAUDE.md "Galaxy collections come from requirements
-  # files, not a bundle".
+  # One venv holds both the lint and molecule stacks, so install both files.
   uv pip install --python "$HOME/.venv-ansible/bin/python" \
-    ansible-core ansible-lint yamllint molecule 'molecule-plugins[docker]' docker requests
+    -r "$repo_root/lint-requirements.txt" \
+    -r "$repo_root/molecule-requirements.txt"
 
   # Runtime collections (mirrors phase2.install_galaxy_requirements()) plus the
   # test-only ones molecule's docker driver needs.
@@ -36,7 +39,9 @@ setup_ansible_env() {
 }
 
 setup_precommit() {
-  uv tool install --python "$tooling_python" pre-commit
+  # renovate: datasource=pypi depName=pre-commit
+  pre_commit_version='4.6.1'
+  uv tool install --python "$tooling_python" "pre-commit==${pre_commit_version}"
 }
 
 # set -e doesn't propagate from backgrounded jobs — capture PIDs, OR exit codes.
