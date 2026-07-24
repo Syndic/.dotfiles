@@ -20,7 +20,7 @@ driver:
 platforms:
   - name: flatpak-instance
     # renovate: datasource=docker depName=geerlingguy/docker-debian12-ansible
-    image: geerlingguy/docker-debian12-ansible:latest@sha256:38d6ad4f768d12011664dd5b83b5836b3d0cbe77b1aa17c96c29d6fe2631e59a
+    image: geerlingguy/docker-debian12-ansible:latest@sha256:af3173ea26264fc34c5a45bc97142c8530e6fc7c89744bb10143f03b2070f1b3
     pre_build_image: true
     privileged: true
     cgroupns_mode: host

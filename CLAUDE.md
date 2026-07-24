@@ -993,14 +993,10 @@ The Renovate wiring is two parts:
   need no customManager — Renovate's `dockerfile` manager already reads
   `FROM` and `COPY --from`. It **must** set `versioningTemplate: docker`: a
   customManager with no `versioning` capture group and no template defaults to
-  `semver-coerced`, and the `latest` tag can't be coerced to semver — which
-  silently suppresses the digest update while the dependency still shows as
-  detected on the dashboard. This exact bug shipped (the `versioningTemplate`
-  was simply omitted) and was caught only because the #107 canary forced a
-  real Renovate run; `test_renovate_custom_manager_tracks_molecule_images`
-  now guards it. The built-in `dockerfile` manager doesn't need this — it
-  defaults to `docker` versioning for the same images, which is why the
-  debian/uv digest pins updated correctly while the molecule ones didn't.
+  `semver-coerced`, which is the wrong scheme for a docker image tag (a bare
+  `latest` is not a semver version). The built-in `dockerfile` manager defaults
+  to `docker` for the same images; the customManager has to be told.
+  `test_renovate_custom_manager_tracks_molecule_images` guards the setting.
 - **A digest-batching `packageRule`** that funnels digest updates on these
   three packages into the `all non-major dependencies` batch. This is the
   one deliberate crack in "digest gets its own PR" (see "Dependency
@@ -1012,6 +1008,28 @@ The Renovate wiring is two parts:
   own review. The rule shares the catch-all's `groupName` and sits *before*
   it; both assign the same group, so order between them is immaterial (the
   catch-all's minor/patch matcher never matches a digest anyway).
+
+**Pin the multi-platform *index* digest, never a single-arch *child*.** A
+docker `@sha256:` can name either a manifest *list* (index — one digest
+covering every platform, each host selecting its own child at pull time) or a
+single arch's *child* manifest. They are indistinguishable by string; check
+with `docker buildx imagetools inspect <ref>@<digest> --raw` and read
+`mediaType` (`…index.v1+json` / `…manifest.list.v2+json` = index;
+`…manifest.v1+json` / `…manifest.v2+json` = child). A child pin locks the
+scenario to one architecture: an amd64 child pulls fine but fails
+`exec format error` on an arm64 host without amd64 emulation — e.g. a dev's
+Apple-Silicon devcontainer, whose DinD daemon is arm64. CI (amd64 runners)
+wouldn't notice, which is how it hides. Renovate will **not** heal it: its
+docker datasource reads the *current* digest's architecture and re-pins the
+same-arch child on every bump when it finds one, or tracks the index when it
+doesn't — so the pin's kind is sticky and must be set right by hand. This bit
+us once: the #107 canary rewrote these pins to the amd64 child (there was no
+retrievable historical *index* digest for geerlingguy's single `latest` tag),
+Renovate then arch-matched `latest` straight back to that same child and
+reported no update — a false "not managed" that was really "correctly
+unchanged". `test_molecule_images_pin_index_not_child_digest` classifies each
+pin against the registry (skips offline, enforced in CI) so a child digest
+can't slip back in behind a passing `@sha256`-present check.
 
 ## Conventions
 

@@ -302,14 +302,29 @@ def test_renovate_custom_manager_tracks_molecule_images() -> None:
     for group in ("?<datasource>", "?<depName>", "?<currentValue>", "?<currentDigest>"):
         assert group in match_string, f"matchStrings missing capture group {group}"
     # No `versioning` capture group in the regex, so the template is the only
-    # source — it must be set, and to docker (not the semver-coerced default).
+    # source — it must be set, and to docker. The customManager default is
+    # `semver-coerced`, which is the wrong scheme for a docker image tag (a bare
+    # `latest` is not a semver version). See CLAUDE.md "Base image pins".
     assert "?<versioning>" not in match_string, (
         "unexpected versioning capture group — the assertion below assumes the template is authoritative"
     )
     assert manager.get("versioningTemplate") == "docker", (
-        "molecule customManager must set versioningTemplate=docker; without it Renovate "
-        "defaults to semver-coerced and silently drops the digest update on the `latest` tag"
+        "molecule customManager must set versioningTemplate=docker; the customManager "
+        "default semver-coerced is the wrong scheme for a docker image tag"
     )
+
+
+def _molecule_image_lines():
+    """Yield (relpath, lineno, prev_line, image_ref) for every `image:` line in
+    the molecule scenarios. Shared by the digest-pin and index-digest guards."""
+    for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
+        lines = scenario.read_text().splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if stripped.startswith("image:"):
+                image = stripped[len("image:") :].strip()
+                prev = lines[lineno - 2] if lineno >= 2 else ""
+                yield scenario.relative_to(REPO_ROOT), lineno, prev, image
 
 
 def test_molecule_base_images_are_digest_pinned() -> None:
@@ -318,26 +333,95 @@ def test_molecule_base_images_are_digest_pinned() -> None:
     customManager keys on (an unannotated pin would freeze forever). The
     homebrew scenarios are exempt — they reference a locally-built
     `:local` tag, not a registry image."""
-    scenarios = sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml"))
-    assert scenarios, "no molecule scenarios found — did the layout move?"
+    rows = list(_molecule_image_lines())
+    assert rows, "no molecule image lines found — did the layout move?"
 
     problems = []
-    for scenario in scenarios:
-        lines = scenario.read_text().splitlines()
-        for lineno, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if not stripped.startswith("image:"):
-                continue
-            image = stripped[len("image:") :].strip()
-            if image.endswith(":local"):
-                continue  # locally-built homebrew base, not registry-pulled
-            rel = scenario.relative_to(REPO_ROOT)
-            if "@sha256:" not in image:
-                problems.append(f"{rel}:{lineno} registry image not digest-pinned: {image}")
-            elif "# renovate:" not in lines[lineno - 2]:
-                problems.append(f"{rel}:{lineno} digest pin lacks a preceding `# renovate:` annotation")
+    for rel, lineno, prev, image in rows:
+        if image.endswith(":local"):
+            continue  # locally-built homebrew base, not registry-pulled
+        if "@sha256:" not in image:
+            problems.append(f"{rel}:{lineno} registry image not digest-pinned: {image}")
+        elif "# renovate:" not in prev:
+            problems.append(f"{rel}:{lineno} digest pin lacks a preceding `# renovate:` annotation")
 
     assert not problems, "\n".join(problems)
+
+
+# Manifest media types: a multi-platform *index* (manifest list) vs a
+# single-arch *child* image manifest.
+_INDEX_MEDIA_TYPES = frozenset(
+    {
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    }
+)
+_CHILD_MEDIA_TYPES = frozenset(
+    {
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    }
+)
+
+
+def _docker_hub_manifest_media_type(repo: str, digest: str) -> str:
+    """Return the manifest media type a Docker Hub digest points at, via an
+    anonymous pull token. Raises on any network/registry error — the caller
+    turns that into a skip so offline runs don't fail."""
+    import json
+    import urllib.request
+
+    accept = ", ".join(_INDEX_MEDIA_TYPES | _CHILD_MEDIA_TYPES)
+    token_url = (
+        "https://auth.docker.io/token"
+        f"?service=registry.docker.io&scope=repository:{repo}:pull"
+    )
+    token = json.load(urllib.request.urlopen(token_url, timeout=10))["token"]
+    req = urllib.request.Request(
+        f"https://registry-1.docker.io/v2/{repo}/manifests/{digest}",
+        headers={"Authorization": f"Bearer {token}", "Accept": accept},
+        method="HEAD",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.headers["Content-Type"]
+
+
+def test_molecule_images_pin_index_not_child_digest() -> None:
+    """Each molecule pin must be a multi-platform *index* digest, not a
+    single-arch *child*.
+
+    Renovate perpetuates whichever kind the pin already is: its docker
+    datasource reads the current digest's architecture, and if it finds one
+    (a child) it re-pins the same-arch child on every future bump; if it finds
+    none (an index) it tracks the index. So a child pin silently locks the
+    scenarios to one architecture forever — an amd64 child fails
+    `exec format error` on an arm64 host with no emulation (e.g. a dev's
+    Apple-Silicon devcontainer). A plain "is it @sha256-pinned?" check passes
+    a child digest, which is exactly how the #107 canary degraded these pins;
+    this classifies the digest against the registry to catch it.
+
+    Network-dependent by necessity (the kind can't be told from the digest
+    string), so it skips cleanly offline; CI has network and enforces it."""
+    import pytest
+
+    checked = 0
+    for rel, lineno, _prev, image in _molecule_image_lines():
+        if "@sha256:" not in image:
+            continue  # :local or unpinned — covered by the digest-pin test
+        ref, digest = image.split("@", 1)
+        repo = ref.rsplit(":", 1)[0]  # strip the tag, keep owner/name
+        try:
+            media_type = _docker_hub_manifest_media_type(repo, digest)
+        except Exception as err:  # noqa: BLE001 — any failure means "can't verify now"
+            pytest.skip(f"registry unreachable ({err!r}); skipping index-digest check")
+        assert media_type in _INDEX_MEDIA_TYPES, (
+            f"{rel}:{lineno} pins a {'child' if media_type in _CHILD_MEDIA_TYPES else 'non-index'} "
+            f"digest ({media_type}); molecule pins must be the multi-platform index digest so "
+            f"Renovate keeps tracking the index and each host selects its own arch"
+        )
+        checked += 1
+
+    assert checked, "no digest-pinned molecule images were checked — did the layout move?"
 
 
 def test_renovate_catch_all_rule_sorts_last() -> None:
