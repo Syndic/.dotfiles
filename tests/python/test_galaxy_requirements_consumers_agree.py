@@ -60,8 +60,35 @@ def _pip_install_lines(path: Path) -> list:
     ]
 
 
+def _collection_entries(path: Path) -> list:
+    """(name, pinned) for every collection entry in a requirements file.
+
+    Plain parse — the pytest venv has no PyYAML. Splitting on each
+    `- name:` list item scopes any following `version:` to that entry, so
+    the one-collection-per-item layout is the only assumption."""
+    blocks = re.split(r"\n\s*-\s+name:", path.read_text())
+    entries = []
+    for block in blocks[1:]:  # blocks[0] is the header/preamble
+        name = block.splitlines()[0].strip().strip("\"'")
+        pinned = bool(re.search(r"\n\s*version:\s*\S", block))
+        entries.append((name, pinned))
+    return entries
+
+
 def test_repo_declares_a_runtime_and_a_dev_requirements_file() -> None:
     assert _requirements_files() == {"requirements.yml", "requirements-dev.yml"}
+
+
+def test_every_collection_is_version_pinned() -> None:
+    # The repo pins every dependency it can and lets Renovate bump it (see
+    # CLAUDE.md "Dependency updates"). An unpinned collection makes a fresh
+    # install non-reproducible and can break bootstrap on an upstream release
+    # with no repo change — guard against one slipping back in.
+    for name in _requirements_files():
+        entries = _collection_entries(REPO_ROOT / name)
+        assert entries, f"{name}: no collection entries parsed"
+        unpinned = [coll for coll, pinned in entries if not pinned]
+        assert not unpinned, f"{name}: collections missing a version pin: {unpinned}"
 
 
 def test_post_create_installs_every_requirements_file() -> None:

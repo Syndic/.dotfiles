@@ -939,10 +939,32 @@ gate.
 
 ## Dependency updates
 
+**Pin everything that can be pinned; let Renovate move the versions.** Across
+the repo — devcontainer features (full `MAJOR.MINOR.PATCH`), the frozen Python,
+pre-commit hook `rev:`s, the uv Docker tag, Galaxy collections in
+`requirements.yml` / `requirements-dev.yml` — a dependency is pinned to an
+exact version and every bump arrives as a reviewable Renovate PR. Pinning keeps
+a fresh install reproducible (the versions CI passed are the versions a user's
+bootstrap gets) and makes each upgrade an explicit reviewed edit rather than
+silent drift. Don't reintroduce "unpinned so it tracks latest" for anything
+Renovate can manage — latest-without-review is exactly what the pins buy back as
+PRs. Homebrew is the one unavoidable exception: it's a rolling-release manager
+with no clean way to pin a formula to an arbitrary version, so the Brewfiles
+carry no pins by tooling constraint, not by preference — don't generalize that
+to anything else.
+
 `renovate.json` batches **every non-major update into one PR** via a
 catch-all `packageRule` (`matchUpdateTypes: [minor, patch]`, groupName
 `all non-major dependencies`). Majors don't match it, so each lands on
 its own branch and gets reviewed alone.
+
+The **`requirements-dev.yml` pin needs an explicit Renovate file pattern.** The
+built-in `ansible-galaxy` manager only matches `requirements.yml` /
+`requirements.yaml` (and `galaxy.yml`) by default, so `requirements-dev.yml`
+would be invisible to it. The top-level `ansible-galaxy.managerFilePatterns`
+key in `renovate.json` widens the match to `requirements(-dev)?.yml`;
+`requirements.yml` stays covered either way. A pin without that widening is a
+pin nothing updates — the trap the file's own header warns about.
 
 Grouping is by **update type, not by manager**. Manager is the wrong axis:
 what decides whether a bump is safe to merge is how far it moves the

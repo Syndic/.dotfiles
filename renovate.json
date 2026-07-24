@@ -8,6 +8,12 @@
   "gitIgnoredAuthors": [
     "294636956+unnatural-designs-renovate-helper[bot]@users.noreply.github.com"
   ],
+  "ansible-galaxy": {
+    "description": "Manage pins in both requirements files. The built-in manager only matches requirements.yml by default; the extra pattern brings requirements-dev.yml in too. See CLAUDE.md's 'Dependency updates' section.",
+    "managerFilePatterns": [
+      "/(^|/)requirements(-dev)?\\.ya?ml$/"
+    ]
+  },
   "packageRules": [
     {
       "description": "Disable Renovate's github-actions manager for python in tests.yml; the python/bash jobs' 3.9 pin is frozen. See CLAUDE.md's 'Python 3.9 pin' section.",

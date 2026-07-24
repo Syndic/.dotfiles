@@ -7,10 +7,11 @@
 # Test-only collections live in requirements-dev.yml; see CLAUDE.md
 # "Galaxy collections come from requirements files, not a bundle".
 #
-# Unpinned by design — matches the Brewfile convention in this repo
-# (no version pins on shared tooling). If a Galaxy update ever breaks a
-# host, pin the offending collection here and let Renovate's
-# ansible-galaxy manager keep it current.
+# Pinned to exact versions, kept current by Renovate's ansible-galaxy
+# manager (batched into the non-major group; majors reviewed alone). Pinning
+# makes a fresh install reproducible — the versions that passed CI are the
+# versions a user's bootstrap gets — and matches how the rest of the repo
+# treats dependencies. See CLAUDE.md "Dependency updates".
 
 collections:
   # Provides `community.general.osx_defaults`, used by the macos_defaults
@@ -18,9 +19,11 @@ collections:
   # bundled with the `ansible` Homebrew package, but declaring it here
   # makes the dependency explicit and survives any future split.
   - name: community.general
+    version: "13.2.0"
 
   # Provides `geerlingguy.mac.dock`, used by the macos_defaults role
   # behind a `macos_defaults_configure_dock` toggle to lay out the Dock via dockutil.
   # Hosts that opt in must install `dockutil` (via their Brewfile) for
   # the role to succeed.
   - name: geerlingguy.mac
+    version: "5.0.0"
