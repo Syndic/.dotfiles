@@ -40,6 +40,13 @@
       "groupSlug": "all-minor-patch"
     },
     {
+      "description": "test-requirements.txt feeds the frozen-3.9 `python` CI job and the devcontainer's ~/.venv, so Renovate must not propose releases that dropped 3.9 (pytest 9 requires >=3.10). `constraints` makes Renovate honour each package's Requires-Python, covering pytest / pytest-cov / coverage in one rule. See CLAUDE.md's 'Python 3.9 pin' section.",
+      "matchFileNames": ["test-requirements.txt"],
+      "constraints": {
+        "python": "3.9"
+      }
+    },
+    {
       "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major dependencies",
