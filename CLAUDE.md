@@ -415,20 +415,25 @@ tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
 (`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
 "Dependency updates".
 
-`test-requirements.txt` is the one that feeds the **frozen** 3.9 (both `~/.venv`
-and the `python` CI job), so a `packageRule` in `renovate.json` scopes it to
-`constraints.python = 3.9` — otherwise Renovate proposes releases that dropped
-3.9 (pytest 9 needs >= 3.10) and the resulting bump PR fails `pip install`
-forever. `lint-`/`molecule-requirements.txt` run under `tooling_python` and
-carry no such cap. This mirrors the `python`-in-tests.yml disable rule: both
-keep Renovate off versions the frozen interpreter can't run.
+`test-requirements.txt` feeds the **frozen** 3.9 (both `~/.venv` and the
+`python` CI job), so a `packageRule` in `renovate.json` caps pytest at
+`allowedVersions: <9` — pytest 9 dropped 3.9 (needs >= 3.10) with no 8.x
+backport, so an un-capped bump PR fails `pip install` forever.
+`lint-`/`molecule-requirements.txt` run under `tooling_python` and carry no
+such cap. This mirrors the `python`-in-tests.yml disable rule: both keep
+Renovate off versions the frozen interpreter can't run.
 
-That `constraints.python` value needs its **own** guard: Renovate reads it back
-as a `tool-constraint` dependency and will raise a PR bumping `3.9` to the
-latest Python — which would silently undo the cap. A second `packageRule`
-(`matchDepNames: [python]` + `matchDepTypes: [tool-constraint]`, `enabled:
-false`) freezes it. The two rules are a pair: one applies the 3.9 constraint,
-the other stops Renovate from bumping the constraint itself.
+`allowedVersions` is deliberate over `constraints.python`. Two traps make
+`constraints` the wrong tool here: it only filters when `constraintsFiltering`
+is also set to `strict` (it **defaults to `none`**, so the constraint is inert
+on its own), and Renovate reads the constraint value back as a `tool-constraint`
+dependency and opens PRs bumping it to the latest Python — the cap fighting
+itself. `allowedVersions` is a plain version filter always applied to regular
+updates, with neither failure mode. It's pytest-specific by design;
+`pytest-cov`/`coverage` still support 3.9, and a similar one-line cap gets added
+if either drops it (a failing bump PR is the signal). Security bumps bypass
+`packageRules` entirely (any of them) — those are handled by dismissing the
+GitHub Dependabot alert, which also drops them from the feed Renovate reads.
 
 The Ansible-tooling interpreter is `tooling_python` in `post-create.sh` (it just
 needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving

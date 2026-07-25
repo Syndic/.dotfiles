@@ -40,17 +40,10 @@
       "groupSlug": "all-minor-patch"
     },
     {
-      "description": "test-requirements.txt feeds the frozen-3.9 `python` CI job and the devcontainer's ~/.venv, so Renovate must not propose releases that dropped 3.9 (pytest 9 requires >=3.10). `constraints` makes Renovate honour each package's Requires-Python, covering pytest / pytest-cov / coverage in one rule. See CLAUDE.md's 'Python 3.9 pin' section.",
+      "description": "test-requirements.txt runs on the frozen Python 3.9 (the `python` CI job and the devcontainer's ~/.venv). pytest 9 dropped 3.9 (needs >=3.10) with no 8.x backport, so cap it — otherwise Renovate proposes a pytest 9 bump that fails `pip install` on 3.9. `allowedVersions` (not `constraints`, which only filters when `constraintsFiltering: strict` is also set — it defaults to none). See CLAUDE.md's 'Python 3.9 pin' section.",
       "matchFileNames": ["test-requirements.txt"],
-      "constraints": {
-        "python": "3.9"
-      }
-    },
-    {
-      "description": "Don't bump the `constraints.python` above: Renovate reads it back as a `tool-constraint` dep (containerbase/python-prebuild datasource) and would raise it to the latest Python. That 3.9 is deliberately frozen to match the interpreter test-requirements.txt runs on — bumping it would re-allow pytest 9 and reintroduce the failure the constraint prevents. See CLAUDE.md's 'Python 3.9 pin' section.",
-      "matchDepNames": ["python"],
-      "matchDepTypes": ["tool-constraint"],
-      "enabled": false
+      "matchPackageNames": ["pytest"],
+      "allowedVersions": "<9"
     },
     {
       "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
