@@ -20,7 +20,7 @@ jobs:
           # Frozen at the macOS CLT version phase2.py runs under. See the
           # "Python 3.9 pin" section in CLAUDE.md for the rationale.
           python-version: '3.9'
-      - run: pip install pytest
+      - run: pip install -r test-requirements.txt
       - run: pytest tests/python -v
 
   bash:
@@ -44,7 +44,7 @@ jobs:
         with:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      - run: pip install yamllint ansible-lint
+      - run: pip install -r lint-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
       - run: ansible-lint
@@ -86,17 +86,11 @@ jobs:
           # in renovate.json.
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      # Installing the full `ansible` package (not bare ansible-core) brings its
-      # ~100 bundled collections — community.docker + ansible.posix among them —
-      # into the same environment molecule runs in. docker + requests are the
-      # Python libs community.docker's container modules import; they're not
-      # pulled in by molecule itself.
-      - run: pip install ansible molecule 'molecule-plugins[docker]' docker requests
-      # Explicitly install molecule's docker-driver collections. Normally a
-      # no-op (the line above already bundles them), but stating the dependency
-      # keeps the molecule job working if a future `ansible` release trims its
-      # bundle. Mirrors .devcontainer/post-create.sh.
-      - run: ansible-galaxy collection install community.docker ansible.posix
+      - run: pip install -r molecule-requirements.txt
+      # Scenarios converge the real roles, so the runtime collections are
+      # needed here too. Mirrors .devcontainer/post-create.sh.
+      - run: ansible-galaxy collection install -r requirements.yml
+      - run: ansible-galaxy collection install -r requirements-dev.yml
       - run: ./tests/run molecule ${{ matrix.role }}
         env:
           # Pull the prebuilt Linuxbrew base image from ghcr instead of

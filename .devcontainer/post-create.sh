@@ -4,8 +4,8 @@ set -euo pipefail
 # Provision dev/test venvs with uv. Three parallel environments — full
 # rationale in CLAUDE.md "Python 3.9 pin":
 #   ~/.venv          frozen 3.9.6, pytest, default python3 on PATH
-#   ~/.venv-ansible  ansible, ansible-lint, yamllint, molecule (one venv so
-#                    they share ansible-core and avoid duplicate-collection
+#   ~/.venv-ansible  ansible-core, ansible-lint, yamllint, molecule (one venv
+#                    so they share ansible-core and avoid duplicate-collection
 #                    warnings #46/#48; plain venv exposes all entry points)
 #   pre-commit       uv tool venv
 # PATH wiring lives in devcontainer.json's remoteEnv — keep both in step.
@@ -16,28 +16,32 @@ tooling_python='3.14'
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
+# All pip installs come from pinned requirements files (Renovate-managed).
+# ansible-core, not `ansible` — the bundle's collections would be a second
+# resolution root. See CLAUDE.md "Galaxy collections come from requirements
+# files, not a bundle" and "Dependency updates".
 setup_test_env() {
   uv venv --python 3.9.6 "$HOME/.venv"
-  uv pip install --python "$HOME/.venv/bin/python" pytest pytest-cov
+  uv pip install --python "$HOME/.venv/bin/python" -r "$repo_root/test-requirements.txt"
 }
 
 setup_ansible_env() {
   uv venv --python "$tooling_python" "$HOME/.venv-ansible"
+  # One venv holds both the lint and molecule stacks, so install both files.
   uv pip install --python "$HOME/.venv-ansible/bin/python" \
-    ansible ansible-lint yamllint molecule 'molecule-plugins[docker]' docker requests
+    -r "$repo_root/lint-requirements.txt" \
+    -r "$repo_root/molecule-requirements.txt"
 
-  # Galaxy collections from requirements.yml — mirrors phase2.install_galaxy_requirements().
+  # Runtime collections (mirrors phase2.install_galaxy_requirements()) plus the
+  # test-only ones molecule's docker driver needs.
   "$HOME/.venv-ansible/bin/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
-
-  # molecule's docker driver needs community.docker + ansible.posix. Both ship
-  # bundled in `ansible` so this is a no-op today; stated for dependency
-  # survival if the bundle ever trims. No pin/--upgrade — would force a
-  # redundant write and resurrect duplicate-collection warnings (#46/#48).
-  "$HOME/.venv-ansible/bin/ansible-galaxy" collection install community.docker ansible.posix
+  "$HOME/.venv-ansible/bin/ansible-galaxy" collection install -r "$repo_root/requirements-dev.yml"
 }
 
 setup_precommit() {
-  uv tool install --python "$tooling_python" pre-commit
+  # renovate: datasource=pypi depName=pre-commit
+  pre_commit_version='4.6.1'
+  uv tool install --python "$tooling_python" "pre-commit==${pre_commit_version}"
 }
 
 # set -e doesn't propagate from backgrounded jobs — capture PIDs, OR exit codes.

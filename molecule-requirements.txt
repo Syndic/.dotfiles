@@ -1,0 +1,12 @@
+# Molecule + its docker driver for the `~/.venv-ansible` devcontainer venv
+# (post-create.sh) and the `molecule` CI job (tests.yml). Pinned and
+# Renovate-managed — see CLAUDE.md "Dependency updates".
+#
+# ansible-core, not `ansible` — see CLAUDE.md "Galaxy collections come from
+# requirements files, not a bundle". docker + requests are the Python libs
+# community.docker's container modules import; molecule doesn't pull them.
+ansible-core==2.21.2
+molecule==26.6.0
+molecule-plugins[docker]==26.7.15
+docker==7.2.0
+requests==2.34.2

@@ -1,0 +1,5 @@
+# Python test tooling for the `~/.venv` devcontainer venv (post-create.sh)
+# and the `python` CI job (tests.yml). Pinned and Renovate-managed — see
+# CLAUDE.md "Dependency updates".
+pytest==8.4.2
+pytest-cov==7.1.0

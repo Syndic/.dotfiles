@@ -397,9 +397,9 @@ uv is baked into the image in `.devcontainer/Dockerfile`
 
 `post-create.sh` builds three venvs in parallel: `~/.venv` (the frozen 3.9.6 —
 pytest + the default `python3` on PATH), `~/.venv-ansible` (the Ansible dev
-stack — `ansible`, `ansible-lint`, `molecule`, the docker driver — all in one
-venv so they share the single ansible-core and its bundled collections; a second
-collection copy is what produced the duplicate-version warnings, #46/#48), and a
+stack — `ansible-core`, `ansible-lint`, `molecule`, the docker driver — all in
+one venv so they share a single ansible-core; a second copy is what produced the
+duplicate-version warnings, #46/#48), and a
 `uv tool` venv for `pre-commit`. The Ansible stack is a plain venv rather than
 `uv tool` because only a venv exposes every package's entry points
 (`ansible-playbook`, `ansible-galaxy`, `ansible-lint`, `molecule`); `uv tool`
@@ -407,13 +407,21 @@ exposes the primary package's scripts only. Their bin dirs are put on PATH via
 `remoteEnv` in `devcontainer.json` — keep that layout and `post-create.sh` in
 step.
 
+Package versions come from pinned `*-requirements.txt` files at the repo root
+(`test-` for `~/.venv`, `lint-` + `molecule-` for `~/.venv-ansible`), which the
+matching CI jobs in `tests.yml` install from too — one pinned source per
+tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
+`uv tool install` reads no requirements file, so it's pinned inline
+(`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
+"Dependency updates".
+
 The Ansible-tooling interpreter is `tooling_python` in `post-create.sh` (it just
 needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 `3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
 `tooling_python`, matching only the annotated assignment so the frozen 3.9.6 in
-the same file is never touched, plus a second `customManager` keeping the
-molecule CI job's `python-version` in tests.yml in step). The frozen 3.9.6 lives
-in plain `uv venv --python 3.9.6` / `uv pip install` lines that no Renovate
+the same file is never touched; a second keeping the molecule CI job's
+`python-version` in tests.yml in step; and a third for `pre_commit_version`).
+The frozen 3.9.6 lives in a plain `uv venv --python 3.9.6` line that no Renovate
 manager matches, so it stays put without a disable rule.
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
@@ -430,6 +438,45 @@ a third-party library that Ansible can't reasonably replace), the right move
 is splitting phase 2 into a "minimal bootstrap" portion that installs a
 Homebrew Python and a "real work" portion that re-execs under that newer
 Python — *not* relaxing the 3.9 pin in place.
+
+## Galaxy collections come from requirements files, not a bundle
+
+The PyPI `ansible` package is ansible-core *plus* ~100 bundled collections
+shipped inside its own `site-packages/ansible_collections`. That directory is
+always on ansible's resolution path, so any collection also installed by
+`ansible-galaxy` (which writes to `~/.ansible/collections`) exists in two roots
+— and every `ansible-lint` / `ansible-playbook` run prints `WARNING  Another
+version of '<collection>' … was found installed in …, only the first one will
+be used`. Same-version copies still warn; the warning is about the *arrangement*,
+not a version conflict.
+
+So **every dev/CI environment installs `ansible-core`, never `ansible`**, and
+gets its collections from a requirements file. One root, no warnings, and an
+undeclared collection dependency fails loudly instead of being masked by the
+bundle. Two files, split by who consumes them:
+
+- **`requirements.yml`** — runtime deps of the playbook (`community.general`
+  for `osx_defaults`/`flatpak`, `geerlingguy.mac` for the dock role). Installed
+  by `phase2.install_galaxy_requirements()` on every user host, by
+  `post-create.sh`, and by CI's `lint` + `molecule` jobs.
+- **`requirements-dev.yml`** — test-only deps (`community.docker`,
+  `ansible.posix`, both needed by molecule's docker driver, not by any role).
+  Installed by `post-create.sh` and CI's `molecule` job only. **Deliberately
+  not installed by `phase2.py`** — a dotfiles bootstrap has no business
+  downloading a Docker collection it never uses. Don't "simplify" by folding
+  it into `requirements.yml`.
+
+`tests/python/test_galaxy_requirements_consumers_agree.py` gates all of it: both
+consumers install every root `requirements*.yml`, phase 2 names only the runtime
+one, and no `pip install` line anywhere reintroduces the bare `ansible` bundle.
+
+Production is the one place the bundle still appears — `phase2.setup_ansible()`
+runs `brew install ansible` (Homebrew has no `ansible-core` formula). It stays
+warning-free by luck of ordering rather than by structure: modern
+`ansible-galaxy` skips a requirement already satisfied anywhere on the search
+path, so `community.general` is never re-fetched into a second root there. If
+that behavior ever changes, the fix is a brew-installed `ansible-core`
+equivalent, not weakening the requirements files.
 
 ## The /dev/tty probe-and-fallback
 
@@ -615,8 +662,9 @@ Homebrew…" lines arrive at the very end of the captured log.
   excluded.
 
 Run locally via `./tests/run lint` (devcontainer; both tools live in the
-`~/.venv-ansible` uv venv `post-create.sh` builds, alongside ansible itself,
-so they share the bundled collections). The pre-commit hooks pin yamllint
+`~/.venv-ansible` uv venv `post-create.sh` builds, alongside ansible-core and
+the requirements-file collections — see "Galaxy collections come from
+requirements files, not a bundle"). The pre-commit hooks pin yamllint
 and ansible-lint to specific tags; Renovate's pre-commit manager keeps
 both `rev:` values current.
 
@@ -899,10 +947,42 @@ gate.
 
 ## Dependency updates
 
+**Pin everything that can be pinned; let Renovate move the versions.** Across
+the repo — devcontainer features (full `MAJOR.MINOR.PATCH`), the frozen Python,
+pre-commit hook `rev:`s, the uv Docker tag, base images (tag + digest), Galaxy
+collections in `requirements.yml` / `requirements-dev.yml`, and pip tooling in
+`*-requirements.txt` — a dependency is pinned to an exact version and every bump
+arrives as a reviewable Renovate PR. Pinning keeps
+a fresh install reproducible (the versions CI passed are the versions a user's
+bootstrap gets) and makes each upgrade an explicit reviewed edit rather than
+silent drift. Don't reintroduce "unpinned so it tracks latest" for anything
+Renovate can manage — latest-without-review is exactly what the pins buy back as
+PRs. Homebrew is the one unavoidable exception: it's a rolling-release manager
+with no clean way to pin a formula to an arbitrary version, so the Brewfiles
+carry no pins by tooling constraint, not by preference — don't generalize that
+to anything else.
+
+Pip tooling (`test-`/`lint-`/`molecule-requirements.txt`) is named
+`<purpose>-requirements.txt` so Renovate's built-in pip manager matches it with
+no extra config; the Galaxy files need the `ansible-galaxy` widening below
+because their names don't match that manager's default. Both consumers —
+`post-create.sh` venvs and the `tests.yml` jobs — install from these files;
+`tests/python/test_galaxy_requirements_consumers_agree.py` guards that every
+collection and pip requirement is pinned and that no consumer installs bare
+packages or the full `ansible` bundle.
+
 `renovate.json` batches **every non-major update into one PR** via a
 catch-all `packageRule` (`matchUpdateTypes: [minor, patch]`, groupName
 `all non-major dependencies`). Majors don't match it, so each lands on
 its own branch and gets reviewed alone.
+
+The **`requirements-dev.yml` pin needs an explicit Renovate file pattern.** The
+built-in `ansible-galaxy` manager only matches `requirements.yml` /
+`requirements.yaml` (and `galaxy.yml`) by default, so `requirements-dev.yml`
+would be invisible to it. The top-level `ansible-galaxy.managerFilePatterns`
+key in `renovate.json` widens the match to `requirements(-dev)?.yml`;
+`requirements.yml` stays covered either way. A pin without that widening is a
+pin nothing updates — the trap the file's own header warns about.
 
 Grouping is by **update type, not by manager**. Manager is the wrong axis:
 what decides whether a bump is safe to merge is how far it moves the

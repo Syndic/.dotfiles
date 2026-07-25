@@ -1,0 +1,23 @@
+---
+# Ansible Galaxy collections needed only to *test* this repo — never by the
+# playbook itself, so phase2.py deliberately doesn't install this file.
+#
+# Consumed by .devcontainer/post-create.sh and the molecule job in
+# .github/workflows/tests.yml, both of which install requirements.yml too.
+# See CLAUDE.md "Galaxy collections come from requirements files, not a bundle".
+#
+# Pinned and Renovate-managed, same as requirements.yml. Renovate's
+# ansible-galaxy manager doesn't match `requirements-dev.yml` by default —
+# renovate.json widens its file pattern to cover it (see CLAUDE.md
+# "Dependency updates").
+
+collections:
+  # molecule's docker driver drives containers with
+  # `community.docker.docker_container` / `docker_image` and syncs with
+  # `ansible.posix.synchronize`. The Python libs those modules import
+  # (docker, requests) are installed alongside ansible-core, not here.
+  - name: community.docker
+    version: "5.2.1"
+
+  - name: ansible.posix
+    version: "2.2.2"
