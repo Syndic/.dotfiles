@@ -415,6 +415,14 @@ tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
 (`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
 "Dependency updates".
 
+`test-requirements.txt` is the one that feeds the **frozen** 3.9 (both `~/.venv`
+and the `python` CI job), so a `packageRule` in `renovate.json` scopes it to
+`constraints.python = 3.9` — otherwise Renovate proposes releases that dropped
+3.9 (pytest 9 needs >= 3.10) and the resulting bump PR fails `pip install`
+forever. `lint-`/`molecule-requirements.txt` run under `tooling_python` and
+carry no such cap. This mirrors the `python`-in-tests.yml disable rule: both
+keep Renovate off versions the frozen interpreter can't run.
+
 The Ansible-tooling interpreter is `tooling_python` in `post-create.sh` (it just
 needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 `3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
