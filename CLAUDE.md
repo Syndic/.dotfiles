@@ -423,6 +423,13 @@ forever. `lint-`/`molecule-requirements.txt` run under `tooling_python` and
 carry no such cap. This mirrors the `python`-in-tests.yml disable rule: both
 keep Renovate off versions the frozen interpreter can't run.
 
+That `constraints.python` value needs its **own** guard: Renovate reads it back
+as a `tool-constraint` dependency and will raise a PR bumping `3.9` to the
+latest Python — which would silently undo the cap. A second `packageRule`
+(`matchDepNames: [python]` + `matchDepTypes: [tool-constraint]`, `enabled:
+false`) freezes it. The two rules are a pair: one applies the 3.9 constraint,
+the other stops Renovate from bumping the constraint itself.
+
 The Ansible-tooling interpreter is `tooling_python` in `post-create.sh` (it just
 needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 `3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
