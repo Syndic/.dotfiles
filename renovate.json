@@ -47,6 +47,12 @@
       }
     },
     {
+      "description": "Don't bump the `constraints.python` above: Renovate reads it back as a `tool-constraint` dep (containerbase/python-prebuild datasource) and would raise it to the latest Python. That 3.9 is deliberately frozen to match the interpreter test-requirements.txt runs on — bumping it would re-allow pytest 9 and reintroduce the failure the constraint prevents. See CLAUDE.md's 'Python 3.9 pin' section.",
+      "matchDepNames": ["python"],
+      "matchDepTypes": ["tool-constraint"],
+      "enabled": false
+    },
+    {
       "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major dependencies",
