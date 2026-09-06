@@ -17,7 +17,7 @@ collections:
   # `ansible.posix.synchronize`. The Python libs those modules import
   # (docker, requests) are installed alongside ansible-core, not here.
   - name: community.docker
-    version: "5.2.1"
+    version: "5.3.0"
 
   - name: ansible.posix
     version: "2.2.2"

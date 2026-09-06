@@ -19,7 +19,7 @@ collections:
   # bundled with the `ansible` Homebrew package, but declaring it here
   # makes the dependency explicit and survives any future split.
   - name: community.general
-    version: "13.2.0"
+    version: "13.3.0"
 
   # Provides `geerlingguy.mac.dock`, used by the macos_defaults role
   # behind a `macos_defaults_configure_dock` toggle to lay out the Dock via dockutil.

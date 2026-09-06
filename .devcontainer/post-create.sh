@@ -40,7 +40,7 @@ setup_ansible_env() {
 
 setup_precommit() {
   # renovate: datasource=pypi depName=pre-commit
-  pre_commit_version='4.6.1'
+  pre_commit_version='4.6.2'
   uv tool install --python "$tooling_python" "pre-commit==${pre_commit_version}"
 }
 
