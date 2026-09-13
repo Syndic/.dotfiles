@@ -1,8 +1,8 @@
 # `debian` is a floating tag — the digest is what makes the build reproducible.
-FROM mcr.microsoft.com/devcontainers/base:debian@sha256:1a00517e89d3075f8c9dc8d9911404de0ff8991a4d71c62068573e9b016a89da
+FROM mcr.microsoft.com/devcontainers/base:debian@sha256:1f851004adcd3dff3776b4a1da86727cf52280b0fdc9d5b0568c9c7d74274286
 
 # Pinned tag bumped by Renovate's docker manager. post-create.sh drives uv.
-COPY --from=ghcr.io/astral-sh/uv:0.11.32@sha256:df4cae8f3a96d175e2e5f992e597550000edbe78fdc2594d5cd8de1a217f504c /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 /uv /uvx /usr/local/bin/
 
 # bats for tests/bash (keep in sync with tests.yml); ripgrep for interactive use.
 # Everything Python lives in uv venvs (post-create.sh), not apt.
