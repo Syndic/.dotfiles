@@ -43,7 +43,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # renovate: datasource=python-version depName=python
-          python-version: '3.14'
+          python-version: '3.15'
       - run: pip install -r lint-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
@@ -85,7 +85,7 @@ jobs:
           # same interpreter. Renovate keeps this in step via the customManager
           # in renovate.json.
           # renovate: datasource=python-version depName=python
-          python-version: '3.14'
+          python-version: '3.15'
       - run: pip install -r molecule-requirements.txt
       # Scenarios converge the real roles, so the runtime collections are
       # needed here too. Mirrors .devcontainer/post-create.sh.
