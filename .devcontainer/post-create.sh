@@ -12,7 +12,7 @@ set -euo pipefail
 
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
 # renovate: datasource=python-version depName=python
-tooling_python='3.14'
+tooling_python='3.15'
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -40,7 +40,7 @@ setup_ansible_env() {
 
 setup_precommit() {
   # renovate: datasource=pypi depName=pre-commit
-  pre_commit_version='4.6.1'
+  pre_commit_version='4.7.0'
   uv tool install --python "$tooling_python" "pre-commit==${pre_commit_version}"
 }
 
