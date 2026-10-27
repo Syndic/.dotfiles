@@ -108,7 +108,7 @@ it with a symlink into the repo.
 |------|---------------|
 | Cross-platform CLI tool via Homebrew (works on macOS and Linuxbrew) | `brewfiles/common.Brewfile` |
 | Purpose-scoped (personal vs work) | `brewfiles/groups/<personal\|work>.Brewfile` |
-| macOS-only — formula, cask, or anything you only want on Macs | `brewfiles/groups/macos.Brewfile` |
+| macOS-only — formula, cask without Linux builds, or anything you only want on Macs | `brewfiles/groups/macos.Brewfile` |
 | Host-specific | `brewfiles/hosts/<host>.Brewfile` |
 | Linux-only system package | `common_apt` in `group_vars/all.yml`, `group_<set>_apt` in any `group_vars/<group>.yml`, or `host_apt` in `host_vars/<host>.yml` |
 | Linux GUI app via Flatpak | `common_flatpak` / `group_<set>_flatpak` / `host_flatpak` — same three-layer shape as apt |
