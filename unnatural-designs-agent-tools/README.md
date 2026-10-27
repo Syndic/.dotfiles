@@ -31,10 +31,11 @@ subcommands:
 
 `apply` first recomputes the inventory and acts only on ids still present at an actionable
 tier. Worktree, stale-entry, branch and container ids pin the state they were classified in
-(the worktree HEAD, the branch tip, the container run state), so a change since the report
-makes the id disappear and the item is skipped rather than re-guessed. Image ids are content
-digests and volume ids are names, so for those the recomputed tier is the check: an image a
-container picked up since the report is no longer offered. Folder ids are report-only.
+(the worktree HEAD and the devcontainers running on it, the branch tip, the container run
+state), so a change since the report makes the id disappear and the item is skipped rather than
+re-guessed. Image ids are content digests and volume ids are names, so for those the recomputed
+tier is the check: an image a container picked up since the report is no longer offered. Folder
+ids are report-only.
 The actions themselves also fail closed:
 - `git worktree remove` runs without `--force`, after `apply` re-reads the worktree's status.
 - A branch is deleted with `git update-ref -d <ref> <expected-tip>`.
@@ -58,11 +59,13 @@ checked-out branch. Only these are offered:
 - a detached, clean worktree whose HEAD is on the default branch;
 - a local `pr-NNN` copy of a merged or closed PR.
 
-Dirty worktrees and unpushed commits are never offered, and neither is a worktree with a
-running devcontainer. Gitignored files count as work too: `git worktree remove` deletes them
-without calling them changes, so a worktree holding any ignored path that
-`regenerable_ignored` doesn't cover (caches, build output, devcontainer plumbing) is
-report-only. Removing a worktree also deletes its branch.
+Dirty worktrees and unpushed commits are never offered. Gitignored files count as work too:
+`git worktree remove` deletes them without calling them changes, so a worktree holding any
+ignored path that `regenerable_ignored` doesn't cover (caches, build output, devcontainer
+plumbing) is report-only. Removing a worktree also deletes its branch, and first stops and
+removes (`docker rm -v`) any devcontainer still running on it; if that fails, the worktree
+stays. A running container never holds back a worktree that is otherwise offered, because the
+`devcontainer` CLI leaves containers running after their session ends.
 
 A registered worktree whose folder is missing is unregistered one entry at a time
 (`git worktree remove` on the missing path, which needs no `--force`), never with a
@@ -80,7 +83,7 @@ worktree is protected.
 - worktree gone and container stopped: auto;
 - worktree gone and container running: confirm;
 - worktree still there: left alone, because removing the container would destroy its
-  anonymous volumes.
+  anonymous volumes. A running one goes with its worktree when that is removed (above).
 
 A `vsc-<basename>-<hash>` image carries no folder label, but its hash is `sha256(<folder
 path>)`. So the script hashes candidate paths to prove the folder, and an image it can't

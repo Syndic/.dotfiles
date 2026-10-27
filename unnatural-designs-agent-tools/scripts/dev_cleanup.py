@@ -385,7 +385,7 @@ def precious_ignored(paths: Iterable[str], regenerable: Sequence[str]) -> List[s
 def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
                       on_default: Optional[bool], branch_verdict: Tuple[str, str],
                       guard: Tuple[bool, str], precious: Sequence[str] = (),
-                      devcontainer_running: bool = False) -> Tuple[str, str]:
+                      running_containers: Sequence[str] = ()) -> Tuple[str, str]:
     if locked:
         return REPORT, "worktree is locked"
     if dirty is None:
@@ -395,8 +395,6 @@ def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
     if precious:
         shown = ", ".join(precious[:5]) + (", ..." if len(precious) > 5 else "")
         return REPORT, f"gitignored files that may be the only copy: {shown}"
-    if devcontainer_running:
-        return REPORT, "a devcontainer is running on this worktree"
     if detached:
         if on_default is None:
             return REPORT, "detached HEAD; could not compare with the default branch"
@@ -410,6 +408,9 @@ def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
     reapable, why = guard
     if not reapable:
         return REPORT, f"{verdict}, but {why}"
+    if running_containers:
+        names = ", ".join(running_containers)
+        return CONFIRM, f"{verdict}; {why}; stops its running devcontainer first ({names})"
     return CONFIRM, f"{verdict}; {why}"
 
 
@@ -691,9 +692,10 @@ class DockerState:
     volumes: List[dict]
     sizes: Dict[str, int]
 
-    def running_folders(self) -> Set[str]:
-        return {c["labels"][FOLDER_LABEL] for c in self.containers
-                if c["labels"].get(FOLDER_LABEL) and c["state"] not in STOPPED}
+    def running(self) -> List[dict]:
+        """Devcontainers not in a stopped state, which pin their worktree's id."""
+        return [c for c in self.containers
+                if c["labels"].get(FOLDER_LABEL) and c["state"] not in STOPPED]
 
 
 def read_docker(docker: Docker, sizes: bool = True) -> Tuple[Optional[DockerState], str]:
@@ -716,7 +718,7 @@ def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> Tuple[str, s
     return tier, reason, pr["number"] if pr else None
 
 
-def inventory_repo(ctx: Context, repo: str, scope: Scope, running: Set[str], items: List[Item],
+def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], items: List[Item],
                    notes: List[str]) -> None:
     """Worktree + branch items for one main checkout; records its worktrees in `scope`."""
     if ctx.fetch:
@@ -754,15 +756,20 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: Set[str], ite
                               where, path=path, age_days=age))
             continue
         dirty, precious = worktree_status(path, regenerable)
+        live = sorted((c for c in running if is_within(c["labels"][FOLDER_LABEL], path)),
+                      key=lambda c: c["id"])
         on_default = contained_in(path, head, base) if base else None
         verdict = branch_verdict(repo, prs, str(branch), head)[:2] if branch else (REPORT, "")
         tier, reason = classify_worktree(
             dirty=dirty, locked=bool(entry["locked"]), detached=bool(entry["detached"]),
             on_default=on_default, branch_verdict=verdict, guard=ctx.sessions.guard(path),
-            precious=precious, devcontainer_running=any(is_within(f, path) for f in running))
+            precious=precious, running_containers=[c["name"] for c in live])
         title = f"{path} ({branch or 'detached'})"
-        items.append(Item(f"worktree:{path}@{head}", "worktree", tier, title, reason, path=path,
-                          age_days=age, details={"repo": repo, "branch": branch, "head": head}))
+        ids = [c["id"] for c in live]
+        item_id = f"worktree:{path}@{head}" + (f"+containers:{','.join(ids)}" if ids else "")
+        items.append(Item(item_id, "worktree", tier, title, reason, path=path, age_days=age,
+                          details={"repo": repo, "branch": branch, "head": head,
+                                   "containers": ids}))
 
     refs = git(repo, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads")
     base_name = base.split("/", 1)[1] if base else None
@@ -892,7 +899,7 @@ def collect(ctx: Context, measure: bool = True) -> Inventory:
     repos = sorted({main for main in owners.values() if main is not None}
                    | {expand(str(r)) for r in list(cfg["extra_repos"])})
     scope.known.update(repos)
-    running = docker.running_folders() if docker else set()
+    running = docker.running() if docker else []
     for repo in repos:
         inventory_repo(ctx, repo, scope, running, items, notes)
     for folder in loose:
@@ -974,6 +981,11 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
             return False, "worktree has uncommitted changes"
         if precious:
             return False, "worktree has gitignored files that may be the only copy"
+        for cid in details.get("containers") or []:
+            for step in (("stop", cid), ("rm", "-v", cid)):
+                res = ctx.docker.command(*step)
+                if not res.ok:
+                    return False, f"kept worktree; docker {step[0]} {cid} failed: {res.err.strip()}"
         # No --force: git itself refuses a dirty or locked worktree.
         res = git(repo, "worktree", "remove", path)
         if not res.ok:

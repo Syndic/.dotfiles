@@ -9,7 +9,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import pytest
 
@@ -102,7 +102,12 @@ REAPABLE = (True, "all 1 session(s) here are archived")
     ({"detached": True, "on_default": None}, dc.REPORT, "could not compare"),
     ({"detached": True, "on_default": True, "dirty": True}, dc.REPORT, "uncommitted"),
     ({"precious": [".env"]}, dc.REPORT, "only copy: .env"),
-    ({"devcontainer_running": True}, dc.REPORT, "devcontainer is running"),
+    ({"running_containers": ["dc-1"]}, dc.CONFIRM, "stops its running devcontainer first (dc-1)"),
+    ({"running_containers": ["dc-1"], "dirty": True}, dc.REPORT, "uncommitted"),
+    ({"running_containers": ["dc-1"], "branch_verdict": (dc.REPORT, "PR #7 is open")},
+     dc.REPORT, "PR #7 is open"),
+    ({"running_containers": ["dc-1"], "guard": (False, "a session is active")},
+     dc.REPORT, "a session is active"),
 ])
 def test_classify_worktree(kwargs: dict, tier: str, reason: str) -> None:
     args = {"dirty": False, "locked": False, "detached": False, "on_default": None,
@@ -287,8 +292,10 @@ class FakeGitHub:
 class FakeDocker:
     """In-memory docker: `command` mutates state the way the real CLI would."""
 
-    def __init__(self, containers=(), images=(), volumes=(), available: bool = True) -> None:
+    def __init__(self, containers=(), images=(), volumes=(), available: bool = True,
+                 failing: Sequence[str] = ()) -> None:
         self._containers = [dict(c) for c in containers]
+        self.failing = set(failing)
         self._images = [dict(i) for i in images]
         self._volumes = [dict(v) for v in volumes]
         self._available = available
@@ -314,6 +321,8 @@ class FakeDocker:
 
     def command(self, *args: str) -> dc.Result:
         self.calls.append(args)
+        if args[0] in self.failing:
+            return dc.Result(1, "", f"{args[0]} refused")
         if args[0] == "stop":
             for c in self._containers:
                 if c["id"] == args[1]:
@@ -641,12 +650,47 @@ def test_containers_and_images_outside_the_roots_are_report_only(repo) -> None:
     assert found["image:sha256:v"]["tier"] == dc.REPORT
 
 
-def test_a_running_devcontainer_protects_its_worktree(repo) -> None:
+def test_a_running_devcontainer_is_stopped_before_its_worktree_goes(repo) -> None:
     wt = repo.worktree("calm-cow-222222")
-    docker = FakeDocker(containers=[container("c", str(wt), "running")])
-    item = only(items(context(repo, sessions((str(wt), True, False)), docker=docker)),
-                "worktree", path=str(wt))
-    assert item["tier"] == dc.REPORT and "devcontainer is running" in item["reason"]
+
+    class Recording(FakeDocker):
+        def command(self, *args: str) -> dc.Result:
+            if args[0] in ("stop", "rm"):
+                assert wt.exists(), "worktree removed before its devcontainer"
+            return super().command(*args)
+
+    docker = Recording(containers=[container("c", str(wt), "running")])
+    ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
+    item = only(items(ctx), "worktree", path=str(wt))
+    assert item["tier"] == dc.CONFIRM
+    assert "stops its running devcontainer first (c)" in item["reason"]
+    assert item["id"].endswith("+containers:c")
+
+    result = dc.apply(ctx, [item["id"]])
+    assert [d["id"] for d in result["done"]] == [item["id"]]
+    assert docker.calls[:2] == [("stop", "c"), ("rm", "-v", "c")]
+    assert not wt.exists() and docker.containers() == []
+
+
+def test_a_devcontainer_started_after_the_report_voids_the_worktree_id(repo) -> None:
+    wt = repo.worktree("calm-cow-222222")
+    docker = FakeDocker()
+    ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
+    old_id = only(items(ctx), "worktree", path=str(wt))["id"]
+    docker._containers.append(container("c", str(wt), "running"))
+    result = dc.apply(ctx, [old_id])
+    assert result["done"] == [] and "state changed" in result["skipped"][0]["reason"]
+    assert wt.exists() and docker.calls == []
+
+
+def test_a_devcontainer_that_will_not_stop_keeps_its_worktree(repo) -> None:
+    wt = repo.worktree("calm-cow-222222")
+    docker = FakeDocker(containers=[container("c", str(wt), "running")], failing=["stop"])
+    ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
+    result = dc.apply(ctx, [only(items(ctx), "worktree", path=str(wt))["id"]])
+    assert result["done"] == []
+    assert "docker stop c failed: stop refused" in result["skipped"][0]["reason"]
+    assert wt.exists() and "calm-cow" in git(repo.main, "worktree", "list")
 
 
 def test_apply_stops_only_confirmed_running_containers(repo) -> None:
