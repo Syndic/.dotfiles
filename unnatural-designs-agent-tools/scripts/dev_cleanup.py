@@ -4,10 +4,8 @@
 `inventory` prints a JSON report of every candidate, each tagged with a tier:
 `auto` (safe without asking), `confirm` (ask first), or `report` (shown, never
 acted on). `apply --ids` recomputes the inventory and acts only on the named
-ids that are still present and actionable. Ids embed the state they were
-classified in (a branch tip, a container's run state), so anything that changed
-since the report no longer matches and is skipped. Standard library only,
-because it runs on the host.
+ids that are still present and actionable; see the plugin README ("dev-cleanup
+design") for what an id pins. Standard library only, because it runs on the host.
 """
 from __future__ import annotations
 
@@ -20,14 +18,16 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 AUTO, CONFIRM, REPORT = "auto", "confirm", "report"
 ACTIONABLE = (AUTO, CONFIRM)
+STOPPED = ("exited", "created", "dead")
 # apply executes in this order: a worktree must be gone before its branch,
 # a container before its image.
-KIND_ORDER = ["worktree-prune", "container", "worktree", "branch", "image", "volume"]
+KIND_ORDER = ["worktree-stale", "container", "worktree", "branch", "image", "volume"]
 
 DEFAULT_CONFIG: Dict[str, object] = {
     "worktree_roots": ["~/Work/worktrees"],
@@ -38,6 +38,13 @@ DEFAULT_CONFIG: Dict[str, object] = {
     "host_caches": ["~/.cache/bazel", "~/go/pkg/mod", "~/.cache/uv"],
     "docker_raw": "~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw",
     "base_image_pattern": r"(^|/)[^/]*devcontainer-base$",
+    # Gitignored paths a worktree can lose without losing work. A pattern with a `/`
+    # matches the whole path; any other matches a single path component.
+    "regenerable_ignored": [
+        "__pycache__", "*.pyc", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+        ".venv", "node_modules", ".ansible", ".coverage", "htmlcov", ".DS_Store", "bazel-*",
+        ".devcontainer/.git-plumbing/*", ".devcontainer/.host-*",
+    ],
 }
 DEFAULT_CONFIG_PATH = "~/.config/unnatural-designs-agent-tools/dev-cleanup.json"
 ANON_VOLUME_LABEL = "com.docker.volume.anonymous"
@@ -48,6 +55,13 @@ PR_COPY = re.compile(r"pr-(?P<number>\d+)")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 FROM_LINE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?(?P<ref>\S+)",
                        re.IGNORECASE | re.MULTILINE)
+# `"image": "x"` in devcontainer.json, `image: x` in compose.
+IMAGE_KEY = re.compile(r"""^\s*["']?image["']?\s*:\s*["']?(?P<ref>[^"'\s,]+)""", re.MULTILINE)
+# devcontainer.json keys naming further files, relative to the json's folder.
+FILE_KEY = re.compile(r'"(?:dockerfile|dockerFile|dockerComposeFile)"\s*:\s*(\[[^\]]*\]|"[^"]*")')
+COMPOSE_CONTEXT = re.compile(r"^\s*context:\s*[\"']?(?P<path>[^\"'\s]+)", re.MULTILINE)
+COMPOSE_DOCKERFILE = re.compile(r"^\s*dockerfile:\s*[\"']?(?P<path>[^\"'\s]+)", re.MULTILINE)
+COMPOSE_BUILD = re.compile(r"^\s*build:[ \t]*[\"']?(?P<path>[^\"'\s#{]*)", re.MULTILINE)
 PR_FIELDS = "number,state,headRefName,headRefOid,isCrossRepository,url"
 PR_LIMIT = 1000
 
@@ -356,15 +370,33 @@ def classify_branch(status: str, pr: Optional[dict], contained: Optional[bool],
     return CONFIRM, f"{label} is {status}"
 
 
+def precious_ignored(paths: Iterable[str], regenerable: Sequence[str]) -> List[str]:
+    """Ignored paths no `regenerable_ignored` pattern covers."""
+    kept = []
+    for raw in paths:
+        path = raw.rstrip("/")
+        parts = path.split("/")
+        if not any(fnmatch(path, pat) if "/" in pat else any(fnmatch(p, pat) for p in parts)
+                   for pat in regenerable):
+            kept.append(path)
+    return kept
+
+
 def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
                       on_default: Optional[bool], branch_verdict: Tuple[str, str],
-                      guard: Tuple[bool, str]) -> Tuple[str, str]:
+                      guard: Tuple[bool, str], precious: Sequence[str] = (),
+                      devcontainer_running: bool = False) -> Tuple[str, str]:
     if locked:
         return REPORT, "worktree is locked"
     if dirty is None:
         return REPORT, "could not read worktree status"
     if dirty:
         return REPORT, "uncommitted changes"
+    if precious:
+        shown = ", ".join(precious[:5]) + (", ..." if len(precious) > 5 else "")
+        return REPORT, f"gitignored files that may be the only copy: {shown}"
+    if devcontainer_running:
+        return REPORT, "a devcontainer is running on this worktree"
     if detached:
         if on_default is None:
             return REPORT, "detached HEAD; could not compare with the default branch"
@@ -381,11 +413,26 @@ def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
     return CONFIRM, f"{verdict}; {why}"
 
 
-def classify_container(folder_exists: bool, state: str) -> Optional[Tuple[str, str]]:
+OUT_OF_SCOPE = "outside the worktree roots (an unmounted volume, or a moved repo?)"
+
+
+def classify_stale(locked: bool, in_scope: bool) -> Tuple[str, str]:
+    """A worktree entry whose folder is missing; apply unregisters just that entry."""
+    if locked:
+        return REPORT, "folder is missing, but the worktree is locked"
+    if not in_scope:
+        return CONFIRM, f"folder is missing, but it is {OUT_OF_SCOPE}"
+    return AUTO, "folder is missing"
+
+
+def classify_container(folder_exists: bool, state: str,
+                       in_scope: bool = True) -> Optional[Tuple[str, str]]:
     """A devcontainer follows its worktree; None means leave it alone (and its volumes)."""
     if folder_exists:
         return None
-    if state in ("exited", "created", "dead"):
+    if not in_scope:
+        return REPORT, f"folder is missing, but it is {OUT_OF_SCOPE}"
+    if state in STOPPED:
         return AUTO, "worktree is gone; container is stopped"
     return CONFIRM, f"worktree is gone; container is {state}"
 
@@ -406,13 +453,17 @@ def map_vsc_image(repo: str, candidates: Iterable[str]) -> Optional[str]:
     return None
 
 
-def dockerfile_refs(text: str) -> Tuple[Set[str], Set[str]]:
-    """(digests, tag refs) a Dockerfile could pull: every sha256 anywhere, plus
-    digest-less FROM refs. Over-matching only keeps more images."""
-    tags = {
-        m.group("ref") for m in FROM_LINE.finditer(text)
-        if "@" not in m.group("ref") and "$" not in m.group("ref")
-    }
+def with_tag(ref: str) -> str:
+    return ref if ":" in ref.rsplit("/", 1)[-1] else f"{ref}:latest"
+
+
+def image_refs(text: str) -> Tuple[Set[str], Set[str]]:
+    """(digests, tag refs) a Dockerfile, devcontainer.json or compose file could pull:
+    every sha256 anywhere, plus digest-less FROM and `image` refs. Over-matching only
+    keeps more images."""
+    refs = [m.group("ref") for m in FROM_LINE.finditer(text)]
+    refs += [m.group("ref") for m in IMAGE_KEY.finditer(text)]
+    tags = {with_tag(r) for r in refs if "@" not in r and "$" not in r}
     return set(DIGEST.findall(text)), tags
 
 
@@ -422,9 +473,11 @@ def image_repos(image: dict) -> Set[str]:
 
 
 def classify_base_images(images: List[dict], digests: Set[str], tags: Set[str],
-                         in_use: Set[str], pattern: str) -> List[Tuple[dict, str, str]]:
+                         in_use: Set[str], pattern: str,
+                         unread: Sequence[str] = ()) -> List[Tuple[dict, str, str]]:
     """Per devcontainer-base repository: keep every referenced or in-use image and the
-    newest; the rest are confirm-tier. Returns (image, tier-or-'keep', reason)."""
+    newest; the rest are confirm-tier, or report-tier when some checkout's config names
+    a file that couldn't be read (`unread`). Returns (image, tier-or-'keep', reason)."""
     family = re.compile(pattern)
     by_repo: Dict[str, List[dict]] = {}
     for image in images:
@@ -437,11 +490,13 @@ def classify_base_images(images: List[dict], digests: Set[str], tags: Set[str],
         for image in members:
             image_digests = {d.split("@", 1)[1] for d in image["digests"]} | {image["id"]}
             if image_digests & digests or set(image["tags"]) & tags:
-                verdict = ("keep", "referenced by a checkout's .devcontainer/Dockerfile")
+                verdict = ("keep", "referenced by a checkout's devcontainer config")
             elif image["id"] in in_use:
                 verdict = ("keep", "used by a container")
             elif image["id"] == newest:
                 verdict = ("keep", f"newest {repo}")
+            elif unread:
+                verdict = (REPORT, f"superseded {repo}, but could not read {', '.join(unread)}")
             else:
                 verdict = (CONFIRM, f"superseded {repo}, referenced by no checkout")
             previous = verdicts.get(image["id"])
@@ -502,6 +557,79 @@ def contained_in(repo: str, tip: str, head_oid: str) -> Optional[bool]:
     return {0: True, 1: False}.get(res.rc)
 
 
+def worktree_status(path: str, regenerable: Sequence[str]) -> Tuple[Optional[bool], List[str]]:
+    """(dirty, gitignored paths that aren't regenerable); dirty is None if git can't tell.
+    `git worktree remove` deletes ignored files without counting them as changes."""
+    res = git(path, "status", "--porcelain", "-z", "--ignored")
+    if not res.ok:
+        return None, []
+    dirty, ignored = False, []
+    for entry in res.out.split("\0"):
+        if entry.startswith("!! "):
+            ignored.append(entry[3:])
+        elif entry:
+            dirty = True
+    return dirty, precious_ignored(ignored, regenerable)
+
+
+def read_text(path: str) -> Optional[str]:
+    try:
+        with open(path, errors="replace") as fh:
+            return fh.read(1_000_000)
+    except OSError:
+        return None
+
+
+def devcontainer_sources(checkout: str) -> Tuple[List[str], List[str]]:
+    """Files a checkout's devcontainer setup builds or pulls from: everything under
+    `.devcontainer/`, a root `.devcontainer.json`, and the Dockerfiles and compose files
+    they name. Returns (readable files, named files that couldn't be found)."""
+    found: List[str] = []
+    seen: Set[str] = set()
+    unread: List[str] = []
+
+    def add(path: str) -> None:
+        path = os.path.normpath(path)
+        if path not in seen:
+            seen.add(path)
+            found.append(path)
+
+    root_json = os.path.join(checkout, ".devcontainer.json")
+    if os.path.isfile(root_json):
+        add(root_json)
+    # os.walk doesn't follow links; this repo's .devcontainer links to the git common dir.
+    for folder, _, names in os.walk(os.path.join(checkout, ".devcontainer")):
+        for name in sorted(names):
+            if not os.path.islink(os.path.join(folder, name)):
+                add(os.path.join(folder, name))
+    for path in found:  # grows as named files are added
+        text = read_text(path) or ""
+        here = os.path.dirname(path)
+        if path.endswith(".json"):
+            for m in FILE_KEY.finditer(text):
+                for name in re.findall(r'"([^"]*)"', m.group(1)):
+                    target = os.path.join(here, name)
+                    if os.path.isfile(target):
+                        add(target)
+                    else:
+                        unread.append(os.path.normpath(target))
+        build = COMPOSE_BUILD.search(text) if path.endswith((".yml", ".yaml")) else None
+        if build:
+            contexts = [here] + [os.path.join(here, m.group("path"))
+                                 for m in COMPOSE_CONTEXT.finditer(text)]
+            if build.group("path"):
+                contexts.append(os.path.join(here, build.group("path")))
+            names = [m.group("path") for m in COMPOSE_DOCKERFILE.finditer(text)] or ["Dockerfile"]
+            for name in names:
+                hits = [os.path.join(c, name) for c in contexts
+                        if os.path.isfile(os.path.join(c, name))]
+                if not hits:
+                    unread.append(f"{name} (built by {path})")
+                for hit in hits:
+                    add(hit)
+    return found, unread
+
+
 def default_branch(repo: str) -> Optional[str]:
     res = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
     if res.ok:
@@ -543,6 +671,43 @@ class Context:
     du: Callable[[str], Optional[int]] = du_bytes
 
 
+@dataclass
+class Scope:
+    """Where discovery looked, and so what the script may act on."""
+    roots: List[str]
+    registered: Set[str] = field(default_factory=set)  # realpaths of every listed worktree
+    known: Set[str] = field(default_factory=set)  # every folder seen, to prove vsc-* images
+
+    def owns(self, folder: str) -> bool:
+        """Under a worktree root, or a worktree git lists (folder present or not)."""
+        return (any(is_within(folder, r) for r in self.roots)
+                or os.path.realpath(folder) in self.registered)
+
+
+@dataclass
+class DockerState:
+    containers: List[dict]
+    images: List[dict]
+    volumes: List[dict]
+    sizes: Dict[str, int]
+
+    def running_folders(self) -> Set[str]:
+        return {c["labels"][FOLDER_LABEL] for c in self.containers
+                if c["labels"].get(FOLDER_LABEL) and c["state"] not in STOPPED}
+
+
+def read_docker(docker: Docker, sizes: bool = True) -> Tuple[Optional[DockerState], str]:
+    if not docker.available():
+        return None, "unavailable"
+    containers, images, volumes = docker.containers(), docker.images(), docker.volumes()
+    if containers is None or images is None or volumes is None:
+        return None, "could not list containers, images, or volumes"
+    measured = docker.sizes() if sizes else {}
+    for image in images:
+        image["size"] = measured.get(image["id"], image["size"])
+    return DockerState(containers, images, volumes, measured), "ok"
+
+
 def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> Tuple[str, str, Optional[int]]:
     copy = PR_COPY.fullmatch(name)
     status, pr = pr_status(prs.by_number(int(copy.group("number"))) if copy else prs.for_head(name))
@@ -551,49 +716,50 @@ def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> Tuple[str, s
     return tier, reason, pr["number"] if pr else None
 
 
-def inventory_repo(ctx: Context, repo: str, roots: List[str], items: List[Item],
-                   notes: List[str]) -> List[str]:
-    """Worktree + branch items for one main checkout. Returns the worktree paths git knows."""
+def inventory_repo(ctx: Context, repo: str, scope: Scope, running: Set[str], items: List[Item],
+                   notes: List[str]) -> None:
+    """Worktree + branch items for one main checkout; records its worktrees in `scope`."""
     if ctx.fetch:
         res = git(repo, "fetch", "--prune", "--quiet", "origin")
         notes.append(f"git fetch --prune {repo}: {'ok' if res.ok else res.err.strip()}")
     listing = git(repo, "worktree", "list", "--porcelain")
     if not listing.ok:
         notes.append(f"git worktree list failed in {repo}: {listing.err.strip()}")
-        return []
+        return
     entries = parse_worktrees(listing.out)
+    scope.registered.update(os.path.realpath(str(e["path"])) for e in entries)
+    scope.known.update(str(e["path"]) for e in entries)
     url = git(repo, "config", "--get", "remote.origin.url").out
     prs = PrIndex(ctx.github, repo_slug(url))
     base = default_branch(repo)
     codex = expand(str(ctx.config["codex_worktrees"]))
-
-    if any(e["prunable"] for e in entries):
-        stale = [str(e["path"]) for e in entries if e["prunable"]]
-        items.append(Item(f"worktree-prune:{repo}", "worktree-prune", AUTO,
-                          f"git worktree prune in {repo}",
-                          f"{len(stale)} worktree entr(ies) point at missing folders",
-                          path=repo, details={"stale": stale}))
+    regenerable = [str(p) for p in list(ctx.config["regenerable_ignored"])]
 
     checked_out = {e["branch"] for e in entries if e["branch"] and not e["prunable"]}
     for entry in entries:
-        path, head = str(entry["path"]), str(entry.get("head", ""))
-        if entry["prunable"] or entry["bare"] or os.path.realpath(path) == os.path.realpath(repo):
+        path, head, branch = str(entry["path"]), str(entry.get("head", "")), entry["branch"]
+        if entry["bare"] or os.path.realpath(path) == os.path.realpath(repo):
             continue
-        under_root = any(is_within(path, r) for r in roots)
+        under_root = any(is_within(path, r) for r in scope.roots)
+        if entry["prunable"]:
+            tier, reason = classify_stale(bool(entry["locked"]), under_root)
+            items.append(Item(f"worktree-stale:{path}@{head}", "worktree-stale", tier,
+                              f"stale entry {path} in {repo}", reason, path=path,
+                              details={"repo": repo, "branch": branch, "head": head}))
+            continue
         age = commit_age_days(path, "HEAD", ctx.now)
         if not under_root:
             where = "Codex worktree" if is_within(path, codex) else "outside the worktree roots"
             items.append(Item(f"worktree:{path}@{head}", "worktree", REPORT, path,
                               where, path=path, age_days=age))
             continue
-        status = git(path, "status", "--porcelain")
-        dirty = bool(status.out.strip()) if status.ok else None
+        dirty, precious = worktree_status(path, regenerable)
         on_default = contained_in(path, head, base) if base else None
-        branch = entry["branch"]
         verdict = branch_verdict(repo, prs, str(branch), head)[:2] if branch else (REPORT, "")
         tier, reason = classify_worktree(
             dirty=dirty, locked=bool(entry["locked"]), detached=bool(entry["detached"]),
-            on_default=on_default, branch_verdict=verdict, guard=ctx.sessions.guard(path))
+            on_default=on_default, branch_verdict=verdict, guard=ctx.sessions.guard(path),
+            precious=precious, devcontainer_running=any(is_within(f, path) for f in running))
         title = f"{path} ({branch or 'detached'})"
         items.append(Item(f"worktree:{path}@{head}", "worktree", tier, title, reason, path=path,
                           age_days=age, details={"repo": repo, "branch": branch, "head": head}))
@@ -608,31 +774,21 @@ def inventory_repo(ctx: Context, repo: str, roots: List[str], items: List[Item],
         items.append(Item(f"branch:{repo}:{name}@{tip}", "branch", tier, f"{name} in {repo}",
                           reason, path=repo, age_days=commit_age_days(repo, tip, ctx.now),
                           details={"repo": repo, "branch": name, "tip": tip, "pr": number}))
-    return [str(e["path"]) for e in entries]
 
 
-def inventory_docker(ctx: Context, known_paths: Set[str], roots: List[str], checkouts: List[str],
-                     items: List[Item], summary: Dict[str, object]) -> None:
-    docker = ctx.docker
-    if not docker.available():
-        summary["docker"] = "unavailable"
-        return
-    containers, images, volumes = docker.containers(), docker.images(), docker.volumes()
-    if containers is None or images is None or volumes is None:
-        summary["docker"] = "could not list containers, images, or volumes"
-        return
-    sizes = docker.sizes()
-    for image in images:
-        image["size"] = sizes.get(image["id"], image["size"])
+def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List[Item],
+                     summary: Dict[str, object]) -> None:
+    containers, images, volumes, sizes = state.containers, state.images, state.volumes, state.sizes
     claimed_images: Set[str] = set()
     claimed_volumes: Set[str] = set()
+    folders = set(scope.known)
 
     for c in containers:
         folder = c["labels"].get(FOLDER_LABEL)
         if not folder:
             continue
-        known_paths.add(folder)
-        verdict = classify_container(os.path.exists(folder), c["state"])
+        folders.add(folder)
+        verdict = classify_container(os.path.exists(folder), c["state"], scope.owns(folder))
         if verdict is None:
             continue
         items.append(Item(f"container:{c['id']}:{c['state']}", "container", verdict[0],
@@ -643,9 +799,9 @@ def inventory_docker(ctx: Context, known_paths: Set[str], roots: List[str], chec
     in_use = {c["image_id"] for c in containers}
     # Folders a vsc-* image might have been built for: everything known, its
     # siblings, and the same basename under any parent a worktree could live in.
-    parents = {os.path.dirname(p) for p in known_paths} | set(roots)
-    parents.update(d for r in roots for d in subdirs(r))
-    guesses = set(known_paths)
+    parents = {os.path.dirname(p) for p in folders} | set(scope.roots)
+    parents.update(d for r in scope.roots for d in subdirs(r))
+    guesses = set(folders)
     for parent in parents:
         guesses.update(subdirs(parent))
     for image in images:
@@ -661,23 +817,25 @@ def inventory_docker(ctx: Context, known_paths: Set[str], roots: List[str], chec
                               "could not prove which folder this image was built for",
                               size_bytes=image["size"]))
         elif not os.path.exists(folder):
-            items.append(Item(f"image:{image['id']}", "image", CONFIRM, tag,
-                              f"worktree {folder} is gone", path=folder,
+            tier, reason = ((CONFIRM, f"worktree {folder} is gone") if scope.owns(folder) else
+                            (REPORT, f"{folder} is missing, but it is {OUT_OF_SCOPE}"))
+            items.append(Item(f"image:{image['id']}", "image", tier, tag, reason, path=folder,
                               size_bytes=image["size"]))
 
     digests: Set[str] = set()
     tags: Set[str] = set()
-    for checkout in checkouts:
-        try:
-            text = Path(checkout, ".devcontainer", "Dockerfile").read_text()
-        except OSError:
-            continue
-        d, t = dockerfile_refs(text)
-        digests |= d
-        tags |= t
+    unread: Set[str] = set()
+    for checkout in sorted(p for p in folders if os.path.isdir(p)):
+        files, missing = devcontainer_sources(checkout)
+        unread.update(missing)
+        for path in files:
+            d, t = image_refs(read_text(path) or "")
+            digests |= d
+            tags |= t
     kept = []
     for image, tier, reason in classify_base_images(images, digests, tags, in_use,
-                                                    str(ctx.config["base_image_pattern"])):
+                                                    str(ctx.config["base_image_pattern"]),
+                                                    sorted(unread)):
         claimed_images.add(image["id"])
         label = (image["tags"] or image["digests"] or [image["id"]])[0]
         if tier == "keep":
@@ -708,45 +866,68 @@ def inventory_docker(ctx: Context, known_paths: Set[str], roots: List[str], chec
         "volumes_bytes": sum(sizes.get(v["name"], 0) for v in other_volumes),
         "volumes": sorted(v["name"] for v in other_volumes),
     }
-    summary["build_cache_bytes"] = docker.build_cache_bytes()
 
 
-def build_inventory(ctx: Context) -> Dict[str, object]:
+@dataclass
+class Inventory:
+    items: List[Item]
+    notes: List[str]
+    summary: Dict[str, object]
+    scope: Scope
+
+
+def collect(ctx: Context, measure: bool = True) -> Inventory:
+    """Every item. `measure=False` skips sizes, which apply doesn't need."""
     cfg = ctx.config
-    roots = [expand(str(r)) for r in list(cfg["worktree_roots"]) + list(cfg["extra_roots"])]
+    scope = Scope([expand(str(r)) for r in list(cfg["worktree_roots"]) + list(cfg["extra_roots"])])
     items: List[Item] = []
     notes: List[str] = []
     summary: Dict[str, object] = {"sessions_available": ctx.sessions.available}
+    docker, why = read_docker(ctx.docker, sizes=measure)
+    if docker is None:
+        summary["docker"] = why
 
-    owners = {folder: main_checkout(folder) for folder in candidate_folders(roots)}
+    owners = {folder: main_checkout(folder) for folder in candidate_folders(scope.roots)}
     loose = [folder for folder, main in owners.items() if main is None]
     repos = sorted({main for main in owners.values() if main is not None}
-                   | {expand(str(r)) for r in cfg["extra_repos"]})
-    known: Set[str] = set(repos)
+                   | {expand(str(r)) for r in list(cfg["extra_repos"])})
+    scope.known.update(repos)
+    running = docker.running_folders() if docker else set()
     for repo in repos:
-        known.update(inventory_repo(ctx, repo, roots, items, notes))
-    listed = {os.path.realpath(k) for k in known}
+        inventory_repo(ctx, repo, scope, running, items, notes)
     for folder in loose:
         items.append(Item(f"folder:{folder}", "folder", REPORT, folder,
                           "not a registered git worktree; it may hold the only copy of work",
-                          path=folder, size_bytes=ctx.du(folder),
+                          path=folder, size_bytes=ctx.du(folder) if measure else None,
                           age_days=int((ctx.now - os.path.getmtime(folder)) // 86400)))
     for folder, main in owners.items():
-        if main is not None and os.path.realpath(folder) not in listed:
+        if main is not None and os.path.realpath(folder) not in scope.registered:
             items.append(Item(f"folder:{folder}", "folder", REPORT, folder,
                               "git doesn't list this folder as a worktree", path=folder))
-    known.update(loose)
+    scope.known.update(loose)
 
-    checkouts = sorted(p for p in known if os.path.isdir(p))
-    inventory_docker(ctx, known, roots, checkouts, items, summary)
+    if docker is not None:
+        inventory_docker(ctx, docker, scope, items, summary)
+    return Inventory(items, notes, summary, scope)
 
+
+def disk_usage(ctx: Context, summary: Dict[str, object]) -> None:
+    """Sizes of what the script never touches; `du` on these can take minutes."""
+    cfg = ctx.config
     codex = expand(str(cfg["codex_worktrees"]))
     summary["codex_worktrees"] = {"count": len(candidate_folders([codex])), "bytes": ctx.du(codex)}
     summary["claude_projects_bytes"] = ctx.du(expand(str(cfg["claude_projects"])))
-    summary["host_caches"] = {expand(str(p)): ctx.du(expand(str(p))) for p in cfg["host_caches"]}
+    summary["host_caches"] = {expand(str(p)): ctx.du(expand(str(p)))
+                              for p in list(cfg["host_caches"])}
     summary["docker_raw_bytes"] = ctx.du(expand(str(cfg["docker_raw"])))
-    return {"version": 1, "generated_at": int(ctx.now), "items": [asdict(i) for i in items],
-            "summary": summary, "notes": notes}
+    summary["build_cache_bytes"] = None if "docker" in summary else ctx.docker.build_cache_bytes()
+
+
+def build_inventory(ctx: Context) -> Dict[str, object]:
+    inv = collect(ctx)
+    disk_usage(ctx, inv.summary)
+    return {"version": 1, "generated_at": int(ctx.now), "items": [asdict(i) for i in inv.items],
+            "summary": inv.summary, "notes": inv.notes}
 
 
 # --------------------------------------------------------------------------- #
@@ -776,13 +957,23 @@ def delete_branch(repo: str, branch: str, tip: str) -> Tuple[bool, str]:
 def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
     kind, details = item["kind"], item["details"]
     assert isinstance(details, dict)
-    if kind == "worktree-prune":
-        res = git(str(item["path"]), "worktree", "prune")
-        return res.ok, "pruned stale worktree entries" if res.ok else res.err.strip()
+    if kind == "worktree-stale":
+        path = str(item["path"])
+        if os.path.lexists(path):
+            return False, "folder exists again"
+        # On a missing folder this unregisters just that entry, with no --force.
+        res = git(str(details["repo"]), "worktree", "remove", path)
+        return res.ok, "unregistered stale worktree entry" if res.ok else res.err.strip()
     if kind == "worktree":
         path, repo = str(item["path"]), str(details["repo"])
-        if git(path, "status", "--porcelain").out.strip():
+        dirty, precious = worktree_status(path, [str(p) for p in
+                                                 list(ctx.config["regenerable_ignored"])])
+        if dirty is None:
+            return False, "could not read worktree status"
+        if dirty:
             return False, "worktree has uncommitted changes"
+        if precious:
+            return False, "worktree has gitignored files that may be the only copy"
         # No --force: git itself refuses a dirty or locked worktree.
         res = git(repo, "worktree", "remove", path)
         if not res.ok:
@@ -825,7 +1016,8 @@ def record(done: List[Dict[str, str]], skipped: List[Dict[str, str]], item: Dict
 
 def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
     """Recompute, then act on each requested id still present at an actionable tier."""
-    fresh = {i["id"]: i for i in build_inventory(ctx)["items"]}
+    inventory = collect(ctx, measure=False)
+    fresh = {i.id: asdict(i) for i in inventory.items}
     done: List[Dict[str, str]] = []
     skipped: List[Dict[str, str]] = []
     queue = []
@@ -843,13 +1035,16 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
         record(done, skipped, item, ok, msg)
 
     # Removing a worktree orphans its devcontainer: reap what is now auto-tier and
-    # hand back anything that now needs confirming.
+    # hand back anything that now needs confirming. Only Docker state changed.
     follow_up: List[Dict[str, object]] = []
-    if any(i["kind"] == "worktree" for i in queue):
+    removed_worktree = any(i["kind"] == "worktree" for i in queue)
+    docker = read_docker(ctx.docker, sizes=False)[0] if removed_worktree else None
+    if docker is not None:
         handled = {d["id"] for d in done} | {s["id"] for s in skipped}
-        ctx.fetch = False
-        for item in build_inventory(ctx)["items"]:
-            if item["id"] in handled or item["kind"] not in ("container", "image", "volume"):
+        exposed: List[Item] = []
+        inventory_docker(ctx, docker, inventory.scope, exposed, {})
+        for item in map(asdict, exposed):
+            if item["id"] in handled:
                 continue
             if item["tier"] == AUTO:
                 record(done, skipped, item, *apply_item(ctx, item))
@@ -867,11 +1062,24 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
 def load_config(path: Optional[str]) -> Dict[str, object]:
     config = dict(DEFAULT_CONFIG)
     target = expand(path or DEFAULT_CONFIG_PATH)
-    if os.path.exists(target):
-        with open(target) as fh:
-            config.update(json.load(fh))
-    elif path:
-        raise SystemExit(f"config file not found: {target}")
+    if not os.path.exists(target):
+        if path:
+            raise SystemExit(f"config file not found: {target}")
+        return config
+    with open(target) as fh:
+        overrides = json.load(fh)
+    if not isinstance(overrides, dict):
+        raise SystemExit(f"{target}: expected a JSON object")
+    for key, value in overrides.items():
+        if key not in DEFAULT_CONFIG:
+            raise SystemExit(f"{target}: unknown key {key!r}")
+        # A bare string where a list belongs would iterate as characters.
+        if isinstance(DEFAULT_CONFIG[key], list):
+            if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+                raise SystemExit(f"{target}: {key} must be a list of strings")
+        elif not isinstance(value, str):
+            raise SystemExit(f"{target}: {key} must be a string")
+    config.update(overrides)
     return config
 
 
@@ -897,7 +1105,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             cmd.add_argument("--ids", nargs="+", required=True, help="item ids from inventory")
     args = parser.parse_args(argv)
     if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
-        # In a container, host worktrees look missing; worktree prune would drop them.
+        # In a container, host worktrees look missing and would be unregistered as stale.
         parser.error("run this on the host, not inside a container")
     ctx = Context(config=load_config(args.config),
                   sessions=load_sessions(read_json_arg(args.sessions), protect=[os.getcwd()]),

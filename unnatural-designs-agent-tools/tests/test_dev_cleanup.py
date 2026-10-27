@@ -101,6 +101,8 @@ REAPABLE = (True, "all 1 session(s) here are archived")
     ({"detached": True, "on_default": False}, dc.REPORT, "unpushed"),
     ({"detached": True, "on_default": None}, dc.REPORT, "could not compare"),
     ({"detached": True, "on_default": True, "dirty": True}, dc.REPORT, "uncommitted"),
+    ({"precious": [".env"]}, dc.REPORT, "only copy: .env"),
+    ({"devcontainer_running": True}, dc.REPORT, "devcontainer is running"),
 ])
 def test_classify_worktree(kwargs: dict, tier: str, reason: str) -> None:
     args = {"dirty": False, "locked": False, "detached": False, "on_default": None,
@@ -121,6 +123,23 @@ def test_classify_worktree(kwargs: dict, tier: str, reason: str) -> None:
 def test_classify_container_follows_its_worktree(exists: bool, state: str, expected) -> None:
     verdict = dc.classify_container(exists, state)
     assert (verdict[0] if verdict else None) == expected
+
+
+def test_classify_container_outside_the_roots_is_report_only() -> None:
+    assert dc.classify_container(False, "exited", in_scope=False)[0] == dc.REPORT
+
+
+@pytest.mark.parametrize("locked,in_scope,tier", [
+    (False, True, dc.AUTO), (False, False, dc.CONFIRM), (True, True, dc.REPORT)])
+def test_classify_stale(locked: bool, in_scope: bool, tier: str) -> None:
+    assert dc.classify_stale(locked, in_scope)[0] == tier
+
+
+def test_precious_ignored_keeps_what_no_pattern_covers() -> None:
+    paths = [".env", "src/__pycache__/", ".devcontainer/.git-plumbing/host-gitconfig",
+             "bazel-out", "secrets/token", "node_modules/"]
+    kept = dc.precious_ignored(paths, dc.DEFAULT_CONFIG["regenerable_ignored"])
+    assert kept == [".env", "secrets/token"]
 
 
 def sessions(*rows: tuple, available: bool = True) -> dc.SessionIndex:
@@ -158,14 +177,20 @@ def test_map_vsc_image_needs_a_hash_proof() -> None:
     assert dc.map_vsc_image("not-a-vsc-image", [folder]) is None
 
 
-def test_dockerfile_refs_over_match_digests() -> None:
+def test_image_refs_over_match_digests() -> None:
     d1, d2 = "sha256:" + "a" * 64, "sha256:" + "b" * 64
     text = (f"ARG BASE=ghcr.io/x/devcontainer-base@{d2}\n"
             f"FROM ghcr.io/x/devcontainer-base:latest@{d1} AS pinned\n"
             "FROM ${BASE}\nFROM --platform=linux/amd64 debian:stable\n")
-    digests, tags = dc.dockerfile_refs(text)
+    digests, tags = dc.image_refs(text)
     assert digests == {d1, d2}
     assert tags == {"debian:stable"}
+
+
+def test_image_refs_read_devcontainer_json_and_compose_image_keys() -> None:
+    text = ('{\n  "image": "ghcr.io/x/devcontainer-base",\n}\n'
+            "services:\n  app:\n    image: redis:7\n")
+    assert dc.image_refs(text)[1] == {"ghcr.io/x/devcontainer-base:latest", "redis:7"}
 
 
 def image(id_: str, created: str, tags=(), digests=(), size: int = 1) -> dict:
@@ -187,11 +212,41 @@ def test_classify_base_images_keeps_referenced_in_use_and_newest() -> None:
         images, digests={"sha256:" + "2" * 64}, tags={f"{repo}:latest"},
         in_use={"sha256:" + "3" * 64}, pattern=dc.DEFAULT_CONFIG["base_image_pattern"])}
     assert verdicts["1"][0] == dc.CONFIRM
-    assert verdicts["2"] == ("keep", "referenced by a checkout's .devcontainer/Dockerfile")
+    assert verdicts["2"] == ("keep", "referenced by a checkout's devcontainer config")
     assert verdicts["3"] == ("keep", "used by a container")
     assert verdicts["4"][0] == "keep"
     assert verdicts["5"] == ("keep", f"newest {repo}")
     assert "9" not in verdicts
+
+
+def test_classify_base_images_reports_when_a_named_file_is_unreadable() -> None:
+    repo = "ghcr.io/x/devcontainer-base"
+    images = [image("sha256:" + "1" * 64, "2026-01", tags=[f"{repo}:old"]),
+              image("sha256:" + "2" * 64, "2026-02", tags=[f"{repo}:new"])]
+    verdicts = dc.classify_base_images(images, set(), set(), set(),
+                                       dc.DEFAULT_CONFIG["base_image_pattern"], ["../Dockerfile"])
+    superseded = [(tier, reason) for i, tier, reason in verdicts if i["created"] == "2026-01"]
+    assert superseded[0][0] == dc.REPORT and "could not read ../Dockerfile" in superseded[0][1]
+
+
+def test_devcontainer_sources_follow_named_files(tmp_path: Path) -> None:
+    devc = tmp_path / ".devcontainer"
+    devc.mkdir()
+    (tmp_path / "Dockerfile.dev").write_text("FROM a\n")
+    (devc / "devcontainer.json").write_text(
+        '{"build": {"dockerfile": "../Dockerfile.dev"}, "dockerComposeFile": ["compose.yml"]}')
+    (devc / "compose.yml").write_text("services:\n  app:\n    build:\n      context: ../svc\n")
+    (tmp_path / "svc").mkdir()
+    (tmp_path / "svc" / "Dockerfile").write_text("FROM b\n")
+    (devc / "link").symlink_to(tmp_path)  # never walked into
+    files, unread = dc.devcontainer_sources(str(tmp_path))
+    names = {os.path.relpath(f, tmp_path) for f in files}
+    assert names == {".devcontainer/devcontainer.json", ".devcontainer/compose.yml",
+                     "Dockerfile.dev", "svc/Dockerfile"}
+    assert unread == []
+
+    (devc / "devcontainer.json").write_text('{"build": {"dockerfile": "missing.Dockerfile"}}')
+    assert dc.devcontainer_sources(str(tmp_path))[1] == [str(devc / "missing.Dockerfile")]
 
 
 @pytest.mark.parametrize("text,size", [("2.12GB", 2_120_000_000), ("213.1kB", 213_100),
@@ -491,19 +546,67 @@ def test_hidden_repo_dirs_under_a_root_are_discovered(repo) -> None:
     assert only(found, "worktree", path=str(path))["tier"] == dc.CONFIRM
 
 
-def test_missing_worktree_folder_is_auto_pruned_then_its_branch_is_deletable(repo) -> None:
+def test_missing_worktree_folder_is_unregistered_then_its_branch_is_deletable(repo) -> None:
     wt = repo.worktree("gone-goat-666666", branch="claude/gone")
+    other = repo.worktree("lost-lynx-777777")
     tip = repo.head(wt)
-    subprocess.run(["rm", "-rf", str(wt)], check=True)
+    subprocess.run(["rm", "-rf", str(wt), str(other)], check=True)
     ctx = context(repo, github=FakeGitHub([pr(11, "MERGED", "claude/gone", tip)]))
     found = items(ctx)
-    prune = only(found, "worktree-prune")
+    stale = only(found, "worktree-stale", path=str(wt))
     branch = only(found, "branch", branch="claude/gone")
-    assert prune["tier"] == dc.AUTO and branch["tier"] == dc.CONFIRM
+    assert stale["id"] == f"worktree-stale:{wt}@{tip}"
+    assert stale["tier"] == dc.AUTO and branch["tier"] == dc.CONFIRM
 
-    result = dc.apply(ctx, [branch["id"], prune["id"]])
-    assert {d["id"] for d in result["done"]} == {prune["id"], branch["id"]}
-    assert "gone-goat" not in git(repo.main, "worktree", "list")
+    result = dc.apply(ctx, [branch["id"], stale["id"]])
+    assert {d["id"] for d in result["done"]} == {stale["id"], branch["id"]}
+    listing = git(repo.main, "worktree", "list")
+    assert "gone-goat" not in listing and "lost-lynx" in listing  # only the named entry
+
+
+def test_stale_entry_outside_the_roots_needs_confirming(repo) -> None:
+    path = repo.tmp / "external" / "ejected-emu-888888"
+    git(repo.main, "worktree", "add", "-q", "--detach", str(path), "origin/main")
+    subprocess.run(["rm", "-rf", str(path)], check=True)
+    item = only(items(context(repo)), "worktree-stale", path=str(path))
+    assert item["tier"] == dc.CONFIRM and "outside the worktree roots" in item["reason"]
+
+
+def test_stale_entry_whose_folder_reappears_is_skipped(repo) -> None:
+    wt = repo.worktree("back-bear-999999")
+    item = {"id": "x", "kind": "worktree-stale", "path": str(wt), "tier": dc.AUTO,
+            "details": {"repo": str(repo.main)}}
+    assert dc.apply_item(context(repo), item) == (False, "folder exists again")
+    assert wt.exists() and "back-bear" in git(repo.main, "worktree", "list")
+
+
+def test_gitignored_files_keep_a_worktree_report_only(repo) -> None:
+    (repo.main / ".git" / "info" / "exclude").write_text(".env\n__pycache__/\n")
+    keeps = repo.worktree("keen-kiwi-121212")
+    (keeps / ".env").write_text("TOKEN=only-copy")
+    cache_only = repo.worktree("cool-crab-131313")
+    (cache_only / "__pycache__").mkdir()
+    (cache_only / "__pycache__" / "m.pyc").write_text("")
+    ctx = context(repo, sessions((str(keeps), True, False), (str(cache_only), True, False)))
+    found = items(ctx)
+    kept = only(found, "worktree", path=str(keeps))
+    assert kept["tier"] == dc.REPORT and ".env" in kept["reason"]
+    assert only(found, "worktree", path=str(cache_only))["tier"] == dc.CONFIRM
+
+    (cache_only / "notes.local").write_text("mine")
+    (repo.main / ".git" / "info" / "exclude").write_text(".env\n__pycache__/\n*.local\n")
+    result = dc.apply(ctx, [only(found, "worktree", path=str(cache_only))["id"]])
+    assert result["done"] == [] and "only copy" in result["skipped"][0]["reason"]
+    assert cache_only.exists()
+
+
+def test_apply_fails_closed_when_worktree_status_fails(repo, tmp_path) -> None:
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+    item = {"id": "x", "kind": "worktree", "path": str(not_a_repo), "tier": dc.CONFIRM,
+            "details": {"repo": str(repo.main), "branch": None, "head": ""}}
+    assert dc.apply_item(context(repo), item) == (False, "could not read worktree status")
+    assert not_a_repo.exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -526,6 +629,24 @@ def test_containers_follow_their_worktree(repo, tmp_path) -> None:
     tiers = {i["details"]["container"]: i["tier"] for i in found.values()
              if i["kind"] == "container"}
     assert tiers == {"c-stopped": dc.AUTO, "c-running": dc.CONFIRM}
+
+
+def test_containers_and_images_outside_the_roots_are_report_only(repo) -> None:
+    gone = str(repo.tmp / "external-drive" / "project")
+    tag = f"vsc-project-{dc.folder_hash(gone)}:latest"
+    docker = FakeDocker(images=[image("sha256:v", "2026", tags=[tag])],
+                        containers=[container("c", gone, "exited", image_id="sha256:v")])
+    found = items(context(repo, docker=docker))
+    assert found["container:c:exited"]["tier"] == dc.REPORT
+    assert found["image:sha256:v"]["tier"] == dc.REPORT
+
+
+def test_a_running_devcontainer_protects_its_worktree(repo) -> None:
+    wt = repo.worktree("calm-cow-222222")
+    docker = FakeDocker(containers=[container("c", str(wt), "running")])
+    item = only(items(context(repo, sessions((str(wt), True, False)), docker=docker)),
+                "worktree", path=str(wt))
+    assert item["tier"] == dc.REPORT and "devcontainer is running" in item["reason"]
 
 
 def test_apply_stops_only_confirmed_running_containers(repo) -> None:
@@ -563,6 +684,17 @@ def test_base_images_referenced_by_a_checkout_dockerfile_are_kept(repo) -> None:
     assert f"image:{keep}" not in found and f"image:{new}" not in found
 
 
+def test_base_images_named_by_devcontainer_json_are_kept(repo) -> None:
+    keep, new = ("sha256:" + c * 64 for c in "ab")
+    base = "ghcr.io/x/devcontainer-base"
+    (repo.main / ".devcontainer").mkdir()
+    (repo.main / ".devcontainer" / "devcontainer.json").write_text(
+        f'{{"image": "{base}@{keep}"}}')
+    docker = FakeDocker(images=[image(keep, "2026-01", digests=[f"{base}@{keep}"]),
+                                image(new, "2026-02", digests=[f"{base}@{new}"])])
+    assert not any(k.startswith("image:") for k in items(context(repo, docker=docker)))
+
+
 def test_ownerless_anonymous_volumes_are_auto(repo) -> None:
     docker = FakeDocker(volumes=[
         {"name": "a" * 64, "anonymous": True, "dangling": True},
@@ -598,6 +730,15 @@ def test_removing_a_worktree_reaps_its_stopped_container_and_offers_its_image(re
     assert [i["id"] for i in result["follow_up"]] == ["image:sha256:v"]
 
 
+def test_apply_measures_only_docker_raw(repo) -> None:
+    (repo.root / "r" / "stray-folder").mkdir()
+    measured: List[str] = []
+    ctx = context(repo)
+    ctx.du = lambda path: measured.append(path)
+    dc.apply(ctx, ["branch:/nowhere:x@0"])
+    assert measured == [str(repo.tmp / "Docker.raw")]
+
+
 def test_unknown_ids_are_skipped(repo) -> None:
     result = dc.apply(context(repo), ["branch:/nowhere:x@0"])
     assert result["done"] == [] and "gone" in result["skipped"][0]["reason"]
@@ -611,3 +752,16 @@ def test_config_file_overrides_defaults(tmp_path) -> None:
     assert config["worktree_roots"] == dc.DEFAULT_CONFIG["worktree_roots"]
     with pytest.raises(SystemExit):
         dc.load_config(str(tmp_path / "missing.json"))
+
+
+@pytest.mark.parametrize("body,message", [
+    ('{"worktree_roots": "~/code"}', "must be a list of strings"),
+    ('{"docker_raw": ["a"]}', "must be a string"),
+    ('{"worktree_root": ["~/code"]}', "unknown key"),
+    ('["~/code"]', "expected a JSON object"),
+])
+def test_config_file_is_validated(tmp_path, body: str, message: str) -> None:
+    path = tmp_path / "dev-cleanup.json"
+    path.write_text(body)
+    with pytest.raises(SystemExit, match=message):
+        dc.load_config(str(path))

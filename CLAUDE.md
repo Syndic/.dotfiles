@@ -1147,8 +1147,8 @@ repo is their only home.
 `unnatural-designs-agent-tools/scripts/` runs on the **host**, not in the
 devcontainer, so it is standard-library Python kept 3.9-compatible (same
 constraint as `phase2.py`); its tests in `unnatural-designs-agent-tools/tests/`
-run in the devcontainer as part of the python suite (`./tests/run python` and
-CI's `python` job both pass that path).
+run in the devcontainer as part of the python suite (`pytest.ini`'s `testpaths`
+lists it for both `./tests/run python` and CI's `python` job).
 
 The `claude_code` role registers it as a **`directory` marketplace** (absolute
 `path`, from `playbook_dir`, so the `~/.dotfiles` checkout in real use).
