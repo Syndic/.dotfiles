@@ -1,5 +1,3 @@
-tap "jandedobbeleer/oh-my-posh"
-
 # Clone of cat(1) with syntax highlighting and Git integration
 brew "bat"
 # CLI tool for managing Dev Containers
