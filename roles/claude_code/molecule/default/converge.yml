@@ -8,7 +8,7 @@
     - role: claude_code
       vars:
         claude_code_home_dir: /root/seeded-home
-        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
 
 - name: Converge — claude_code role with no settings file
   hosts: all
@@ -17,7 +17,7 @@
     - role: claude_code
       vars:
         claude_code_home_dir: /root/fresh-home
-        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
 
 - name: Converge — claude_code role where the plugin is disabled
   hosts: all
@@ -26,7 +26,7 @@
     - role: claude_code
       vars:
         claude_code_home_dir: /root/disabled-home
-        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
 
 - name: Converge — claude_code role refuses unsafe settings files
   hosts: all

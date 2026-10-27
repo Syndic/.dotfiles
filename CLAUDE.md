@@ -1131,9 +1131,9 @@ unchanged". `test_molecule_images_pin_index_not_child_digest` classifies each
 pin against the registry (skips offline, enforced in CI) so a child digest
 can't slip back in behind a passing `@sha256`-present check.
 
-## Claude Code plugin (`agent-tools/`)
+## Claude Code plugin (`unnatural-designs-agent-tools/`)
 
-`agent-tools/` is a Claude Code plugin that is also its own one-plugin
+`unnatural-designs-agent-tools/` is a Claude Code plugin that is also its own one-plugin
 marketplace: `.claude-plugin/marketplace.json` lists a single entry with
 `source: "./"`, beside the plugin's `.claude-plugin/plugin.json` and `skills/`.
 It's laid out so moving the folder to its own repo extracts it

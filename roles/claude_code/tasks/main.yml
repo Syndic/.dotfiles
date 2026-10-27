@@ -1,7 +1,7 @@
 ---
-# claude_code role — see CLAUDE.md "Claude Code plugin (`agent-tools/`)".
+# claude_code role — see CLAUDE.md "Claude Code plugin (`unnatural-designs-agent-tools/`)".
 
-- name: Read the agent-tools marketplace manifest
+- name: Read the unnatural-designs-agent-tools marketplace manifest
   ansible.builtin.slurp:
     src: "{{ claude_code_marketplace_dir }}/.claude-plugin/marketplace.json"
   register: claude_code_marketplace_manifest

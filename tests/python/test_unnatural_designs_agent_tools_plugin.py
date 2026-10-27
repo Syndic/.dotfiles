@@ -1,6 +1,6 @@
-"""Structural checks on the in-repo agent-tools Claude Code plugin.
+"""Structural checks on the in-repo unnatural-designs-agent-tools Claude Code plugin.
 
-The claude_code role registers agent-tools/ as a `directory` marketplace and
+The claude_code role registers unnatural-designs-agent-tools/ as a `directory` marketplace and
 enables every plugin its marketplace.json lists, so a malformed manifest or a
 skill without frontmatter breaks loading on every host. `claude plugin
 validate` isn't available in CI; these checks cover the rules it would."""
@@ -13,7 +13,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PLUGIN_ROOT = REPO_ROOT / "agent-tools"
+PLUGIN_ROOT = REPO_ROOT / "unnatural-designs-agent-tools"
 SKILL_DIRS = sorted(p for p in (PLUGIN_ROOT / "skills").iterdir() if p.is_dir())
 
 

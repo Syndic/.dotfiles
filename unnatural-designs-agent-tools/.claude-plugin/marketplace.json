@@ -1,5 +1,5 @@
 {
-  "name": "agent-tools",
+  "name": "unnatural-designs-agent-tools",
   "owner": {
     "name": "Joshua Yanchar"
   },
@@ -8,7 +8,7 @@
   },
   "plugins": [
     {
-      "name": "agent-tools",
+      "name": "unnatural-designs-agent-tools",
       "source": "./",
       "description": "Machine-scoped workflow skills: branch upkeep and post-session cleanup."
     }

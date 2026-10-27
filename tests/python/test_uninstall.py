@@ -289,9 +289,9 @@ def test_main_yes_unregisters_the_claude_code_marketplace(fake_install, monkeypa
     settings.parent.mkdir()
     settings.write_text(json.dumps({
         "model": "x",
-        "enabledPlugins": {"agent-tools@agent-tools": True},
-        "extraKnownMarketplaces": {"agent-tools": {"source": {
-            "source": "directory", "path": str(managed_root / "agent-tools")}}},
+        "enabledPlugins": {"unnatural-designs-agent-tools@unnatural-designs-agent-tools": True},
+        "extraKnownMarketplaces": {"unnatural-designs-agent-tools": {"source": {
+            "source": "directory", "path": str(managed_root / "unnatural-designs-agent-tools")}}},
     }))
     uninstall.main(["--host", "fake", "--yes"])
     assert json.loads(settings.read_text()) == {"model": "x"}

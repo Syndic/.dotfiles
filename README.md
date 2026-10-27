@@ -24,7 +24,7 @@ python3 ~/.dotfiles/uninstall.py
 
 By default this removes every symlink under `$HOME` that points into
 `~/.dotfiles` and restores the most-recent `<name>.backup-N` sibling for
-each path, and unregisters the `agent-tools` Claude Code plugin marketplace
+each path, and unregisters the `unnatural-designs-agent-tools` Claude Code plugin marketplace
 from `~/.claude/settings.json`. It does **not** touch packages, Homebrew itself, or the
 checkout. The plan is printed first; a single `y/N` covers all actions.
 
@@ -80,7 +80,7 @@ load-bearing.
 | `site.yml`, `inventory.yml` | Ansible entry point + host inventory. |
 | `group_vars/`, `host_vars/` | Variable scopes for the playbook. |
 | `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`, `claude_code`. |
-| `agent-tools/` | Claude Code plugin (and its own marketplace) holding personal skills. The `claude_code` role registers it in `~/.claude/settings.json`; edits apply at the next Claude Code session. |
+| `unnatural-designs-agent-tools/` | Claude Code plugin (and its own marketplace) holding personal skills. The `claude_code` role registers it in `~/.claude/settings.json`; edits apply at the next Claude Code session. |
 | `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` (cross-platform) + `groups/<group>.Brewfile` (per `purpose` and `os` group sets; macOS-only entries live in `groups/macos.Brewfile`) + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew. |
 | `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
 | `home_source/common/`, `home_source/groups/<group>/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Layered the same way as the package vars: common → per-group (one per active group set, e.g. `personal`/`macos`) → host. Later layers override earlier ones at the same relative path. |

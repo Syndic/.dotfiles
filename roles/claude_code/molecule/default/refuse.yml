@@ -6,7 +6,7 @@
         name: claude_code
       vars:
         claude_code_home_dir: "/root/{{ _unsafe_home }}-home"
-        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
 
     - name: Record that the role did not refuse
       ansible.builtin.set_fact:

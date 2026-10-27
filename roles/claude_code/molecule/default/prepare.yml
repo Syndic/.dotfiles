@@ -4,7 +4,7 @@
   gather_facts: false
   vars:
     _repo_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/../.."
-    _marketplace_dir: /opt/claude-code-molecule/agent-tools
+    _marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
     _homes: [seeded, fresh, disabled, bad-json, symlink]
   tasks:
     - name: Create the staged marketplace manifest directory
@@ -15,7 +15,7 @@
 
     - name: Copy the repo's real marketplace manifest into the container
       ansible.builtin.copy:
-        src: "{{ _repo_root }}/agent-tools/.claude-plugin/marketplace.json"
+        src: "{{ _repo_root }}/unnatural-designs-agent-tools/.claude-plugin/marketplace.json"
         dest: "{{ _marketplace_dir }}/.claude-plugin/marketplace.json"
         mode: "0644"
 
@@ -34,7 +34,7 @@
       loop: "{{ _homes | reject('equalto', 'fresh') | list }}"
 
     # Unowned keys (including siblings under both owned keys) must survive; the
-    # stale agent-tools entry must be replaced, not merged into. Seeded 0644 so
+    # stale unnatural-designs-agent-tools entry must be replaced, not merged into. Seeded 0644 so
     # the verify step proves the role writes 0600.
     - name: Seed a settings.json with unowned keys and a stale owned entry
       ansible.builtin.copy:
@@ -47,7 +47,7 @@
             "enabledPlugins": {"other-plugin@other-market": false},
             "extraKnownMarketplaces": {
               "other-market": {"source": {"source": "github", "repo": "example/other"}},
-              "agent-tools": {"source": {"source": "github", "repo": "example/agent-tools"}}
+              "unnatural-designs-agent-tools": {"source": {"source": "github", "repo": "example/stale"}}
             }
           }
 
@@ -56,7 +56,7 @@
         dest: /root/disabled-home/.claude/settings.json
         mode: "0600"
         content: |
-          {"enabledPlugins": {"agent-tools@agent-tools": false}}
+          {"enabledPlugins": {"unnatural-designs-agent-tools@unnatural-designs-agent-tools": false}}
 
     - name: Seed a settings.json that is not a JSON object
       ansible.builtin.copy:

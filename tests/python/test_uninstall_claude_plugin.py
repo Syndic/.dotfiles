@@ -7,6 +7,9 @@ from pathlib import Path
 
 import uninstall
 
+NAME = "unnatural-designs-agent-tools"
+KEY = f"{NAME}@{NAME}"
+
 
 def _seed(path: Path, settings: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -17,9 +20,9 @@ def _seed(path: Path, settings: object) -> Path:
 def _installed(root: Path) -> dict:
     return {
         "outputStyle": "Concise",
-        "enabledPlugins": {"agent-tools@agent-tools": True, "other@elsewhere": False},
+        "enabledPlugins": {KEY: True, "other@elsewhere": False},
         "extraKnownMarketplaces": {
-            "agent-tools": {"source": {"source": "directory", "path": str(root / "agent-tools")}},
+            NAME: {"source": {"source": "directory", "path": str(root / NAME)}},
             "elsewhere": {"source": {"source": "github", "repo": "o/r"}},
             "local-other": {"source": {"source": "directory", "path": "/opt/other"}},
         },
@@ -31,8 +34,8 @@ def test_removes_only_marketplaces_inside_the_managed_root(tmp_path: Path) -> No
     settings = _seed(tmp_path / ".claude" / "settings.json", _installed(root))
 
     preview, do = uninstall.build_claude_plugin_action(settings, root)
-    assert preview == ["  unregister marketplace  agent-tools",
-                       "  remove enabledPlugins   agent-tools@agent-tools"]
+    assert preview == ["  unregister marketplace  " + NAME,
+                       "  remove enabledPlugins   " + KEY]
     do()
 
     after = json.loads(settings.read_text())
@@ -44,7 +47,7 @@ def test_removes_only_marketplaces_inside_the_managed_root(tmp_path: Path) -> No
 
 def test_drops_sections_left_empty(tmp_path: Path) -> None:
     root = tmp_path / "dotfiles"
-    owned = {k: {n: v for n, v in section.items() if "agent-tools" in n}
+    owned = {k: {n: v for n, v in section.items() if NAME in n}
              for k, section in _installed(root).items() if isinstance(section, dict)}
     settings = _seed(tmp_path / "settings.json", {"model": "x", **owned})
     uninstall.build_claude_plugin_action(settings, root)[1]()

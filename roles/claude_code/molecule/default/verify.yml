@@ -6,7 +6,7 @@
     _owned_marketplace:
       source:
         source: directory
-        path: /opt/claude-code-molecule/agent-tools
+        path: /opt/claude-code-molecule/unnatural-designs-agent-tools
   tasks:
     - name: Read the settings files
       ansible.builtin.slurp:
@@ -38,18 +38,18 @@
 
     - name: The owned marketplace entry is replaced whole, not merged into
       ansible.builtin.assert:
-        that: item.extraKnownMarketplaces['agent-tools'] == _owned_marketplace
+        that: item.extraKnownMarketplaces['unnatural-designs-agent-tools'] == _owned_marketplace
         fail_msg: "owned marketplace entry wrong: {{ item.extraKnownMarketplaces }}"
       loop: ["{{ _seeded }}", "{{ _fresh }}", "{{ _disabled }}"]
       loop_control:
-        label: "{{ item.extraKnownMarketplaces['agent-tools'] | default('missing') }}"
+        label: "{{ item.extraKnownMarketplaces['unnatural-designs-agent-tools'] | default('missing') }}"
 
     - name: The plugin is enabled by default, but a user's disable sticks
       ansible.builtin.assert:
         that:
-          - _seeded.enabledPlugins['agent-tools@agent-tools'] == true
-          - _fresh.enabledPlugins['agent-tools@agent-tools'] == true
-          - _disabled.enabledPlugins['agent-tools@agent-tools'] == false
+          - _seeded.enabledPlugins['unnatural-designs-agent-tools@unnatural-designs-agent-tools'] == true
+          - _fresh.enabledPlugins['unnatural-designs-agent-tools@unnatural-designs-agent-tools'] == true
+          - _disabled.enabledPlugins['unnatural-designs-agent-tools@unnatural-designs-agent-tools'] == false
 
     - name: The created file holds only the owned keys
       ansible.builtin.assert:
