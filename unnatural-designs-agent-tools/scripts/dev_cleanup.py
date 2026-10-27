@@ -10,6 +10,7 @@ design") for what an id pins. Standard library only, because it runs on the host
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import json
 import os
@@ -152,6 +153,7 @@ class Docker:
                 "state": c["State"]["Status"],
                 "image_id": c["Image"],
                 "labels": c["Config"].get("Labels") or {},
+                "started_at": c["State"].get("StartedAt", ""),
                 "volumes": [m["Name"] for m in c.get("Mounts", []) if m.get("Type") == "volume"],
             }
             for c in json.loads(res.out)
@@ -410,7 +412,7 @@ def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
         return REPORT, f"{verdict}, but {why}"
     if running_containers:
         names = ", ".join(running_containers)
-        return CONFIRM, f"{verdict}; {why}; stops its running devcontainer first ({names})"
+        return CONFIRM, f"{verdict}; {why}; stops its running devcontainer first: {names}"
     return CONFIRM, f"{verdict}; {why}"
 
 
@@ -436,6 +438,17 @@ def classify_container(folder_exists: bool, state: str,
     if state in STOPPED:
         return AUTO, "worktree is gone; container is stopped"
     return CONFIRM, f"worktree is gone; container is {state}"
+
+
+def uptime(container: dict, now: float) -> str:
+    """`up 3d` from docker's RFC 3339 StartedAt, so a long-idle container stands out."""
+    try:
+        started = calendar.timegm(time.strptime(str(container.get("started_at", ""))[:19],
+                                                "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return "up for an unknown time"
+    hours = max(0, int(now - started) // 3600)
+    return f"up {hours // 24}d" if hours >= 24 else f"up {hours}h"
 
 
 def folder_hash(path: str) -> str:
@@ -763,7 +776,8 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
         tier, reason = classify_worktree(
             dirty=dirty, locked=bool(entry["locked"]), detached=bool(entry["detached"]),
             on_default=on_default, branch_verdict=verdict, guard=ctx.sessions.guard(path),
-            precious=precious, running_containers=[c["name"] for c in live])
+            precious=precious,
+            running_containers=[f"{c['name']} ({uptime(c, ctx.now)})" for c in live])
         title = f"{path} ({branch or 'detached'})"
         ids = [c["id"] for c in live]
         item_id = f"worktree:{path}@{head}" + (f"+containers:{','.join(ids)}" if ids else "")
@@ -973,27 +987,41 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
         return res.ok, "unregistered stale worktree entry" if res.ok else res.err.strip()
     if kind == "worktree":
         path, repo = str(item["path"]), str(details["repo"])
+        containers = [str(c) for c in details.get("containers") or []]
+        stopped: List[str] = []
+
+        def kept(why: str) -> Tuple[bool, str]:
+            # Stopped containers stay (with their volumes) whenever the worktree does.
+            note = f" (stopped, not removed: {', '.join(stopped)})" if stopped else ""
+            return False, f"{why}{note}"
+
+        # Stop first, so the re-check below sees everything the container wrote.
+        for cid in containers:
+            res = ctx.docker.command("stop", cid)
+            if not res.ok:
+                return kept(f"kept worktree; docker stop {cid} failed: {res.err.strip()}")
+            stopped.append(cid)
         dirty, precious = worktree_status(path, [str(p) for p in
                                                  list(ctx.config["regenerable_ignored"])])
         if dirty is None:
-            return False, "could not read worktree status"
+            return kept("could not read worktree status")
         if dirty:
-            return False, "worktree has uncommitted changes"
+            return kept("worktree has uncommitted changes")
         if precious:
-            return False, "worktree has gitignored files that may be the only copy"
-        for cid in details.get("containers") or []:
-            for step in (("stop", cid), ("rm", "-v", cid)):
-                res = ctx.docker.command(*step)
-                if not res.ok:
-                    return False, f"kept worktree; docker {step[0]} {cid} failed: {res.err.strip()}"
+            return kept("worktree has gitignored files that may be the only copy")
         # No --force: git itself refuses a dirty or locked worktree.
         res = git(repo, "worktree", "remove", path)
         if not res.ok:
-            return False, res.err.strip()
+            return kept(res.err.strip())
+        parts = ["removed worktree"]
+        for cid in containers:
+            rm = ctx.docker.command("rm", "-v", cid)
+            parts.append(f"removed devcontainer {cid}" if rm.ok
+                         else f"kept stopped devcontainer {cid}: {rm.err.strip()}")
         if details.get("branch"):
             ok, msg = delete_branch(repo, str(details["branch"]), str(details["head"]))
-            return True, f"removed worktree; {msg if ok else 'kept branch: ' + msg}"
-        return True, "removed worktree"
+            parts.append(msg if ok else "kept branch: " + msg)
+        return True, "; ".join(parts)
     if kind == "branch":
         return delete_branch(str(details["repo"]), str(details["branch"]), str(details["tip"]))
     if kind == "container":

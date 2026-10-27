@@ -46,8 +46,9 @@ Group by tier, and within a tier by kind. Show sizes in human units, and ages in
 - **Auto — runs without asking**: `tier: auto` (stale worktree entries, stopped
   containers whose worktree is gone, dangling images, ownerless anonymous volumes).
 - **Needs your OK**: `tier: confirm`, one group per kind (worktrees — each also
-  deletes its branch, and stops any devcontainer its `reason` names; branches;
-  containers; images). Number the items.
+  deletes its branch, and stops any devcontainer its `reason` names — show each
+  one's uptime from the reason, since a recently started one may still be in use;
+  branches; containers; images). Number the items.
 - **Your call — never touched**: `tier: report`, with each `reason` and age
   (closed/no-PR/open/dirty/unpushed branches and worktrees, worktrees holding
   gitignored files, unregistered folders, Codex
@@ -72,8 +73,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/dev_cleanup.py" apply --sessions <file> -
 actionable tier; anything that changed since the report is skipped. Report `done`, every
 `skipped` entry with its reason, and Docker.raw before → `docker_raw_bytes_after`.
 
-If `follow_up` is non-empty (removing a worktree exposed its devcontainer image),
-present those items the same way, ask, and run `apply` again with the chosen ids.
+If `follow_up` is non-empty (removing a worktree exposed its devcontainer image or
+a running container), present those items the same way, ask, and run `apply` again
+with the chosen ids.
 
 ## Never
 

@@ -3,6 +3,7 @@
 Pure classifiers get table tests; git behavior runs against real temp repos;
 `gh` and `docker` are faked at their adapter seam."""
 
+import calendar
 import copy
 import os
 import subprocess
@@ -102,7 +103,8 @@ REAPABLE = (True, "all 1 session(s) here are archived")
     ({"detached": True, "on_default": None}, dc.REPORT, "could not compare"),
     ({"detached": True, "on_default": True, "dirty": True}, dc.REPORT, "uncommitted"),
     ({"precious": [".env"]}, dc.REPORT, "only copy: .env"),
-    ({"running_containers": ["dc-1"]}, dc.CONFIRM, "stops its running devcontainer first (dc-1)"),
+    ({"running_containers": ["dc-1 (up 3d)"]}, dc.CONFIRM,
+     "stops its running devcontainer first: dc-1 (up 3d)"),
     ({"running_containers": ["dc-1"], "dirty": True}, dc.REPORT, "uncommitted"),
     ({"running_containers": ["dc-1"], "branch_verdict": (dc.REPORT, "PR #7 is open")},
      dc.REPORT, "PR #7 is open"),
@@ -623,9 +625,21 @@ def test_apply_fails_closed_when_worktree_status_fails(repo, tmp_path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def container(cid: str, folder: str, state: str, image_id: str = "sha256:img") -> dict:
+def container(cid: str, folder: str, state: str, image_id: str = "sha256:img",
+              started_at: str = "") -> dict:
     return {"id": cid, "name": cid, "state": state, "image_id": image_id,
-            "labels": {dc.FOLDER_LABEL: folder}, "volumes": []}
+            "labels": {dc.FOLDER_LABEL: folder}, "volumes": [], "started_at": started_at}
+
+
+@pytest.mark.parametrize("started_at,shown", [
+    ("2026-10-24T12:00:00.123456789Z", "up 3d"),
+    ("2026-10-27T07:30:00Z", "up 4h"),
+    ("", "up for an unknown time"),
+    ("garbage", "up for an unknown time"),
+])
+def test_uptime(started_at: str, shown: str) -> None:
+    now = calendar.timegm((2026, 10, 27, 12, 0, 0))
+    assert dc.uptime({"started_at": started_at}, now) == shown
 
 
 def test_containers_follow_their_worktree(repo, tmp_path) -> None:
@@ -655,21 +669,51 @@ def test_a_running_devcontainer_is_stopped_before_its_worktree_goes(repo) -> Non
 
     class Recording(FakeDocker):
         def command(self, *args: str) -> dc.Result:
-            if args[0] in ("stop", "rm"):
-                assert wt.exists(), "worktree removed before its devcontainer"
+            if args[0] == "stop":
+                assert wt.exists(), "worktree removed before its devcontainer stopped"
+            if args[0] == "rm":
+                assert not wt.exists(), "devcontainer removed before its worktree"
             return super().command(*args)
 
     docker = Recording(containers=[container("c", str(wt), "running")])
     ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
     item = only(items(ctx), "worktree", path=str(wt))
     assert item["tier"] == dc.CONFIRM
-    assert "stops its running devcontainer first (c)" in item["reason"]
+    assert "stops its running devcontainer first: c (up " in item["reason"]
     assert item["id"].endswith("+containers:c")
 
     result = dc.apply(ctx, [item["id"]])
     assert [d["id"] for d in result["done"]] == [item["id"]]
-    assert docker.calls[:2] == [("stop", "c"), ("rm", "-v", "c")]
+    assert "removed devcontainer c" in result["done"][0]["result"]
+    assert docker.calls[0] == ("stop", "c") and ("rm", "-v", "c") in docker.calls
     assert not wt.exists() and docker.containers() == []
+
+
+@pytest.mark.parametrize("on_stop,reason", [
+    # The container writes an ignored file as it shuts down: the re-check must see it.
+    (lambda wt: (wt / "late.local").write_text("mine"), "only copy"),
+    # git refuses after the stop: the container must not be removed yet.
+    (lambda wt: git(wt, "worktree", "lock", str(wt)), "locked"),
+])
+def test_a_worktree_kept_after_its_devcontainer_stops_keeps_the_container(
+        repo, on_stop, reason: str) -> None:
+    (repo.main / ".git" / "info" / "exclude").write_text("*.local\n")
+    wt = repo.worktree("calm-cow-222222")
+
+    class StopHook(FakeDocker):
+        def command(self, *args: str) -> dc.Result:
+            result = super().command(*args)
+            if args[0] == "stop":
+                on_stop(wt)
+            return result
+
+    docker = StopHook(containers=[container("c", str(wt), "running")])
+    ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
+    result = dc.apply(ctx, [only(items(ctx), "worktree", path=str(wt))["id"]])
+    assert result["done"] == []
+    skipped = result["skipped"][0]["reason"]
+    assert reason in skipped and "stopped, not removed: c" in skipped
+    assert wt.exists() and ("rm", "-v", "c") not in docker.calls
 
 
 def test_a_devcontainer_started_after_the_report_voids_the_worktree_id(repo) -> None:
@@ -689,7 +733,7 @@ def test_a_devcontainer_that_will_not_stop_keeps_its_worktree(repo) -> None:
     ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
     result = dc.apply(ctx, [only(items(ctx), "worktree", path=str(wt))["id"]])
     assert result["done"] == []
-    assert "docker stop c failed: stop refused" in result["skipped"][0]["reason"]
+    assert result["skipped"][0]["reason"] == "kept worktree; docker stop c failed: stop refused"
     assert wt.exists() and "calm-cow" in git(repo.main, "worktree", "list")
 
 
