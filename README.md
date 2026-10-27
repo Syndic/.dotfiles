@@ -106,7 +106,7 @@ it with a symlink into the repo.
 
 | Goal | Where it goes |
 |------|---------------|
-| Cross-platform CLI tool via Homebrew (works on macOS and Linuxbrew) | `brewfiles/common.Brewfile` |
+| Cross-platform tool via Homebrew (works on macOS and Linuxbrew) — formula, or cask with Linux builds | `brewfiles/common.Brewfile` |
 | Purpose-scoped (personal vs work) | `brewfiles/groups/<personal\|work>.Brewfile` |
 | macOS-only — formula, cask without Linux builds, or anything you only want on Macs | `brewfiles/groups/macos.Brewfile` |
 | Host-specific | `brewfiles/hosts/<host>.Brewfile` |
