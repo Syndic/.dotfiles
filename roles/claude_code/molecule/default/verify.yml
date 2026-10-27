@@ -1,0 +1,65 @@
+---
+- name: Verify — claude_code role
+  hosts: all
+  gather_facts: false
+  vars:
+    _marketplace_dir: /opt/claude-code-molecule/agent-tools
+    _owned_marketplace:
+      agent-tools:
+        source:
+          source: directory
+          path: "{{ _marketplace_dir }}"
+  tasks:
+    - name: Read both settings files
+      ansible.builtin.slurp:
+        src: "{{ item }}/.claude/settings.json"
+      loop:
+        - /root/seeded-home
+        - /root/fresh-home
+      register: claude_code_verify_settings
+
+    - name: Stat both settings files
+      ansible.builtin.stat:
+        path: "{{ item }}/.claude/settings.json"
+      loop:
+        - /root/seeded-home
+        - /root/fresh-home
+      register: claude_code_verify_stats
+
+    - name: Parse both settings files
+      ansible.builtin.set_fact:
+        _seeded: "{{ claude_code_verify_settings.results[0].content | b64decode | from_json }}"
+        _fresh: "{{ claude_code_verify_settings.results[1].content | b64decode | from_json }}"
+
+    - name: Unowned keys survive the merge untouched
+      ansible.builtin.assert:
+        that:
+          - "_seeded.permissions == {'allow': ['Bash(git status)'], 'defaultMode': 'acceptEdits'}"
+          - _seeded.outputStyle == 'Concise'
+          - _seeded.enabledPlugins['other-plugin@other-market'] == false
+          - _seeded.extraKnownMarketplaces['other-market'].source.repo == 'example/other'
+        fail_msg: "an unowned key changed: {{ _seeded }}"
+
+    - name: Owned keys are present in both files
+      ansible.builtin.assert:
+        that:
+          - item.enabledPlugins['agent-tools@agent-tools'] == true
+          - item.extraKnownMarketplaces['agent-tools'] == _owned_marketplace['agent-tools']
+        fail_msg: "owned keys missing or wrong: {{ item }}"
+      loop:
+        - "{{ _seeded }}"
+        - "{{ _fresh }}"
+      loop_control:
+        label: "{{ item.keys() | list }}"
+
+    - name: The created file holds only the owned keys
+      ansible.builtin.assert:
+        that:
+          - _fresh.keys() | sort == ['enabledPlugins', 'extraKnownMarketplaces']
+
+    - name: Both files are private to the user
+      ansible.builtin.assert:
+        that: item.stat.mode == '0600'
+      loop: "{{ claude_code_verify_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"

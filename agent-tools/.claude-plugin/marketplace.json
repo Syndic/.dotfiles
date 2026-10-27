@@ -1,0 +1,16 @@
+{
+  "name": "agent-tools",
+  "owner": {
+    "name": "Joshua Yanchar"
+  },
+  "metadata": {
+    "description": "Joshua Yanchar's machine-scoped Claude Code skills."
+  },
+  "plugins": [
+    {
+      "name": "agent-tools",
+      "source": "./",
+      "description": "Machine-scoped workflow skills: branch upkeep and post-session cleanup."
+    }
+  ]
+}

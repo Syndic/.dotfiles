@@ -24,3 +24,5 @@
       tags: certs
     - role: ssh
       tags: ssh
+    - role: claude_code
+      tags: claude_code

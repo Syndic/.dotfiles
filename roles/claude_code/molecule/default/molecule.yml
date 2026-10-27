@@ -1,0 +1,30 @@
+---
+# molecule scenario for the claude_code role. prepare.yml stages the repo's
+# real marketplace manifest into the container (no bind mount; see the
+# dotfiles scenario's molecule.yml for why) and seeds a settings.json the
+# role doesn't own.
+
+driver:
+  name: docker
+
+platforms:
+  - name: claude-code-instance
+    # renovate: datasource=docker depName=geerlingguy/docker-debian12-ansible
+    image: geerlingguy/docker-debian12-ansible:latest@sha256:e642ef9fc4932231fdd98b553fff0b1880df89d7bb64f9baff3c85811286cb5b
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    command: /lib/systemd/systemd
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+  config_options:
+    defaults:
+      callback_result_format: yaml
+
+verifier:
+  name: ansible

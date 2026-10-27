@@ -1,0 +1,20 @@
+---
+# Two role invocations: one merging into a seeded settings.json, one creating
+# the file from nothing. Paths must match prepare.yml.
+- name: Converge — claude_code role into existing settings
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: claude_code
+      vars:
+        claude_code_home_dir: /root/seeded-home
+        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools
+
+- name: Converge — claude_code role with no settings file
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: claude_code
+      vars:
+        claude_code_home_dir: /root/fresh-home
+        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools

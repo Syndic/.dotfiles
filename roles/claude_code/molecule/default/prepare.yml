@@ -1,0 +1,50 @@
+---
+- name: Prepare — stage marketplace manifest and seed settings
+  hosts: all
+  gather_facts: false
+  vars:
+    _repo_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/../.."
+    _marketplace_dir: /opt/claude-code-molecule/agent-tools
+    _seeded_home: /root/seeded-home
+    _fresh_home: /root/fresh-home
+  tasks:
+    - name: Create the staged marketplace manifest directory
+      ansible.builtin.file:
+        path: "{{ _marketplace_dir }}/.claude-plugin"
+        state: directory
+        mode: "0755"
+
+    - name: Copy the repo's real marketplace manifest into the container
+      ansible.builtin.copy:
+        src: "{{ _repo_root }}/agent-tools/.claude-plugin/marketplace.json"
+        dest: "{{ _marketplace_dir }}/.claude-plugin/marketplace.json"
+        mode: "0644"
+
+    - name: Reset both test HOMEs so prepare is deterministic across re-runs
+      ansible.builtin.file:
+        path: "{{ item.0 }}"
+        state: "{{ item.1 }}"
+        mode: "0755"
+      loop: "{{ [_seeded_home, _fresh_home] | product(['absent', 'directory']) | list }}"
+
+    - name: Create the seeded settings directory
+      ansible.builtin.file:
+        path: "{{ _seeded_home }}/.claude"
+        state: directory
+        mode: "0755"
+
+    # Keys the role doesn't own, including a sibling entry under each key it
+    # does, so the verify step proves the merge is additive at both levels.
+    - name: Seed a settings.json with unowned keys
+      ansible.builtin.copy:
+        dest: "{{ _seeded_home }}/.claude/settings.json"
+        mode: "0600"
+        content: |
+          {
+            "permissions": {"allow": ["Bash(git status)"], "defaultMode": "acceptEdits"},
+            "outputStyle": "Concise",
+            "enabledPlugins": {"other-plugin@other-market": false},
+            "extraKnownMarketplaces": {
+              "other-market": {"source": {"source": "github", "repo": "example/other"}}
+            }
+          }

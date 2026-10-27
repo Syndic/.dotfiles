@@ -78,7 +78,8 @@ load-bearing.
 | `_dotfiles_common.py` | Output helpers + host-profile resolution shared by `phase2.py` and `uninstall.py`. |
 | `site.yml`, `inventory.yml` | Ansible entry point + host inventory. |
 | `group_vars/`, `host_vars/` | Variable scopes for the playbook. |
-| `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`. |
+| `roles/` | Roles that do the work: `homebrew`, `apt`, `flatpak`, `dotfiles`, `certs`, `ssh`, `macos_defaults`, `claude_code`. |
+| `agent-tools/` | Claude Code plugin (and its own marketplace) holding personal skills. The `claude_code` role registers it in `~/.claude/settings.json`; edits apply at the next Claude Code session. |
 | `brewfiles/` | Layered Homebrew package lists — `common.Brewfile` (cross-platform) + `groups/<group>.Brewfile` (per `purpose` and `os` group sets; macOS-only entries live in `groups/macos.Brewfile`) + `hosts/<host>.Brewfile`. Used on both macOS and Linuxbrew. |
 | `requirements.yml` | Ansible Galaxy collections (`community.general`, `geerlingguy.mac`) installed by `phase2.py` before the playbook runs. |
 | `home_source/common/`, `home_source/groups/<group>/`, `home_source/hosts/<host>/` | Source tree the `dotfiles` role symlinks into `$HOME`. Layered the same way as the package vars: common → per-group (one per active group set, e.g. `personal`/`macos`) → host. Later layers override earlier ones at the same relative path. |
@@ -172,8 +173,9 @@ and `python3 dotfiles_manager.py check home_source` for the source guard; the
 hooks still gate every PR in CI. (Opening the worktree in VS Code, or using a
 full clone, sidesteps this — git resolves and pre-commit works normally.)
 
-Molecule scenarios live under `roles/<role>/molecule/default/` and gate every
-PR alongside pytest/bats. They cover the dotfiles, apt, and flatpak roles.
+Molecule scenarios live under `roles/<role>/molecule/<scenario>/` and gate every
+PR alongside pytest/bats. They cover the dotfiles, apt, flatpak, homebrew, and
+claude_code roles.
 
 Two end-to-end Linux harnesses live under `tests/`, both running inside a
 fresh Debian container as a non-root sudo user. Both are slow (real

@@ -1,0 +1,6 @@
+---
+claude_code_home_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}"
+claude_code_settings_path: "{{ claude_code_home_dir }}/.claude/settings.json"
+# Registered as a `directory` marketplace, so Claude Code loads the plugin in
+# place from this checkout — edits apply at the next session start.
+claude_code_marketplace_dir: "{{ playbook_dir }}/agent-tools"
