@@ -79,7 +79,7 @@ MAX_LIVE_LINES_PER_SUITE = int(os.environ.get("MAX_LIVE_LINES_PER_SUITE", "20"))
 # .github/workflows/tests.yml — local serial runs and CI shard discovery
 # read from different sources. test_molecule_role_lists_agree.py asserts
 # both lists match what's on disk.
-MOLECULE_ROLES = ["dotfiles", "apt", "flatpak", "homebrew"]
+MOLECULE_ROLES = ["dotfiles", "apt", "flatpak", "homebrew", "claude_code"]
 
 # --------------------------------------------------------------------------- #
 # Dashboard-local ANSI constants (cursor visibility + inline status badges)

@@ -1,0 +1,77 @@
+---
+- name: Prepare — stage marketplace manifest and seed settings
+  hosts: all
+  gather_facts: false
+  vars:
+    _repo_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/../.."
+    _marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
+    _homes: [seeded, fresh, disabled, bad-json, symlink]
+  tasks:
+    - name: Create the staged marketplace manifest directory
+      ansible.builtin.file:
+        path: "{{ _marketplace_dir }}/.claude-plugin"
+        state: directory
+        mode: "0755"
+
+    - name: Copy the repo's real marketplace manifest into the container
+      ansible.builtin.copy:
+        src: "{{ _repo_root }}/unnatural-designs-agent-tools/.claude-plugin/marketplace.json"
+        dest: "{{ _marketplace_dir }}/.claude-plugin/marketplace.json"
+        mode: "0644"
+
+    - name: Reset every test HOME so prepare is deterministic across re-runs
+      ansible.builtin.file:
+        path: "/root/{{ item.0 }}-home"
+        state: "{{ item.1 }}"
+        mode: "0755"
+      loop: "{{ _homes | product(['absent', 'directory']) | list }}"
+
+    - name: Create the seeded settings directories
+      ansible.builtin.file:
+        path: "/root/{{ item }}-home/.claude"
+        state: directory
+        mode: "0755"
+      loop: "{{ _homes | reject('equalto', 'fresh') | list }}"
+
+    # Unowned keys (including siblings under both owned keys) must survive; the
+    # stale unnatural-designs-agent-tools entry must be replaced, not merged into. Seeded 0644 so
+    # the verify step proves the role writes 0600.
+    - name: Seed a settings.json with unowned keys and a stale owned entry
+      ansible.builtin.copy:
+        dest: /root/seeded-home/.claude/settings.json
+        mode: "0644"
+        content: |
+          {
+            "permissions": {"allow": ["Bash(git status)"], "defaultMode": "acceptEdits"},
+            "outputStyle": "Concise",
+            "enabledPlugins": {"other-plugin@other-market": false},
+            "extraKnownMarketplaces": {
+              "other-market": {"source": {"source": "github", "repo": "example/other"}},
+              "unnatural-designs-agent-tools": {"source": {"source": "github", "repo": "example/stale"}}
+            }
+          }
+
+    - name: Seed a settings.json where the user disabled the plugin
+      ansible.builtin.copy:
+        dest: /root/disabled-home/.claude/settings.json
+        mode: "0600"
+        content: |
+          {"enabledPlugins": {"unnatural-designs-agent-tools@unnatural-designs-agent-tools": false}}
+
+    - name: Seed a settings.json that is not a JSON object
+      ansible.builtin.copy:
+        dest: /root/bad-json-home/.claude/settings.json
+        mode: "0600"
+        content: "[]\n"
+
+    - name: Seed the target of a symlinked settings.json
+      ansible.builtin.copy:
+        dest: /root/symlink-home/target.json
+        mode: "0600"
+        content: "{}\n"
+
+    - name: Symlink settings.json to it
+      ansible.builtin.file:
+        path: /root/symlink-home/.claude/settings.json
+        src: /root/symlink-home/target.json
+        state: link

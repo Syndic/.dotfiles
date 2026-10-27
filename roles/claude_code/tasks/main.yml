@@ -1,0 +1,83 @@
+---
+# claude_code role — see CLAUDE.md "Claude Code plugin (`unnatural-designs-agent-tools/`)".
+
+- name: Read the unnatural-designs-agent-tools marketplace manifest
+  ansible.builtin.slurp:
+    src: "{{ claude_code_marketplace_dir }}/.claude-plugin/marketplace.json"
+  register: claude_code_marketplace_manifest
+
+- name: Build the entries the role owns
+  vars:
+    _manifest: "{{ claude_code_marketplace_manifest.content | b64decode | from_json }}"
+  ansible.builtin.set_fact:
+    claude_code_marketplace_entry: >-
+      {{ {_manifest.name: {'source': {'source': 'directory',
+                                      'path': claude_code_marketplace_dir}}} }}
+    claude_code_plugin_defaults: >-
+      {{ dict(_manifest.plugins
+              | map(attribute='name')
+              | product(['@' ~ _manifest.name]) | map('join')
+              | product([true])) }}
+
+- name: Stat Claude Code user settings
+  ansible.builtin.stat:
+    path: "{{ claude_code_settings_path }}"
+    follow: false
+  register: claude_code_settings_stat
+
+- name: Assert settings.json is not a symlink
+  ansible.builtin.assert:
+    that: not (claude_code_settings_stat.stat.islnk | default(false))
+    fail_msg: "{{ claude_code_settings_path }} is a symlink; refusing to replace it"
+
+- name: Read existing Claude Code user settings
+  ansible.builtin.slurp:
+    src: "{{ claude_code_settings_path }}"
+  register: claude_code_settings_existing
+  when: claude_code_settings_stat.stat.exists
+
+- name: Parse existing Claude Code user settings
+  ansible.builtin.set_fact:
+    claude_code_settings_current: >-
+      {{ (claude_code_settings_existing.content | b64decode | from_json)
+         if claude_code_settings_stat.stat.exists else {} }}
+
+- name: Assert existing settings are a JSON object
+  ansible.builtin.assert:
+    that: claude_code_settings_current is mapping
+    fail_msg: "{{ claude_code_settings_path }} is not a JSON object; refusing to merge into it"
+
+# The marketplace entry replaces whatever is under its name; an existing
+# enabledPlugins value wins, so `/plugin disable` sticks.
+- name: Compute merged Claude Code user settings
+  vars:
+    _current: "{{ claude_code_settings_current }}"
+  ansible.builtin.set_fact:
+    claude_code_settings_merged: >-
+      {{ _current | combine({
+           'extraKnownMarketplaces': (_current.extraKnownMarketplaces | default({}))
+                                     | combine(claude_code_marketplace_entry),
+           'enabledPlugins': claude_code_plugin_defaults
+                             | combine(_current.enabledPlugins | default({})),
+         }) }}
+
+- name: Write merged Claude Code user settings
+  when: claude_code_settings_merged != claude_code_settings_current
+  block:
+    - name: Stat the settings directory
+      ansible.builtin.stat:
+        path: "{{ claude_code_settings_path | dirname }}"
+      register: claude_code_settings_dir_stat
+
+    - name: Create the settings directory
+      ansible.builtin.file:
+        path: "{{ claude_code_settings_path | dirname }}"
+        state: directory
+        mode: "0700"
+      when: not claude_code_settings_dir_stat.stat.exists
+
+    - name: Write merged settings
+      ansible.builtin.copy:
+        dest: "{{ claude_code_settings_path }}"
+        content: "{{ claude_code_settings_merged | to_nice_json(indent=2, sort_keys=false) }}\n"
+        mode: "0600"

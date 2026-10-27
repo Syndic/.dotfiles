@@ -765,7 +765,7 @@ Two trade-offs the parallel mode pays:
 
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
 under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,
-flatpak, and homebrew roles are covered. Most roles have a single `default/`
+flatpak, homebrew, and claude_code roles are covered. Most roles have a single `default/`
 scenario; **homebrew has three** (`default`, `multi_layer`, `gates`) — see
 "Homebrew molecule scenarios" below. The bare `./tests/run` runs everything;
 use `./tests/run fast` when you don't have Docker (or don't want to pay the
@@ -1130,6 +1130,46 @@ reported no update — a false "not managed" that was really "correctly
 unchanged". `test_molecule_images_pin_index_not_child_digest` classifies each
 pin against the registry (skips offline, enforced in CI) so a child digest
 can't slip back in behind a passing `@sha256`-present check.
+
+## Claude Code plugin (`unnatural-designs-agent-tools/`)
+
+`unnatural-designs-agent-tools/` is a Claude Code plugin that is also its own one-plugin
+marketplace: `.claude-plugin/marketplace.json` lists a single entry with
+`source: "./"`, beside the plugin's `.claude-plugin/plugin.json` and `skills/`.
+It's laid out so moving the folder to its own repo extracts it
+unchanged — so nothing inside it may reference a path outside it. Personal
+skills and commands live here, not in `~/.claude/commands/` or
+`~/.claude/skills/`, so the repo is their only home.
+
+The `claude_code` role registers it as a **`directory` marketplace** (absolute
+`path`, from `playbook_dir`, so the `~/.dotfiles` checkout in real use).
+Claude Code loads a relative-path plugin from a directory marketplace in place
+rather than copying it to the plugin cache, so edits take effect at the next
+session start or `/reload-plugins` with no push, reinstall, or version bump.
+
+`~/.claude/settings.json` is **merged, never symlinked**: Claude Code writes the
+file itself (permissions, `/config` choices) and keeps it mode 0600. The role
+owns exactly two kinds of entry, both derived from `marketplace.json` so the
+names have one home, and leaves every other key alone:
+
+- `extraKnownMarketplaces.<marketplace>` — replaced whole, never deep-merged, so
+  a stale entry under the same name (say a `github` source left over from an
+  extraction) can't survive as a hybrid of two sources.
+- `enabledPlugins["<plugin>@<marketplace>"]` — set to `true` only when absent;
+  an existing value wins, so a `/plugin disable` (which writes `false`) sticks
+  across playbook runs.
+
+Idempotency compares parsed JSON rather than bytes, so Claude Code reformatting
+the file doesn't make the next run report CHANGED. The role fails closed on a
+settings file that is a symlink (writing would replace the link and strand its
+target) or isn't a JSON object. The molecule scenario covers each of these,
+plus unowned keys (including siblings under the two owned keys) surviving.
+
+`uninstall.py` reverses it by default, in Python for the same
+survives-`--ansible` reason as symlink removal: it unregisters every `directory`
+marketplace whose path is inside the checkout and the `enabledPlugins` keys
+naming it. Without that, removing the checkout would leave every Claude Code
+session failing to load a marketplace that no longer exists.
 
 ## Conventions
 

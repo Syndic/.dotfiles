@@ -1,0 +1,39 @@
+---
+# One play per seeded HOME from prepare.yml; the last expects the role to
+# refuse both unsafe files.
+- name: Converge — claude_code role into existing settings
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: claude_code
+      vars:
+        claude_code_home_dir: /root/seeded-home
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
+
+- name: Converge — claude_code role with no settings file
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: claude_code
+      vars:
+        claude_code_home_dir: /root/fresh-home
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
+
+- name: Converge — claude_code role where the plugin is disabled
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: claude_code
+      vars:
+        claude_code_home_dir: /root/disabled-home
+        claude_code_marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
+
+- name: Converge — claude_code role refuses unsafe settings files
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Run the role against each unsafe file
+      ansible.builtin.include_tasks: refuse.yml
+      loop: [bad-json, symlink]
+      loop_control:
+        loop_var: _unsafe_home
