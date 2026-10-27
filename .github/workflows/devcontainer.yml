@@ -61,9 +61,10 @@ jobs:
           # here). `bats` confirms the Dockerfile apt install; `pytest`/
           # `pre-commit`/`ansible`/`ansible-lint` confirm post-create.sh built
           # the uv venvs and that remoteEnv put their bin dirs on PATH. The
-          # checkstat assertion confirms initializeCommand ran and wrote the
-          # shared-index setting (see "Shared git index across stat domains" in
-          # CLAUDE.md); `--file` skips repo discovery, which would trip git's
+          # git config assertions confirm initializeCommand ran and wrote the
+          # shared-common-dir settings (see "Shared git index across stat
+          # domains" and "In-container gc and sibling worktrees" in CLAUDE.md);
+          # `--file` skips repo discovery, which would trip git's
           # dubious-ownership check (runner uid != container uid).
           runCmd: |
             set -euo pipefail
@@ -74,6 +75,7 @@ jobs:
             ansible --version
             ansible-lint --version
             test "$(git config --file .git/config --get core.checkstat)" = minimal
+            test "$(git config --file .git/config --get gc.worktreePruneExpire)" = never
 
       - if: steps.changes.outputs.changed != 'true'
         run: echo "No devcontainer changes in this PR; skipping build."
