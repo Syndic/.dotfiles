@@ -11,6 +11,7 @@
 # either `dockitems_persist` or `dockitems_remove` is non-empty).
 brew "dockutil"
 
+cask "claude"  # Claude desktop app; updates itself, so `brew upgrade` leaves it alone
 cask "font-roboto-mono-nerd-font"
 # Terminal emulator that uses platform-native UI and GPU acceleration
 cask "ghostty"
