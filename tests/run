@@ -148,7 +148,8 @@ def prepare_homebrew_image() -> None:
     )
 
 
-PYTHON_SUITE = Suite("python", ["pytest", "tests/python", "-v"])
+PYTHON_SUITE = Suite(
+    "python", ["pytest", "tests/python", "unnatural-designs-agent-tools/tests", "-v"])
 BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
 # `&&` so a yamllint failure short-circuits ansible-lint.
 LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])

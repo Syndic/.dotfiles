@@ -21,7 +21,7 @@ jobs:
           # "Python 3.9 pin" section in CLAUDE.md for the rationale.
           python-version: '3.9'
       - run: pip install -r test-requirements.txt
-      - run: pytest tests/python -v
+      - run: pytest tests/python unnatural-designs-agent-tools/tests -v
 
   bash:
     runs-on: ubuntu-latest

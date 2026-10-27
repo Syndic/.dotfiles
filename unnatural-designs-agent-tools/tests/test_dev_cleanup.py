@@ -1,0 +1,613 @@
+"""Tests for scripts/dev_cleanup.py.
+
+Pure classifiers get table tests; git behavior runs against real temp repos;
+`gh` and `docker` are faked at their adapter seam."""
+
+import copy
+import os
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import dev_cleanup as dc  # noqa: E402
+
+SLUG = "o/r"
+REMOTE = f"git@github.com:{SLUG}.git"
+
+
+# --------------------------------------------------------------------------- #
+# Pure classification
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_worktrees_reads_every_flag() -> None:
+    text = (
+        "worktree /m\nHEAD aaa\nbranch refs/heads/main\n\n"
+        "worktree /w1\nHEAD bbb\ndetached\nlocked reason\n\n"
+        "worktree /w2\nHEAD ccc\nbranch refs/heads/feat/x\nprunable gitdir file points nowhere\n"
+    )
+    main, w1, w2 = dc.parse_worktrees(text)
+    assert (main["path"], main["branch"], main["detached"]) == ("/m", "main", False)
+    assert (w1["detached"], w1["locked"], w1["branch"]) == (True, True, None)
+    assert (w2["branch"], w2["prunable"]) == ("feat/x", True)
+
+
+@pytest.mark.parametrize("url,slug", [
+    ("git@github.com:Syndic/.dotfiles.git", "Syndic/.dotfiles"),
+    ("https://github.com/Syndic/unnatural_designs.git\n", "Syndic/unnatural_designs"),
+    ("https://github.com/o/r", "o/r"),
+    ("/srv/git/r.git", None),
+])
+def test_repo_slug(url: str, slug: Optional[str]) -> None:
+    assert dc.repo_slug(url) == slug
+
+
+def pr(number: int, state: str, head: str = "b", oid: str = "x", cross: bool = False) -> dict:
+    return {"number": number, "state": state, "headRefName": head, "headRefOid": oid,
+            "isCrossRepository": cross, "url": f"https://github.com/{SLUG}/pull/{number}"}
+
+
+@pytest.mark.parametrize("prs,status,number", [
+    (None, "unknown", None),
+    ([], "none", None),
+    ([pr(1, "MERGED")], "merged", 1),
+    ([pr(1, "MERGED"), pr(2, "CLOSED")], "closed", 2),
+    ([pr(3, "OPEN"), pr(4, "MERGED")], "open", 3),
+    ([pr(5, "MERGED", cross=True)], "none", None),
+])
+def test_pr_status(prs, status: str, number: Optional[int]) -> None:
+    got, chosen = dc.pr_status(prs)
+    assert got == status
+    assert (chosen or {}).get("number") == number
+
+
+@pytest.mark.parametrize("status,contained,pr_copy,tier,reason", [
+    ("merged", True, False, dc.CONFIRM, "PR #7 is merged"),
+    ("merged", False, False, dc.REPORT, "unpushed"),
+    ("merged", None, False, dc.REPORT, "could not verify"),
+    ("closed", True, False, dc.REPORT, "PR #7 is closed"),
+    ("closed", True, True, dc.CONFIRM, "PR #7 is closed"),
+    ("open", True, True, dc.REPORT, "PR #7 is open"),
+    ("unknown", None, False, dc.REPORT, "could not read PRs"),
+])
+def test_classify_branch(status: str, contained, pr_copy: bool, tier: str, reason: str) -> None:
+    the_pr = None if status == "unknown" else pr(7, status.upper())
+    got_tier, got_reason = dc.classify_branch(status, the_pr, contained, pr_copy)
+    assert got_tier == tier
+    assert reason in got_reason
+
+
+def test_classify_branch_without_pr() -> None:
+    assert dc.classify_branch("none", None, None) == (dc.REPORT, "no PR for this branch")
+
+
+OK_BRANCH = (dc.CONFIRM, "PR #7 is merged")
+REAPABLE = (True, "all 1 session(s) here are archived")
+
+
+@pytest.mark.parametrize("kwargs,tier,reason", [
+    ({}, dc.CONFIRM, "PR #7 is merged"),
+    ({"dirty": True}, dc.REPORT, "uncommitted changes"),
+    ({"dirty": None}, dc.REPORT, "could not read"),
+    ({"locked": True}, dc.REPORT, "locked"),
+    ({"branch_verdict": (dc.REPORT, "PR #7 is open")}, dc.REPORT, "PR #7 is open"),
+    ({"guard": (False, "no known Claude session")}, dc.REPORT, "no known Claude session"),
+    ({"detached": True, "on_default": True}, dc.CONFIRM, "on the default branch"),
+    ({"detached": True, "on_default": False}, dc.REPORT, "unpushed"),
+    ({"detached": True, "on_default": None}, dc.REPORT, "could not compare"),
+    ({"detached": True, "on_default": True, "dirty": True}, dc.REPORT, "uncommitted"),
+])
+def test_classify_worktree(kwargs: dict, tier: str, reason: str) -> None:
+    args = {"dirty": False, "locked": False, "detached": False, "on_default": None,
+            "branch_verdict": OK_BRANCH, "guard": REAPABLE, **kwargs}
+    got_tier, got_reason = dc.classify_worktree(**args)
+    assert got_tier == tier
+    assert reason in got_reason
+
+
+@pytest.mark.parametrize("exists,state,expected", [
+    (True, "running", None),
+    (True, "exited", None),
+    (False, "exited", dc.AUTO),
+    (False, "created", dc.AUTO),
+    (False, "running", dc.CONFIRM),
+    (False, "paused", dc.CONFIRM),
+])
+def test_classify_container_follows_its_worktree(exists: bool, state: str, expected) -> None:
+    verdict = dc.classify_container(exists, state)
+    assert (verdict[0] if verdict else None) == expected
+
+
+def sessions(*rows: tuple, available: bool = True) -> dc.SessionIndex:
+    return dc.load_sessions({"available": available, "sessions": [
+        {"cwd": cwd, "isArchived": archived, "isRunning": running}
+        for cwd, archived, running in rows]})
+
+
+@pytest.mark.parametrize("index,reapable,reason", [
+    (sessions(available=False), False, "unavailable"),
+    (sessions(("/elsewhere", True, False)), False, "no known Claude session"),
+    (sessions(("/w", True, False), ("/w/sub", True, False)), True, "all 2"),
+    (sessions(("/w", True, False), ("/w", False, False)), False, "1 of 2"),
+    (sessions(("/w", True, True)), False, "1 of 1"),
+    (sessions(("/w-other", True, False)), False, "no known"),
+])
+def test_session_guard(index: dc.SessionIndex, reapable: bool, reason: str) -> None:
+    got, why = index.guard("/w")
+    assert got is reapable
+    assert reason in why
+
+
+def test_load_sessions_accepts_a_bare_list_and_protects_extra_paths() -> None:
+    index = dc.load_sessions([{"cwd": "/w", "isArchived": True}], protect=["/w"])
+    assert index.available
+    assert index.guard("/w")[0] is False
+    assert dc.load_sessions(None).available is False
+
+
+def test_map_vsc_image_needs_a_hash_proof() -> None:
+    folder = "/Users/me/Work/worktrees/repo/happy-cat-1a2b3c"
+    repo = f"vsc-happy-cat-1a2b3c-{dc.folder_hash(folder)}"
+    assert dc.map_vsc_image(repo, ["/elsewhere/happy-cat-1a2b3c", folder]) == folder
+    assert dc.map_vsc_image(repo, ["/elsewhere/happy-cat-1a2b3c"]) is None
+    assert dc.map_vsc_image("not-a-vsc-image", [folder]) is None
+
+
+def test_dockerfile_refs_over_match_digests() -> None:
+    d1, d2 = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+    text = (f"ARG BASE=ghcr.io/x/devcontainer-base@{d2}\n"
+            f"FROM ghcr.io/x/devcontainer-base:latest@{d1} AS pinned\n"
+            "FROM ${BASE}\nFROM --platform=linux/amd64 debian:stable\n")
+    digests, tags = dc.dockerfile_refs(text)
+    assert digests == {d1, d2}
+    assert tags == {"debian:stable"}
+
+
+def image(id_: str, created: str, tags=(), digests=(), size: int = 1) -> dict:
+    return {"id": id_, "tags": list(tags), "digests": list(digests), "created": created,
+            "size": size}
+
+
+def test_classify_base_images_keeps_referenced_in_use_and_newest() -> None:
+    repo = "ghcr.io/x/devcontainer-base"
+    images = [
+        image("sha256:" + "1" * 64, "2026-01", digests=[f"{repo}@sha256:{'1' * 64}"]),
+        image("sha256:" + "2" * 64, "2026-02", digests=[f"{repo}@sha256:{'2' * 64}"]),
+        image("sha256:" + "3" * 64, "2026-03", digests=[f"{repo}@sha256:{'3' * 64}"]),
+        image("sha256:" + "4" * 64, "2026-04", tags=[f"{repo}:latest"]),
+        image("sha256:" + "5" * 64, "2026-05", digests=[f"{repo}@sha256:{'5' * 64}"]),
+        image("sha256:" + "9" * 64, "2026-09", tags=["unrelated:latest"]),
+    ]
+    verdicts = {i["id"][7]: (tier, reason) for i, tier, reason in dc.classify_base_images(
+        images, digests={"sha256:" + "2" * 64}, tags={f"{repo}:latest"},
+        in_use={"sha256:" + "3" * 64}, pattern=dc.DEFAULT_CONFIG["base_image_pattern"])}
+    assert verdicts["1"][0] == dc.CONFIRM
+    assert verdicts["2"] == ("keep", "referenced by a checkout's .devcontainer/Dockerfile")
+    assert verdicts["3"] == ("keep", "used by a container")
+    assert verdicts["4"][0] == "keep"
+    assert verdicts["5"] == ("keep", f"newest {repo}")
+    assert "9" not in verdicts
+
+
+@pytest.mark.parametrize("text,size", [("2.12GB", 2_120_000_000), ("213.1kB", 213_100),
+                                       ("0B", 0), ("", 0), ("N/A", 0)])
+def test_parse_size(text: str, size: int) -> None:
+    assert dc.parse_size(text) == size
+
+
+def test_parse_labels() -> None:
+    assert dc.parse_labels("com.docker.volume.anonymous=,a=b") == {
+        "com.docker.volume.anonymous": "", "a": "b"}
+
+
+def test_main_refuses_to_run_in_a_container(monkeypatch) -> None:
+    real = os.path.exists
+    monkeypatch.setattr(dc.os.path, "exists", lambda p: p == "/.dockerenv" or real(p))
+    with pytest.raises(SystemExit):
+        dc.main(["inventory", "--no-fetch"])
+
+
+# --------------------------------------------------------------------------- #
+# Fakes and real-git fixtures
+# --------------------------------------------------------------------------- #
+
+
+class FakeGitHub:
+    def __init__(self, prs: Optional[List[dict]] = None, fail: bool = False) -> None:
+        self.prs = prs or []
+        self.fail = fail
+
+    def list_prs(self, slug: str) -> Optional[List[dict]]:
+        return None if self.fail or slug != SLUG else copy.deepcopy(self.prs)
+
+    def prs_for_head(self, slug: str, branch: str) -> Optional[List[dict]]:
+        return [p for p in self.prs if p["headRefName"] == branch]
+
+
+class FakeDocker:
+    """In-memory docker: `command` mutates state the way the real CLI would."""
+
+    def __init__(self, containers=(), images=(), volumes=(), available: bool = True) -> None:
+        self._containers = [dict(c) for c in containers]
+        self._images = [dict(i) for i in images]
+        self._volumes = [dict(v) for v in volumes]
+        self._available = available
+        self.calls: List[tuple] = []
+
+    def available(self) -> bool:
+        return self._available
+
+    def containers(self):
+        return copy.deepcopy(self._containers)
+
+    def images(self):
+        return copy.deepcopy(self._images)
+
+    def volumes(self):
+        return copy.deepcopy(self._volumes)
+
+    def sizes(self) -> Dict[str, int]:
+        return {}
+
+    def build_cache_bytes(self) -> Optional[int]:
+        return None
+
+    def command(self, *args: str) -> dc.Result:
+        self.calls.append(args)
+        if args[0] == "stop":
+            for c in self._containers:
+                if c["id"] == args[1]:
+                    c["state"] = "exited"
+        elif args[:2] == ("rm", "-v"):
+            self._containers = [c for c in self._containers if c["id"] != args[2]]
+        elif args[0] == "ps":
+            image_id = args[-1].split("=", 1)[1]
+            users = [c["id"] for c in self._containers if c["image_id"] == image_id]
+            return dc.Result(0, "\n".join(users))
+        elif args[0] == "rmi":
+            self._images = [i for i in self._images if i["id"] != args[1]]
+        elif args[:2] == ("volume", "rm"):
+            self._volumes = [v for v in self._volumes if v["name"] != args[2]]
+        return dc.Result(0, "")
+
+
+def git(cwd, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+@dataclass
+class Repo:
+    main: Path
+    root: Path
+    tmp: Path
+
+    def commit(self, where: Path, name: str) -> str:
+        (where / name).write_text(name)
+        git(where, "add", name)
+        git(where, "commit", "-qm", name)
+        return git(where, "rev-parse", "HEAD")
+
+    def worktree(self, name: str, branch: Optional[str] = None) -> Path:
+        path = self.root / "r" / name
+        if branch:
+            git(self.main, "worktree", "add", "-q", "-b", branch, str(path), "origin/main")
+        else:
+            git(self.main, "worktree", "add", "-q", "--detach", str(path), "origin/main")
+        return path
+
+    def head(self, where: Path) -> str:
+        return git(where, "rev-parse", "HEAD")
+
+
+@pytest.fixture(autouse=True)
+def isolated_git(tmp_path: Path, monkeypatch) -> None:
+    config = tmp_path / "gitconfig"
+    config.write_text("[user]\n\tname = T\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n"
+                      "[init]\n\tdefaultBranch = main\n[gc]\n\tauto = 0\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Repo:
+    tmp = Path(os.path.realpath(tmp_path))
+    origin, main, root = tmp / "origin.git", tmp / "checkouts" / "r", tmp / "worktrees"
+    git(tmp, "init", "-q", "--bare", str(origin))
+    main.mkdir(parents=True)
+    (root / "r").mkdir(parents=True)
+    git(main, "init", "-q")
+    # The remote URL must parse as a GitHub slug; insteadOf points it at the bare repo.
+    git(main, "config", f"url.{origin}.insteadOf", REMOTE)
+    git(main, "remote", "add", "origin", REMOTE)
+    r = Repo(main, root, tmp)
+    r.commit(main, "init")
+    git(main, "push", "-q", "-u", "origin", "main")
+    git(main, "remote", "set-head", "origin", "main")
+    return r
+
+
+def context(repo: Repo, index: Optional[dc.SessionIndex] = None, github=None,
+            docker=None) -> dc.Context:
+    config = dict(dc.DEFAULT_CONFIG, worktree_roots=[str(repo.root)], extra_roots=[],
+                  extra_repos=[str(repo.main)],
+                  codex_worktrees=str(repo.tmp / "codex"), claude_projects=str(repo.tmp / "cp"),
+                  host_caches=[], docker_raw=str(repo.tmp / "Docker.raw"))
+    return dc.Context(config=config, sessions=index or sessions(available=False),
+                      github=github or FakeGitHub(), docker=docker or FakeDocker(available=False),
+                      fetch=False, du=lambda _: None)
+
+
+def items(ctx: dc.Context) -> Dict[str, dict]:
+    return {i["id"]: i for i in dc.build_inventory(ctx)["items"]}
+
+
+def only(found: Dict[str, dict], kind: str, **match) -> dict:
+    hits = [i for i in found.values() if i["kind"] == kind
+            and all(i["details"].get(k) == v or i.get(k) == v for k, v in match.items())]
+    assert len(hits) == 1, hits
+    return hits[0]
+
+
+# --------------------------------------------------------------------------- #
+# Git behavior against real repos
+# --------------------------------------------------------------------------- #
+
+
+def test_merged_clean_worktree_with_archived_sessions_is_removed_with_its_branch(repo) -> None:
+    wt = repo.worktree("happy-cat-1a2b3c", branch="claude/feature")
+    tip = repo.commit(wt, "work")
+    git(wt, "push", "-q", "origin", "claude/feature")
+    github = FakeGitHub([pr(7, "MERGED", "claude/feature", tip)])
+    ctx = context(repo, sessions((str(wt), True, False)), github)
+
+    item = only(items(ctx), "worktree", path=str(wt))
+    assert item["tier"] == dc.CONFIRM
+    result = dc.apply(ctx, [item["id"]])
+
+    assert [d["id"] for d in result["done"]] == [item["id"]]
+    assert not wt.exists()
+    assert "claude/feature" not in git(repo.main, "branch", "--format=%(refname:short)")
+    assert git(repo.main, "ls-remote", "origin", "claude/feature")  # remote untouched
+
+
+def test_dirty_worktree_is_report_only_and_apply_refuses_it(repo) -> None:
+    wt = repo.worktree("dirty-dog-000000", branch="claude/dirty")
+    tip = repo.commit(wt, "work")
+    (wt / "scratch.txt").write_text("unsaved")
+    ctx = context(repo, sessions((str(wt), True, False)),
+                  FakeGitHub([pr(8, "MERGED", "claude/dirty", tip)]))
+
+    item = only(items(ctx), "worktree", path=str(wt))
+    assert (item["tier"], item["reason"]) == (dc.REPORT, "uncommitted changes")
+    result = dc.apply(ctx, [item["id"]])
+    assert result["done"] == [] and "no longer eligible" in result["skipped"][0]["reason"]
+    assert wt.exists()
+
+
+def test_commits_after_the_merged_pr_head_are_unpushed(repo) -> None:
+    wt = repo.worktree("eager-elk-111111", branch="claude/more")
+    merged = repo.commit(wt, "work")
+    repo.commit(wt, "after-merge")
+    ctx = context(repo, sessions((str(wt), True, False)),
+                  FakeGitHub([pr(9, "MERGED", "claude/more", merged)]))
+    item = only(items(ctx), "worktree", path=str(wt))
+    assert item["tier"] == dc.REPORT and "unpushed" in item["reason"]
+
+
+def test_state_change_between_report_and_apply_is_skipped(repo) -> None:
+    git(repo.main, "branch", "claude/old")
+    tip = repo.head(repo.main)
+    ctx = context(repo, github=FakeGitHub([pr(10, "MERGED", "claude/old", tip)]))
+    item = only(items(ctx), "branch", branch="claude/old")
+    assert item["tier"] == dc.CONFIRM
+
+    git(repo.main, "switch", "-q", "claude/old")
+    repo.commit(repo.main, "new-local-work")
+    git(repo.main, "switch", "-q", "main")
+    result = dc.apply(ctx, [item["id"]])
+
+    assert result["done"] == []
+    assert "state changed" in result["skipped"][0]["reason"]
+    assert "claude/old" in git(repo.main, "branch", "--format=%(refname:short)")
+
+
+def test_delete_branch_refuses_a_moved_tip(repo) -> None:
+    git(repo.main, "branch", "claude/racy")
+    stale = repo.head(repo.main)
+    git(repo.main, "switch", "-q", "claude/racy")
+    repo.commit(repo.main, "raced")
+    git(repo.main, "switch", "-q", "main")
+    ok, _ = dc.delete_branch(str(repo.main), "claude/racy", stale)
+    assert not ok
+    assert "claude/racy" in git(repo.main, "branch", "--format=%(refname:short)")
+
+
+def test_detached_worktrees_on_and_off_the_default_branch(repo) -> None:
+    on_main = repo.worktree("calm-cow-222222")
+    off_main = repo.worktree("wild-wolf-333333")
+    repo.commit(off_main, "local-only")
+    found = items(context(repo, sessions((str(on_main), True, False),
+                                         (str(off_main), True, False))))
+    assert only(found, "worktree", path=str(on_main))["tier"] == dc.CONFIRM
+    assert "unpushed" in only(found, "worktree", path=str(off_main))["reason"]
+
+
+def test_worktrees_are_protected_without_a_session_list(repo) -> None:
+    wt = repo.worktree("calm-cow-222222")
+    item = only(items(context(repo)), "worktree", path=str(wt))
+    assert item["tier"] == dc.REPORT and "unavailable" in item["reason"]
+
+
+def test_worktree_with_no_known_session_is_your_call(repo) -> None:
+    wt = repo.worktree("calm-cow-222222")
+    item = only(items(context(repo, sessions(("/elsewhere", True, False)))), "worktree",
+                path=str(wt))
+    assert item["tier"] == dc.REPORT and "no known Claude session" in item["reason"]
+
+
+@pytest.mark.parametrize("state,tier", [("CLOSED", dc.CONFIRM), ("MERGED", dc.CONFIRM),
+                                        ("OPEN", dc.REPORT)])
+def test_pr_copies_are_looked_up_by_number(repo, state: str, tier: str) -> None:
+    git(repo.main, "branch", "pr-42")
+    tip = repo.head(repo.main)
+    github = FakeGitHub([pr(42, state, "someone/feature", tip)])
+    assert only(items(context(repo, github=github)), "branch", branch="pr-42")["tier"] == tier
+
+
+def test_github_failure_offers_nothing(repo) -> None:
+    git(repo.main, "branch", "claude/whatever")
+    item = only(items(context(repo, github=FakeGitHub(fail=True))), "branch",
+                branch="claude/whatever")
+    assert item["tier"] == dc.REPORT and "could not read PRs" in item["reason"]
+
+
+def test_branches_checked_out_or_default_are_never_listed(repo) -> None:
+    repo.worktree("busy-bee-444444", branch="claude/live")
+    found = items(context(repo))
+    branches = {i["details"]["branch"] for i in found.values() if i["kind"] == "branch"}
+    assert branches.isdisjoint({"main", "claude/live"})
+
+
+def test_unregistered_folder_under_a_root_is_reported(repo) -> None:
+    stray = repo.root / "r" / "romantic-meninsky-0607c9"
+    stray.mkdir()
+    (stray / "notes.txt").write_text("only copy")
+    item = only(items(context(repo)), "folder", path=str(stray))
+    assert item["tier"] == dc.REPORT and "only copy" in item["reason"]
+
+
+def test_hidden_repo_dirs_under_a_root_are_discovered(repo) -> None:
+    hidden = repo.root / ".r"
+    hidden.mkdir()
+    path = hidden / "quiet-quail-555555"
+    git(repo.main, "worktree", "add", "-q", "--detach", str(path), "origin/main")
+    found = items(context(repo, sessions((str(path), True, False))))
+    assert only(found, "worktree", path=str(path))["tier"] == dc.CONFIRM
+
+
+def test_missing_worktree_folder_is_auto_pruned_then_its_branch_is_deletable(repo) -> None:
+    wt = repo.worktree("gone-goat-666666", branch="claude/gone")
+    tip = repo.head(wt)
+    subprocess.run(["rm", "-rf", str(wt)], check=True)
+    ctx = context(repo, github=FakeGitHub([pr(11, "MERGED", "claude/gone", tip)]))
+    found = items(ctx)
+    prune = only(found, "worktree-prune")
+    branch = only(found, "branch", branch="claude/gone")
+    assert prune["tier"] == dc.AUTO and branch["tier"] == dc.CONFIRM
+
+    result = dc.apply(ctx, [branch["id"], prune["id"]])
+    assert {d["id"] for d in result["done"]} == {prune["id"], branch["id"]}
+    assert "gone-goat" not in git(repo.main, "worktree", "list")
+
+
+# --------------------------------------------------------------------------- #
+# Docker behavior through the fake adapter
+# --------------------------------------------------------------------------- #
+
+
+def container(cid: str, folder: str, state: str, image_id: str = "sha256:img") -> dict:
+    return {"id": cid, "name": cid, "state": state, "image_id": image_id,
+            "labels": {dc.FOLDER_LABEL: folder}, "volumes": []}
+
+
+def test_containers_follow_their_worktree(repo, tmp_path) -> None:
+    live = repo.worktree("busy-bee-444444", branch="claude/live")
+    gone = str(repo.root / "r" / "eloquent-shannon-7eb6c5")
+    docker = FakeDocker(containers=[container("c-live", str(live), "exited"),
+                                    container("c-stopped", gone, "exited"),
+                                    container("c-running", gone, "running")])
+    found = items(context(repo, docker=docker))
+    tiers = {i["details"]["container"]: i["tier"] for i in found.values()
+             if i["kind"] == "container"}
+    assert tiers == {"c-stopped": dc.AUTO, "c-running": dc.CONFIRM}
+
+
+def test_apply_stops_only_confirmed_running_containers(repo) -> None:
+    gone = str(repo.root / "r" / "eloquent-shannon-7eb6c5")
+    docker = FakeDocker(containers=[container("c-stopped", gone, "exited"),
+                                    container("c-running", gone, "running")])
+    ctx = context(repo, docker=docker)
+    result = dc.apply(ctx, [i for i in items(ctx) if i.startswith("container:")])
+    assert len(result["done"]) == 2
+    assert ("stop", "c-running") in docker.calls and ("stop", "c-stopped") not in docker.calls
+    assert ("rm", "-v", "c-stopped") in docker.calls
+
+
+def test_vsc_images_map_by_hash_and_fail_closed(repo) -> None:
+    gone = str(repo.root / "r" / "review-318-8a45c8")
+    mapped = f"vsc-review-318-8a45c8-{dc.folder_hash(gone)}"
+    unmapped = f"vsc-mystery-{'0' * 64}"
+    docker = FakeDocker(images=[image("sha256:m", "2026", tags=[f"{mapped}:latest"]),
+                                image("sha256:u", "2026", tags=[f"{unmapped}:latest"])])
+    found = items(context(repo, docker=docker))
+    assert found["image:sha256:m"]["tier"] == dc.CONFIRM
+    assert found["image:sha256:u"]["tier"] == dc.REPORT
+
+
+def test_base_images_referenced_by_a_checkout_dockerfile_are_kept(repo) -> None:
+    keep, old, new = ("sha256:" + c * 64 for c in "abc")
+    base = "ghcr.io/x/devcontainer-base"
+    (repo.main / ".devcontainer").mkdir()
+    (repo.main / ".devcontainer" / "Dockerfile").write_text(f"FROM {base}:latest@{keep}\n")
+    docker = FakeDocker(images=[image(keep, "2026-01", digests=[f"{base}@{keep}"]),
+                                image(old, "2026-02", digests=[f"{base}@{old}"]),
+                                image(new, "2026-03", digests=[f"{base}@{new}"])])
+    found = items(context(repo, docker=docker))
+    assert found[f"image:{old}"]["tier"] == dc.CONFIRM
+    assert f"image:{keep}" not in found and f"image:{new}" not in found
+
+
+def test_ownerless_anonymous_volumes_are_auto(repo) -> None:
+    docker = FakeDocker(volumes=[
+        {"name": "a" * 64, "anonymous": True, "dangling": True},
+        {"name": "b" * 64, "anonymous": True, "dangling": False},
+        {"name": "ud-cache", "anonymous": False, "dangling": True},
+    ])
+    found = items(context(repo, docker=docker))
+    assert found[f"volume:{'a' * 64}"]["tier"] == dc.AUTO
+    assert not any(k.startswith("volume:") and k != f"volume:{'a' * 64}" for k in found)
+
+
+def test_apply_refuses_an_image_a_container_still_uses(repo) -> None:
+    gone = str(repo.root / "r" / "review-318-8a45c8")
+    tag = f"vsc-review-318-8a45c8-{dc.folder_hash(gone)}:latest"
+    docker = FakeDocker(images=[image("sha256:m", "2026", tags=[tag])],
+                        containers=[container("c", gone, "running", image_id="sha256:m")])
+    ctx = context(repo, docker=docker)
+    result = dc.apply(ctx, ["image:sha256:m"])
+    assert result["done"] == [] and "still uses" in result["skipped"][0]["reason"]
+
+
+def test_removing_a_worktree_reaps_its_stopped_container_and_offers_its_image(repo) -> None:
+    wt = repo.worktree("calm-cow-222222")
+    tag = f"vsc-calm-cow-222222-{dc.folder_hash(str(wt))}:latest"
+    docker = FakeDocker(images=[image("sha256:v", "2026", tags=[tag])],
+                        containers=[container("c", str(wt), "exited", image_id="sha256:v")])
+    ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
+    found = items(ctx)
+    assert not any(k.startswith(("container:", "image:")) for k in found)
+
+    result = dc.apply(ctx, [only(found, "worktree", path=str(wt))["id"]])
+    assert ("rm", "-v", "c") in docker.calls
+    assert [i["id"] for i in result["follow_up"]] == ["image:sha256:v"]
+
+
+def test_unknown_ids_are_skipped(repo) -> None:
+    result = dc.apply(context(repo), ["branch:/nowhere:x@0"])
+    assert result["done"] == [] and "gone" in result["skipped"][0]["reason"]
+
+
+def test_config_file_overrides_defaults(tmp_path) -> None:
+    path = tmp_path / "dev-cleanup.json"
+    path.write_text('{"extra_roots": ["~/elsewhere"]}')
+    config = dc.load_config(str(path))
+    assert config["extra_roots"] == ["~/elsewhere"]
+    assert config["worktree_roots"] == dc.DEFAULT_CONFIG["worktree_roots"]
+    with pytest.raises(SystemExit):
+        dc.load_config(str(tmp_path / "missing.json"))
