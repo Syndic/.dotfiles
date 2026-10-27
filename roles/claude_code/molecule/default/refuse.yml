@@ -1,0 +1,21 @@
+---
+- name: Run the role and capture whether it refused
+  block:
+    - name: Include the role against an unsafe settings file
+      ansible.builtin.include_role:
+        name: claude_code
+      vars:
+        claude_code_home_dir: "/root/{{ _unsafe_home }}-home"
+        claude_code_marketplace_dir: /opt/claude-code-molecule/agent-tools
+
+    - name: Record that the role did not refuse
+      ansible.builtin.set_fact:
+        _claude_code_refused: false
+  rescue:
+    - name: Record that the role refused
+      ansible.builtin.set_fact:
+        _claude_code_refused: true
+
+- name: The role must refuse {{ _unsafe_home }}
+  ansible.builtin.assert:
+    that: _claude_code_refused

@@ -24,7 +24,8 @@ python3 ~/.dotfiles/uninstall.py
 
 By default this removes every symlink under `$HOME` that points into
 `~/.dotfiles` and restores the most-recent `<name>.backup-N` sibling for
-each path. It does **not** touch packages, Homebrew itself, or the
+each path, and unregisters the `agent-tools` Claude Code plugin marketplace
+from `~/.claude/settings.json`. It does **not** touch packages, Homebrew itself, or the
 checkout. The plan is printed first; a single `y/N` covers all actions.
 
 Opt-in flags broaden the teardown:

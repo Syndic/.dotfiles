@@ -1,33 +1,34 @@
 ---
-# claude_code role
-# Register the in-repo agent-tools marketplace and enable its plugins by
-# merging two keys into ~/.claude/settings.json. The file is merged rather
-# than symlinked because Claude Code writes to it itself; every key the role
-# doesn't own is preserved.
+# claude_code role — see CLAUDE.md "Claude Code plugin (`agent-tools/`)".
 
 - name: Read the agent-tools marketplace manifest
   ansible.builtin.slurp:
     src: "{{ claude_code_marketplace_dir }}/.claude-plugin/marketplace.json"
   register: claude_code_marketplace_manifest
 
-- name: Build the settings fragment the role owns
+- name: Build the entries the role owns
   vars:
     _manifest: "{{ claude_code_marketplace_manifest.content | b64decode | from_json }}"
   ansible.builtin.set_fact:
-    claude_code_settings_fragment:
-      extraKnownMarketplaces: >-
-        {{ {_manifest.name: {'source': {'source': 'directory',
-                                        'path': claude_code_marketplace_dir}}} }}
-      enabledPlugins: >-
-        {{ dict(_manifest.plugins
-                | map(attribute='name')
-                | map('regex_replace', '$', '@' ~ _manifest.name)
-                | product([true])) }}
+    claude_code_marketplace_entry: >-
+      {{ {_manifest.name: {'source': {'source': 'directory',
+                                      'path': claude_code_marketplace_dir}}} }}
+    claude_code_plugin_defaults: >-
+      {{ dict(_manifest.plugins
+              | map(attribute='name')
+              | product(['@' ~ _manifest.name]) | map('join')
+              | product([true])) }}
 
 - name: Stat Claude Code user settings
   ansible.builtin.stat:
     path: "{{ claude_code_settings_path }}"
+    follow: false
   register: claude_code_settings_stat
+
+- name: Assert settings.json is not a symlink
+  ansible.builtin.assert:
+    that: not (claude_code_settings_stat.stat.islnk | default(false))
+    fail_msg: "{{ claude_code_settings_path }} is a symlink; refusing to replace it"
 
 - name: Read existing Claude Code user settings
   ansible.builtin.slurp:
@@ -41,19 +42,25 @@
       {{ (claude_code_settings_existing.content | b64decode | from_json)
          if claude_code_settings_stat.stat.exists else {} }}
 
-# Fail closed: a non-object top level means the file isn't one we understand.
 - name: Assert existing settings are a JSON object
   ansible.builtin.assert:
     that: claude_code_settings_current is mapping
     fail_msg: "{{ claude_code_settings_path }} is not a JSON object; refusing to merge into it"
 
+# The marketplace entry replaces whatever is under its name; an existing
+# enabledPlugins value wins, so `/plugin disable` sticks.
 - name: Compute merged Claude Code user settings
+  vars:
+    _current: "{{ claude_code_settings_current }}"
   ansible.builtin.set_fact:
     claude_code_settings_merged: >-
-      {{ claude_code_settings_current | combine(claude_code_settings_fragment, recursive=true) }}
+      {{ _current | combine({
+           'extraKnownMarketplaces': (_current.extraKnownMarketplaces | default({}))
+                                     | combine(claude_code_marketplace_entry),
+           'enabledPlugins': claude_code_plugin_defaults
+                             | combine(_current.enabledPlugins | default({})),
+         }) }}
 
-# Compared as data, not bytes, so Claude Code reformatting the file on its own
-# writes doesn't make the next run report CHANGED.
 - name: Write merged Claude Code user settings
   when: claude_code_settings_merged != claude_code_settings_current
   block:

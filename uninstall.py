@@ -3,8 +3,9 @@
 uninstall.py - inverse of install.sh + phase2.py.
 
 By default, removes every symlink in $HOME whose target lives inside the
-managed dotfiles repo, and restores the most-recent <name>.backup-N sibling
-for each removed path. Opt-in flags broaden the teardown to package
+managed dotfiles repo, restores the most-recent <name>.backup-N sibling
+for each removed path, and unregisters the Claude Code plugin marketplace
+the claude_code role added to ~/.claude/settings.json. Opt-in flags broaden the teardown to package
 installations and Homebrew / the repo itself.
 
 Usage:
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import platform
 import re
@@ -195,6 +197,64 @@ def _latest_backup(target_path: Path) -> Path | None:
             best_idx = idx
             best = sibling
     return best
+
+
+def build_claude_plugin_action(settings_path: Path, managed_root: Path):
+    """Return (preview_lines, do_callable) unregistering the claude_code role's entries.
+
+    Ours = every `directory` marketplace in extraKnownMarketplaces whose path is
+    inside managed_root, plus the enabledPlugins keys naming it. A missing,
+    symlinked, or unparseable settings.json yields no action."""
+    if settings_path.is_symlink() or not settings_path.is_file():
+        return [], None
+    try:
+        settings = json.loads(settings_path.read_text())
+    except (OSError, ValueError):
+        return [f"  (skipped: {settings_path} is not valid JSON)"], None
+    if not isinstance(settings, dict):
+        return [], None
+
+    root = managed_root.resolve(strict=False)
+    marketplaces = settings.get("extraKnownMarketplaces") or {}
+    owned = sorted(
+        name for name, entry in marketplaces.items()
+        if isinstance(entry, dict)
+        and isinstance(entry.get("source"), dict)
+        and entry["source"].get("source") == "directory"
+        and _is_within(Path(str(entry["source"].get("path", ""))), root)
+    )
+    plugins = sorted(
+        key for key in settings.get("enabledPlugins") or {}
+        if key.rpartition("@")[2] in owned
+    )
+    if not owned:
+        return [], None
+    preview = [f"  unregister marketplace  {name}" for name in owned]
+    preview += [f"  remove enabledPlugins   {key}" for key in plugins]
+
+    def do_claude_plugin():
+        # Re-read: Claude Code may have written the file since the plan was printed.
+        current = json.loads(settings_path.read_text())
+        for key, names in (("extraKnownMarketplaces", owned), ("enabledPlugins", plugins)):
+            section = current.get(key)
+            if not isinstance(section, dict):
+                continue
+            for name in names:
+                section.pop(name, None)
+            if not section:
+                del current[key]
+        tmp = settings_path.with_name(settings_path.name + ".uninstall-tmp")
+        tmp.write_text(json.dumps(current, indent=2) + "\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, settings_path)
+        info(f"unregistered {', '.join(owned)} from {settings_path}")
+
+    return preview, do_claude_plugin
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    resolved = path.resolve(strict=False)
+    return resolved == root or root in resolved.parents
 
 
 def build_playbook_actions(
@@ -438,6 +498,13 @@ def main(argv=None) -> None:
                 ["  (no managed symlinks found under $HOME)"],
                 do,
             ))
+
+    # 3b. Claude Code plugin registration (default; it points into the checkout)
+    prev, do = build_claude_plugin_action(
+        Path.home() / ".claude" / "settings.json", DOTFILES_DIR
+    )
+    if do is not None or prev:
+        sections.append(("Unregister Claude Code plugin marketplace", prev, do or (lambda: None)))
 
     # 4. Homebrew itself (after anything that needs brew)
     if args.homebrew:

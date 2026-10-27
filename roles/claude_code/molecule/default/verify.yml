@@ -3,33 +3,29 @@
   hosts: all
   gather_facts: false
   vars:
-    _marketplace_dir: /opt/claude-code-molecule/agent-tools
     _owned_marketplace:
-      agent-tools:
-        source:
-          source: directory
-          path: "{{ _marketplace_dir }}"
+      source:
+        source: directory
+        path: /opt/claude-code-molecule/agent-tools
   tasks:
-    - name: Read both settings files
+    - name: Read the settings files
       ansible.builtin.slurp:
-        src: "{{ item }}/.claude/settings.json"
+        src: "/root/{{ item }}"
       loop:
-        - /root/seeded-home
-        - /root/fresh-home
+        - seeded-home/.claude/settings.json
+        - fresh-home/.claude/settings.json
+        - disabled-home/.claude/settings.json
+        - bad-json-home/.claude/settings.json
+        - symlink-home/target.json
       register: claude_code_verify_settings
 
-    - name: Stat both settings files
-      ansible.builtin.stat:
-        path: "{{ item }}/.claude/settings.json"
-      loop:
-        - /root/seeded-home
-        - /root/fresh-home
-      register: claude_code_verify_stats
-
-    - name: Parse both settings files
+    - name: Parse the settings files
       ansible.builtin.set_fact:
         _seeded: "{{ claude_code_verify_settings.results[0].content | b64decode | from_json }}"
         _fresh: "{{ claude_code_verify_settings.results[1].content | b64decode | from_json }}"
+        _disabled: "{{ claude_code_verify_settings.results[2].content | b64decode | from_json }}"
+        _bad_json: "{{ claude_code_verify_settings.results[3].content | b64decode }}"
+        _link_target: "{{ claude_code_verify_settings.results[4].content | b64decode }}"
 
     - name: Unowned keys survive the merge untouched
       ansible.builtin.assert:
@@ -40,26 +36,47 @@
           - _seeded.extraKnownMarketplaces['other-market'].source.repo == 'example/other'
         fail_msg: "an unowned key changed: {{ _seeded }}"
 
-    - name: Owned keys are present in both files
+    - name: The owned marketplace entry is replaced whole, not merged into
+      ansible.builtin.assert:
+        that: item.extraKnownMarketplaces['agent-tools'] == _owned_marketplace
+        fail_msg: "owned marketplace entry wrong: {{ item.extraKnownMarketplaces }}"
+      loop: ["{{ _seeded }}", "{{ _fresh }}", "{{ _disabled }}"]
+      loop_control:
+        label: "{{ item.extraKnownMarketplaces['agent-tools'] | default('missing') }}"
+
+    - name: The plugin is enabled by default, but a user's disable sticks
       ansible.builtin.assert:
         that:
-          - item.enabledPlugins['agent-tools@agent-tools'] == true
-          - item.extraKnownMarketplaces['agent-tools'] == _owned_marketplace['agent-tools']
-        fail_msg: "owned keys missing or wrong: {{ item }}"
-      loop:
-        - "{{ _seeded }}"
-        - "{{ _fresh }}"
-      loop_control:
-        label: "{{ item.keys() | list }}"
+          - _seeded.enabledPlugins['agent-tools@agent-tools'] == true
+          - _fresh.enabledPlugins['agent-tools@agent-tools'] == true
+          - _disabled.enabledPlugins['agent-tools@agent-tools'] == false
 
     - name: The created file holds only the owned keys
       ansible.builtin.assert:
         that:
           - _fresh.keys() | sort == ['enabledPlugins', 'extraKnownMarketplaces']
 
-    - name: Both files are private to the user
+    - name: Refused files are left exactly as seeded
       ansible.builtin.assert:
-        that: item.stat.mode == '0600'
-      loop: "{{ claude_code_verify_stats.results }}"
-      loop_control:
-        label: "{{ item.item }}"
+        that:
+          - _bad_json == "[]\n"
+          - _link_target == "{}\n"
+
+    - name: Stat the written files, the created directory, and the symlink
+      ansible.builtin.stat:
+        path: "/root/{{ item }}"
+        follow: false
+      loop:
+        - seeded-home/.claude/settings.json
+        - fresh-home/.claude/settings.json
+        - fresh-home/.claude
+        - symlink-home/.claude/settings.json
+      register: claude_code_verify_stats
+
+    - name: Written files are 0600, the created directory 0700, the symlink intact
+      ansible.builtin.assert:
+        that:
+          - claude_code_verify_stats.results[0].stat.mode == '0600'
+          - claude_code_verify_stats.results[1].stat.mode == '0600'
+          - claude_code_verify_stats.results[2].stat.mode == '0700'
+          - claude_code_verify_stats.results[3].stat.islnk

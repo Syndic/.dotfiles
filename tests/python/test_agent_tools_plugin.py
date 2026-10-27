@@ -6,6 +6,7 @@ skill without frontmatter breaks loading on every host. `claude plugin
 validate` isn't available in CI; these checks cover the rules it would."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -30,27 +31,30 @@ def _frontmatter(path: Path) -> dict:
     return {k.strip(): v.strip() for k, v in pairs}
 
 
-def test_marketplace_lists_the_plugin_at_its_own_root() -> None:
-    marketplace = _load("marketplace.json")
-    assert marketplace["plugins"] == [
-        {
-            "name": "agent-tools",
-            "source": "./",
-            "description": marketplace["plugins"][0]["description"],
-        }
-    ]
+def test_every_marketplace_entry_is_a_relative_path_plugin_inside_the_folder() -> None:
+    """Relative-path entries load in place from a directory marketplace; any other
+    source type would be copied to the plugin cache and stop tracking the checkout."""
+    for entry in _load("marketplace.json")["plugins"]:
+        assert entry["source"].startswith("./"), entry
+        manifest = PLUGIN_ROOT / entry["source"] / ".claude-plugin" / "plugin.json"
+        assert manifest.is_file(), entry
 
 
-def test_marketplace_entry_name_matches_manifest_name() -> None:
+def test_marketplace_entry_names_match_manifest_names() -> None:
     """Claude Code keys enabledPlugins by entry name but prefixes skills with the
-    manifest name; the two must agree or `/agent-tools:<skill>` won't resolve."""
-    entry_names = {p["name"] for p in _load("marketplace.json")["plugins"]}
-    assert entry_names == {_load("plugin.json")["name"]}
+    manifest name; the two must agree or `/<plugin>:<skill>` won't resolve."""
+    for entry in _load("marketplace.json")["plugins"]:
+        manifest = PLUGIN_ROOT / entry["source"] / ".claude-plugin" / "plugin.json"
+        assert json.loads(manifest.read_text())["name"] == entry["name"]
 
 
-def test_role_registers_this_directory() -> None:
+def test_role_default_points_at_a_marketplace_in_this_repo() -> None:
     defaults = (REPO_ROOT / "roles" / "claude_code" / "defaults" / "main.yml").read_text()
-    assert 'claude_code_marketplace_dir: "{{ playbook_dir }}/agent-tools"' in defaults
+    match = re.search(
+        r"^claude_code_marketplace_dir:\s*[\"']?\{\{\s*playbook_dir\s*\}\}/([^\"'\s]+)",
+        defaults, re.MULTILINE)
+    assert match, "claude_code_marketplace_dir should be relative to playbook_dir"
+    assert (REPO_ROOT / match.group(1) / ".claude-plugin" / "marketplace.json").is_file()
 
 
 def test_plugin_has_skills() -> None:

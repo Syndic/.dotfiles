@@ -8,6 +8,7 @@ tests" set in CLAUDE.md."""
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 from pathlib import Path
@@ -279,3 +280,18 @@ def test_main_yes_applies_symlink_removal(fake_install, monkeypatch, capsys):
     assert not (home / ".foo").exists()
     assert not (home / ".config" / "bar").exists()
     assert (home / ".keep_me").is_file()
+
+
+def test_main_yes_unregisters_the_claude_code_marketplace(fake_install, monkeypatch):
+    home, managed_root = fake_install
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    settings = home / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({
+        "model": "x",
+        "enabledPlugins": {"agent-tools@agent-tools": True},
+        "extraKnownMarketplaces": {"agent-tools": {"source": {
+            "source": "directory", "path": str(managed_root / "agent-tools")}}},
+    }))
+    uninstall.main(["--host", "fake", "--yes"])
+    assert json.loads(settings.read_text()) == {"model": "x"}

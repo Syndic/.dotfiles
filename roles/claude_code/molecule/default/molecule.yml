@@ -12,11 +12,8 @@ platforms:
     # renovate: datasource=docker depName=geerlingguy/docker-debian12-ansible
     image: geerlingguy/docker-debian12-ansible:latest@sha256:e642ef9fc4932231fdd98b553fff0b1880df89d7bb64f9baff3c85811286cb5b
     pre_build_image: true
-    privileged: true
-    cgroupns_mode: host
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
-    command: /lib/systemd/systemd
+    # The role only writes a JSON file: no systemd, no privileges.
+    command: sleep infinity
 
 provisioner:
   name: ansible

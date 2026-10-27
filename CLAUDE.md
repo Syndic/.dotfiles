@@ -1150,14 +1150,26 @@ session start or `/reload-plugins` with no push, reinstall, or version bump.
 `~/.claude/settings.json` is **merged, never symlinked**: Claude Code writes the
 file itself (permissions, `/config` choices) and keeps it mode 0600. The role
 owns exactly two kinds of entry, both derived from `marketplace.json` so the
-names have one home — `extraKnownMarketplaces.<marketplace>` and
-`enabledPlugins["<plugin>@<marketplace>"]` for each listed plugin — and leaves
-every other key alone. Idempotency compares parsed JSON rather than bytes, so
-Claude Code reformatting the file doesn't make the next run report CHANGED. A
-file that isn't a JSON object fails the run instead of being overwritten. The
-molecule scenario seeds unowned keys (including siblings under the two owned
-keys) and asserts they survive. `uninstall.py` doesn't yet remove the two
-entries.
+names have one home, and leaves every other key alone:
+
+- `extraKnownMarketplaces.<marketplace>` — replaced whole, never deep-merged, so
+  a stale entry under the same name (say a `github` source left over from an
+  extraction) can't survive as a hybrid of two sources.
+- `enabledPlugins["<plugin>@<marketplace>"]` — set to `true` only when absent;
+  an existing value wins, so a `/plugin disable` (which writes `false`) sticks
+  across playbook runs.
+
+Idempotency compares parsed JSON rather than bytes, so Claude Code reformatting
+the file doesn't make the next run report CHANGED. The role fails closed on a
+settings file that is a symlink (writing would replace the link and strand its
+target) or isn't a JSON object. The molecule scenario covers each of these,
+plus unowned keys (including siblings under the two owned keys) surviving.
+
+`uninstall.py` reverses it by default, in Python for the same
+survives-`--ansible` reason as symlink removal: it unregisters every `directory`
+marketplace whose path is inside the checkout and the `enabledPlugins` keys
+naming it. Without that, removing the checkout would leave every Claude Code
+session failing to load a marketplace that no longer exists.
 
 ## Conventions
 
