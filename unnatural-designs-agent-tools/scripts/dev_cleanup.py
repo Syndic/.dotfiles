@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -550,8 +551,30 @@ def contained_in(repo: str, tip: str, head_oid: str) -> Optional[bool]:
 
 def worktree_dirty(path: str) -> Optional[bool]:
     """Tracked changes or untracked files; None if git can't tell. Ignored files don't count."""
-    res = git(path, "status", "--porcelain")
+    # Explicit, so a `status.showUntrackedFiles=no` config can't hide untracked files.
+    res = git(path, "status", "--porcelain", "--untracked-files=all")
     return bool(res.out.strip()) if res.ok else None
+
+
+def make_removable(path: str) -> Optional[str]:
+    """Give every directory u+rwx; None on success, else the error.
+    `git worktree remove` unregisters first, so a read-only one would strand the rest."""
+    def grant(folder: str) -> None:
+        os.chmod(folder, stat.S_IMODE(os.lstat(folder).st_mode) | stat.S_IRWXU)
+
+    def fail(err: OSError) -> None:
+        raise err
+
+    try:
+        grant(path)
+        for root, dirs, _ in os.walk(path, onerror=fail):
+            for name in dirs:
+                folder = os.path.join(root, name)
+                if not os.path.islink(folder):  # chmod would follow it out of the worktree
+                    grant(folder)
+    except OSError as err:
+        return str(err)
+    return None
 
 
 def read_text(path: str) -> Optional[str]:
@@ -972,9 +995,17 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
             return kept("could not read worktree status")
         if dirty:
             return kept("worktree has uncommitted changes")
-        # No --force: git itself refuses a dirty or locked worktree.
-        res = git(repo, "worktree", "remove", path)
+        blocked = make_removable(path)
+        if blocked:
+            return kept(f"could not make the worktree removable: {blocked}")
+        # No --force: git itself refuses a dirty or locked worktree, with untracked files
+        # counted whatever the repo's config says.
+        res = git(repo, "-c", "status.showUntrackedFiles=all", "worktree", "remove", path)
         if not res.ok:
+            listed = git(repo, "worktree", "list", "--porcelain")
+            if listed.ok and os.path.realpath(path) not in {
+                    os.path.realpath(str(e["path"])) for e in parse_worktrees(listed.out)}:
+                return False, f"git unregistered the worktree but left files: {res.err.strip()}"
             return kept(res.err.strip())
         parts = ["removed worktree"]
         for cid in containers:

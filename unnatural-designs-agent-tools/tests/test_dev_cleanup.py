@@ -599,6 +599,41 @@ def test_gitignored_files_never_protect_a_worktree(repo) -> None:
     assert [d["id"] for d in result["done"]] == [item["id"]] and not ignored.exists()
 
 
+def test_untracked_files_count_whatever_status_show_untracked_files_says(
+        repo, monkeypatch) -> None:
+    git(repo.main, "config", "status.showUntrackedFiles", "no")
+    wt = repo.worktree("keen-kiwi-121212")
+    (wt / "u.txt").write_text("mine")
+    ctx = context(repo, sessions((str(wt), True, False)))
+    item = only(items(ctx), "worktree", path=str(wt))
+    assert item["tier"] == dc.REPORT and "uncommitted" in item["reason"]
+
+    # Even past a stale "clean" re-check, git's own removal check still counts them.
+    monkeypatch.setattr(dc, "worktree_dirty", lambda path: False)
+    ok, why = dc.apply_item(ctx, {**item, "tier": dc.CONFIRM})
+    assert not ok and "untracked" in why and (wt / "u.txt").exists()
+
+
+def test_read_only_ignored_directories_do_not_strand_a_removal(repo) -> None:
+    (repo.main / ".git" / "info" / "exclude").write_text("cache/\n")
+    wt = repo.worktree("cool-crab-131313")
+    (wt / "cache" / "ro").mkdir(parents=True)
+    (wt / "cache" / "ro" / "f").write_text("")
+    outside = repo.tmp / "outside-ro"
+    outside.mkdir()
+    (wt / "cache" / "link").symlink_to(outside)
+    for folder in (wt / "cache" / "ro", outside):
+        folder.chmod(0o555)
+    try:
+        ctx = context(repo, sessions((str(wt), True, False)))
+        item = only(items(ctx), "worktree", path=str(wt))
+        result = dc.apply(ctx, [item["id"]])
+        assert [d["id"] for d in result["done"]] == [item["id"]] and not wt.exists()
+        assert outside.stat().st_mode & 0o777 == 0o555  # the symlink wasn't followed
+    finally:
+        outside.chmod(0o755)
+
+
 def test_apply_fails_closed_when_worktree_status_fails(repo, tmp_path) -> None:
     not_a_repo = tmp_path / "plain"
     not_a_repo.mkdir()
