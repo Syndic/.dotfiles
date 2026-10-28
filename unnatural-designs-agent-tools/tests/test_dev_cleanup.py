@@ -629,9 +629,54 @@ def test_read_only_ignored_directories_do_not_strand_a_removal(repo) -> None:
         item = only(items(ctx), "worktree", path=str(wt))
         result = dc.apply(ctx, [item["id"]])
         assert [d["id"] for d in result["done"]] == [item["id"]] and not wt.exists()
+        assert "deleted files git couldn't" in result["done"][0]["result"]
         assert outside.stat().st_mode & 0o777 == 0o555  # the symlink wasn't followed
     finally:
         outside.chmod(0o755)
+
+
+def read_only_worktree_with_container(repo):
+    """A worktree with a read-only ignored dir and a running devcontainer, and its item."""
+    (repo.main / ".git" / "info" / "exclude").write_text("cache/\n")
+    wt = repo.worktree("calm-cow-222222")
+    (wt / "cache" / "ro").mkdir(parents=True)
+    (wt / "cache" / "ro" / "f").write_text("")
+    (wt / "cache" / "ro").chmod(0o555)
+    docker = FakeDocker(containers=[container("c", str(wt), "running")])
+    ctx = context(repo, sessions((str(wt), True, False)), docker=docker)
+    return wt, docker, ctx, only(items(ctx), "worktree", path=str(wt))
+
+
+def test_a_refused_removal_leaves_permissions_alone(repo) -> None:
+    wt, docker, ctx, item = read_only_worktree_with_container(repo)
+    git(repo.main, "worktree", "lock", str(wt))  # taken after the report
+    try:
+        ok, why = dc.apply_item(ctx, item)
+        assert not ok and "locked" in why and "stopped, not removed: c" in why
+        assert (wt / "cache" / "ro").stat().st_mode & 0o777 == 0o555
+        assert ("rm", "-v", "c") not in docker.calls
+    finally:
+        (wt / "cache" / "ro").chmod(0o755)
+
+
+@pytest.mark.parametrize("patch,expected", [
+    # git's partial removal can't be finished: the stopped containers are still named.
+    ({"make_removable": lambda path: "boom"}, "git unregistered the worktree but left files"),
+    # The worktree list can't be read: don't claim the worktree was kept.
+    ({"worktree_registered": lambda repo, path: None}, "can't be read"),
+])
+def test_a_failed_removal_names_the_stopped_containers(repo, monkeypatch, patch: dict,
+                                                       expected: str) -> None:
+    wt, docker, ctx, item = read_only_worktree_with_container(repo)
+    for name, fake in patch.items():
+        monkeypatch.setattr(dc, name, fake)
+    try:
+        ok, why = dc.apply_item(ctx, item)
+        assert not ok and expected in why and "stopped, not removed: c" in why
+        assert "kept worktree" not in why and ("rm", "-v", "c") not in docker.calls
+    finally:
+        if (wt / "cache" / "ro").exists():
+            (wt / "cache" / "ro").chmod(0o755)
 
 
 def test_apply_fails_closed_when_worktree_status_fails(repo, tmp_path) -> None:

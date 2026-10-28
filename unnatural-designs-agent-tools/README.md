@@ -38,9 +38,11 @@ tier is the check: an image a container picked up since the report is no longer 
 ids are report-only.
 The actions themselves also fail closed:
 - `git worktree remove` runs without `--force`, after `apply` re-reads the worktree's status.
-  Both count untracked files whatever `status.showUntrackedFiles` says. First, every directory
-  in the worktree gets `u+rwx` (symlinks aren't followed), because git unregisters a worktree
-  before deleting it and a read-only directory would leave the rest stranded.
+  Both count untracked files whatever `status.showUntrackedFiles` says. Git unregisters a
+  worktree before deleting it, so a read-only directory can stop it halfway. Only then, once
+  git has approved the removal, does `apply` give the leftovers `u+rwx` (symlinks aren't
+  followed) and delete them. A removal git refuses leaves the worktree's files and
+  permissions as they were.
 - A branch is deleted with `git update-ref -d <ref> <expected-tip>`.
 - `docker rm -v` and `docker rmi` run without `-f`.
 - An image is skipped while any container still uses it.

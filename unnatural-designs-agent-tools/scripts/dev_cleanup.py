@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -556,9 +557,17 @@ def worktree_dirty(path: str) -> Optional[bool]:
     return bool(res.out.strip()) if res.ok else None
 
 
+def worktree_registered(repo: str, path: str) -> Optional[bool]:
+    res = git(repo, "worktree", "list", "--porcelain")
+    if not res.ok:
+        return None
+    return os.path.realpath(path) in {os.path.realpath(str(e["path"]))
+                                      for e in parse_worktrees(res.out)}
+
+
 def make_removable(path: str) -> Optional[str]:
-    """Give every directory u+rwx; None on success, else the error.
-    `git worktree remove` unregisters first, so a read-only one would strand the rest."""
+    """Give every directory u+rwx; None on success, else the error. Only for leftovers of a
+    removal git already approved: it unregisters first, then stops at a read-only directory."""
     def grant(folder: str) -> None:
         os.chmod(folder, stat.S_IMODE(os.lstat(folder).st_mode) | stat.S_IRWXU)
 
@@ -979,8 +988,8 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
         containers = [str(c) for c in details.get("containers") or []]
         stopped: List[str] = []
 
-        def kept(why: str) -> Tuple[bool, str]:
-            # Stopped containers stay (with their volumes) whenever the worktree does.
+        def failed(why: str) -> Tuple[bool, str]:
+            # Stopped containers are left (with their volumes) whenever removal fails.
             note = f" (stopped, not removed: {', '.join(stopped)})" if stopped else ""
             return False, f"{why}{note}"
 
@@ -988,26 +997,36 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
         for cid in containers:
             res = ctx.docker.command("stop", cid)
             if not res.ok:
-                return kept(f"kept worktree; docker stop {cid} failed: {res.err.strip()}")
+                return failed(f"kept worktree; docker stop {cid} failed: {res.err.strip()}")
             stopped.append(cid)
         dirty = worktree_dirty(path)
         if dirty is None:
-            return kept("could not read worktree status")
+            return failed("could not read worktree status")
         if dirty:
-            return kept("worktree has uncommitted changes")
-        blocked = make_removable(path)
-        if blocked:
-            return kept(f"could not make the worktree removable: {blocked}")
+            return failed("worktree has uncommitted changes")
         # No --force: git itself refuses a dirty or locked worktree, with untracked files
         # counted whatever the repo's config says.
         res = git(repo, "-c", "status.showUntrackedFiles=all", "worktree", "remove", path)
-        if not res.ok:
-            listed = git(repo, "worktree", "list", "--porcelain")
-            if listed.ok and os.path.realpath(path) not in {
-                    os.path.realpath(str(e["path"])) for e in parse_worktrees(listed.out)}:
-                return False, f"git unregistered the worktree but left files: {res.err.strip()}"
-            return kept(res.err.strip())
         parts = ["removed worktree"]
+        if not res.ok:
+            err = res.err.strip()
+            registered = worktree_registered(repo, path)
+            if registered is None:
+                return failed(f"git worktree remove failed ({err}), and the worktree list "
+                              "can't be read to tell whether it was unregistered")
+            if registered:
+                return failed(err)
+            # git checked and unregistered it, then hit something it couldn't delete.
+            blocked = make_removable(path)
+            if blocked is None:
+                try:
+                    shutil.rmtree(path)
+                except OSError as exc:
+                    blocked = str(exc)
+            if blocked:
+                return failed(f"git unregistered the worktree but left files ({err}); "
+                              f"deleting them failed: {blocked}")
+            parts = ["removed worktree (deleted files git couldn't)"]
         for cid in containers:
             rm = ctx.docker.command("rm", "-v", cid)
             parts.append(f"removed devcontainer {cid}" if rm.ok
