@@ -102,7 +102,6 @@ REAPABLE = (True, "all 1 session(s) here are archived")
     ({"detached": True, "on_default": False}, dc.REPORT, "unpushed"),
     ({"detached": True, "on_default": None}, dc.REPORT, "could not compare"),
     ({"detached": True, "on_default": True, "dirty": True}, dc.REPORT, "uncommitted"),
-    ({"precious": [".env"]}, dc.REPORT, "only copy: .env"),
     ({"running_containers": ["dc-1 (up 3d)"]}, dc.CONFIRM,
      "stops its running devcontainer first: dc-1 (up 3d)"),
     ({"running_containers": ["dc-1"], "dirty": True}, dc.REPORT, "uncommitted"),
@@ -140,13 +139,6 @@ def test_classify_container_outside_the_roots_is_report_only() -> None:
     (False, True, dc.AUTO), (False, False, dc.CONFIRM), (True, True, dc.REPORT)])
 def test_classify_stale(locked: bool, in_scope: bool, tier: str) -> None:
     assert dc.classify_stale(locked, in_scope)[0] == tier
-
-
-def test_precious_ignored_keeps_what_no_pattern_covers() -> None:
-    paths = [".env", "src/__pycache__/", ".devcontainer/.git-plumbing/host-gitconfig",
-             "bazel-out", "secrets/token", "node_modules/"]
-    kept = dc.precious_ignored(paths, dc.DEFAULT_CONFIG["regenerable_ignored"])
-    assert kept == [".env", "secrets/token"]
 
 
 def sessions(*rows: tuple, available: bool = True) -> dc.SessionIndex:
@@ -591,24 +583,20 @@ def test_stale_entry_whose_folder_reappears_is_skipped(repo) -> None:
     assert wt.exists() and "back-bear" in git(repo.main, "worktree", "list")
 
 
-def test_gitignored_files_keep_a_worktree_report_only(repo) -> None:
-    (repo.main / ".git" / "info" / "exclude").write_text(".env\n__pycache__/\n")
-    keeps = repo.worktree("keen-kiwi-121212")
-    (keeps / ".env").write_text("TOKEN=only-copy")
-    cache_only = repo.worktree("cool-crab-131313")
-    (cache_only / "__pycache__").mkdir()
-    (cache_only / "__pycache__" / "m.pyc").write_text("")
-    ctx = context(repo, sessions((str(keeps), True, False), (str(cache_only), True, False)))
+def test_gitignored_files_never_protect_a_worktree(repo) -> None:
+    (repo.main / ".git" / "info" / "exclude").write_text(".env\n")
+    ignored = repo.worktree("keen-kiwi-121212")
+    (ignored / ".env").write_text("TOKEN=x")
+    untracked = repo.worktree("cool-crab-131313")
+    (untracked / "notes.txt").write_text("mine")
+    ctx = context(repo, sessions((str(ignored), True, False), (str(untracked), True, False)))
     found = items(ctx)
-    kept = only(found, "worktree", path=str(keeps))
-    assert kept["tier"] == dc.REPORT and ".env" in kept["reason"]
-    assert only(found, "worktree", path=str(cache_only))["tier"] == dc.CONFIRM
+    assert only(found, "worktree", path=str(untracked))["tier"] == dc.REPORT
+    item = only(found, "worktree", path=str(ignored))
+    assert item["tier"] == dc.CONFIRM
 
-    (cache_only / "notes.local").write_text("mine")
-    (repo.main / ".git" / "info" / "exclude").write_text(".env\n__pycache__/\n*.local\n")
-    result = dc.apply(ctx, [only(found, "worktree", path=str(cache_only))["id"]])
-    assert result["done"] == [] and "only copy" in result["skipped"][0]["reason"]
-    assert cache_only.exists()
+    result = dc.apply(ctx, [item["id"]])
+    assert [d["id"] for d in result["done"]] == [item["id"]] and not ignored.exists()
 
 
 def test_apply_fails_closed_when_worktree_status_fails(repo, tmp_path) -> None:
@@ -690,14 +678,13 @@ def test_a_running_devcontainer_is_stopped_before_its_worktree_goes(repo) -> Non
 
 
 @pytest.mark.parametrize("on_stop,reason", [
-    # The container writes an ignored file as it shuts down: the re-check must see it.
-    (lambda wt: (wt / "late.local").write_text("mine"), "only copy"),
+    # The container writes an untracked file as it shuts down: the re-check must see it.
+    (lambda wt: (wt / "late.txt").write_text("mine"), "uncommitted changes"),
     # git refuses after the stop: the container must not be removed yet.
     (lambda wt: git(wt, "worktree", "lock", str(wt)), "locked"),
 ])
 def test_a_worktree_kept_after_its_devcontainer_stops_keeps_the_container(
         repo, on_stop, reason: str) -> None:
-    (repo.main / ".git" / "info" / "exclude").write_text("*.local\n")
     wt = repo.worktree("calm-cow-222222")
 
     class StopHook(FakeDocker):

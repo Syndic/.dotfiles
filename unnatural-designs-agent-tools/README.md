@@ -59,16 +59,15 @@ checked-out branch. Only these are offered:
 - a detached, clean worktree whose HEAD is on the default branch;
 - a local `pr-NNN` copy of a merged or closed PR.
 
-Dirty worktrees and unpushed commits are never offered. Gitignored files count as work too:
-`git worktree remove` deletes them without calling them changes, so a worktree holding any
-ignored path that `regenerable_ignored` doesn't cover (caches, build output, devcontainer
-plumbing) is report-only. Removing a worktree also deletes its branch. A devcontainer still
-running on it is handled in this order: stop it, re-check the worktree (so files it wrote while
-running or shutting down count), `git worktree remove`, then `docker rm -v`. If any step fails,
-the worktree and the stopped container both stay. A running container never holds back a
-worktree that is otherwise offered, because the `devcontainer` CLI leaves containers running
-after their session ends; the reason shows how long each has been up, so one still in use
-(attached in an editor, running tests) stands out.
+Dirty worktrees (tracked changes or untracked files) and unpushed commits are never offered.
+Gitignored files never count as work: `git worktree remove` deletes them with the worktree.
+Removing a worktree also deletes its branch. A devcontainer still running on it is handled in
+this order: stop it, re-check the worktree (so files it wrote while running or shutting down
+count), `git worktree remove`, then `docker rm -v`. If any step fails, the worktree and the
+stopped container both stay. A running container never holds back a worktree that is otherwise
+offered, because the `devcontainer` CLI leaves containers running after their session ends; the
+reason shows how long each has been up, so one still in use (attached in an editor, running
+tests) stands out.
 
 A registered worktree whose folder is missing is unregistered one entry at a time
 (`git worktree remove` on the missing path, which needs no `--force`), never with a

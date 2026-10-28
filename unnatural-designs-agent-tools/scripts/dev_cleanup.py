@@ -19,7 +19,6 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
-from fnmatch import fnmatch
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -39,13 +38,6 @@ DEFAULT_CONFIG: Dict[str, object] = {
     "host_caches": ["~/.cache/bazel", "~/go/pkg/mod", "~/.cache/uv"],
     "docker_raw": "~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw",
     "base_image_pattern": r"(^|/)[^/]*devcontainer-base$",
-    # Gitignored paths a worktree can lose without losing work. A pattern with a `/`
-    # matches the whole path; any other matches a single path component.
-    "regenerable_ignored": [
-        "__pycache__", "*.pyc", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
-        ".venv", "node_modules", ".ansible", ".coverage", "htmlcov", ".DS_Store", "bazel-*",
-        ".devcontainer/.git-plumbing/*", ".devcontainer/.host-*",
-    ],
 }
 DEFAULT_CONFIG_PATH = "~/.config/unnatural-designs-agent-tools/dev-cleanup.json"
 ANON_VOLUME_LABEL = "com.docker.volume.anonymous"
@@ -372,21 +364,9 @@ def classify_branch(status: str, pr: Optional[dict], contained: Optional[bool],
     return CONFIRM, f"{label} is {status}"
 
 
-def precious_ignored(paths: Iterable[str], regenerable: Sequence[str]) -> List[str]:
-    """Ignored paths no `regenerable_ignored` pattern covers."""
-    kept = []
-    for raw in paths:
-        path = raw.rstrip("/")
-        parts = path.split("/")
-        if not any(fnmatch(path, pat) if "/" in pat else any(fnmatch(p, pat) for p in parts)
-                   for pat in regenerable):
-            kept.append(path)
-    return kept
-
-
 def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
                       on_default: Optional[bool], branch_verdict: Tuple[str, str],
-                      guard: Tuple[bool, str], precious: Sequence[str] = (),
+                      guard: Tuple[bool, str],
                       running_containers: Sequence[str] = ()) -> Tuple[str, str]:
     if locked:
         return REPORT, "worktree is locked"
@@ -394,9 +374,6 @@ def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
         return REPORT, "could not read worktree status"
     if dirty:
         return REPORT, "uncommitted changes"
-    if precious:
-        shown = ", ".join(precious[:5]) + (", ..." if len(precious) > 5 else "")
-        return REPORT, f"gitignored files that may be the only copy: {shown}"
     if detached:
         if on_default is None:
             return REPORT, "detached HEAD; could not compare with the default branch"
@@ -571,19 +548,10 @@ def contained_in(repo: str, tip: str, head_oid: str) -> Optional[bool]:
     return {0: True, 1: False}.get(res.rc)
 
 
-def worktree_status(path: str, regenerable: Sequence[str]) -> Tuple[Optional[bool], List[str]]:
-    """(dirty, gitignored paths that aren't regenerable); dirty is None if git can't tell.
-    `git worktree remove` deletes ignored files without counting them as changes."""
-    res = git(path, "status", "--porcelain", "-z", "--ignored")
-    if not res.ok:
-        return None, []
-    dirty, ignored = False, []
-    for entry in res.out.split("\0"):
-        if entry.startswith("!! "):
-            ignored.append(entry[3:])
-        elif entry:
-            dirty = True
-    return dirty, precious_ignored(ignored, regenerable)
+def worktree_dirty(path: str) -> Optional[bool]:
+    """Tracked changes or untracked files; None if git can't tell. Ignored files don't count."""
+    res = git(path, "status", "--porcelain")
+    return bool(res.out.strip()) if res.ok else None
 
 
 def read_text(path: str) -> Optional[str]:
@@ -748,7 +716,6 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
     prs = PrIndex(ctx.github, repo_slug(url))
     base = default_branch(repo)
     codex = expand(str(ctx.config["codex_worktrees"]))
-    regenerable = [str(p) for p in list(ctx.config["regenerable_ignored"])]
 
     checked_out = {e["branch"] for e in entries if e["branch"] and not e["prunable"]}
     for entry in entries:
@@ -768,7 +735,7 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
             items.append(Item(f"worktree:{path}@{head}", "worktree", REPORT, path,
                               where, path=path, age_days=age))
             continue
-        dirty, precious = worktree_status(path, regenerable)
+        dirty = worktree_dirty(path)
         live = sorted((c for c in running if is_within(c["labels"][FOLDER_LABEL], path)),
                       key=lambda c: c["id"])
         on_default = contained_in(path, head, base) if base else None
@@ -776,7 +743,6 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
         tier, reason = classify_worktree(
             dirty=dirty, locked=bool(entry["locked"]), detached=bool(entry["detached"]),
             on_default=on_default, branch_verdict=verdict, guard=ctx.sessions.guard(path),
-            precious=precious,
             running_containers=[f"{c['name']} ({uptime(c, ctx.now)})" for c in live])
         title = f"{path} ({branch or 'detached'})"
         ids = [c["id"] for c in live]
@@ -1001,14 +967,11 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
             if not res.ok:
                 return kept(f"kept worktree; docker stop {cid} failed: {res.err.strip()}")
             stopped.append(cid)
-        dirty, precious = worktree_status(path, [str(p) for p in
-                                                 list(ctx.config["regenerable_ignored"])])
+        dirty = worktree_dirty(path)
         if dirty is None:
             return kept("could not read worktree status")
         if dirty:
             return kept("worktree has uncommitted changes")
-        if precious:
-            return kept("worktree has gitignored files that may be the only copy")
         # No --force: git itself refuses a dirty or locked worktree.
         res = git(repo, "worktree", "remove", path)
         if not res.ok:

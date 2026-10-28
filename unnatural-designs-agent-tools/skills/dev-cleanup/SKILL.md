@@ -50,8 +50,7 @@ Group by tier, and within a tier by kind. Show sizes in human units, and ages in
   one's uptime from the reason, since a recently started one may still be in use;
   branches; containers; images). Number the items.
 - **Your call — never touched**: `tier: report`, with each `reason` and age
-  (closed/no-PR/open/dirty/unpushed branches and worktrees, worktrees holding
-  gitignored files, unregistered folders, Codex
+  (closed/no-PR/open/dirty/unpushed branches and worktrees, unregistered folders, Codex
   worktrees, unmapped images, anything outside the worktree roots).
 - **Space**: from `summary` — `docker_raw_bytes`, `build_cache_bytes` (self-capped
   by Docker's GC; not pruned here), `untouched_docker`, `host_caches`,
