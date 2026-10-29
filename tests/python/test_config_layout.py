@@ -2,6 +2,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -424,15 +426,101 @@ def test_molecule_images_pin_index_not_child_digest() -> None:
     assert checked, "no digest-pinned molecule images were checked — did the layout move?"
 
 
-def test_renovate_catch_all_rule_sorts_last() -> None:
-    """Renovate merges matching packageRules in order, last writer wins.
-    A groupName set by a later rule would beat the catch-all and split the
-    batch back out, so the catch-all has to be the final entry."""
-    rules = _renovate_config()["packageRules"]
+_CATCH_ALL_GROUP = "all non-major dependencies"
 
-    assert rules[-1].get("groupName") == "all non-major dependencies", (
-        "the non-major catch-all must be the last packageRules entry"
-    )
+
+def _is_carve_out(rule: dict) -> bool:
+    """A grouping rule the catch-all would overwrite if it came first."""
+    if rule.get("groupName") in (None, _CATCH_ALL_GROUP):
+        return False
+    types = rule.get("matchUpdateTypes")
+    return types is None or bool({"minor", "patch"} & set(types))
+
+
+def _misordered_carve_outs(rules: list) -> list:
+    """Carve-outs placed ahead of the catch-all. Raises when there is no
+    catch-all or no carve-out, since `[]` would then be a pass that checked
+    nothing."""
+    catch_all = [i for i, r in enumerate(rules) if r.get("matchUpdateTypes") == ["minor", "patch"]]
+    if len(catch_all) != 1:
+        raise AssertionError(f"expected exactly one minor/patch catch-all, found {len(catch_all)}")
+    carve_outs = [i for i, r in enumerate(rules) if _is_carve_out(r)]
+    if not carve_outs:
+        raise AssertionError("no carve-out from the catch-all, so there is nothing to order")
+    return [rules[i]["groupName"] for i in carve_outs if i < catch_all[0]]
+
+
+def test_renovate_carve_outs_follow_the_catch_all() -> None:
+    """Last matching rule wins, so a carve-out ahead of the catch-all is
+    overwritten by it and its updates go silently back into the batch. See
+    CLAUDE.md "Dependency updates"."""
+    assert _misordered_carve_outs(_renovate_config()["packageRules"]) == []
+
+
+def test_renovate_carves_python_minors_out_of_the_batch() -> None:
+    """A Python minor can outrun the pinned tooling; see CLAUDE.md
+    "Dependency updates"."""
+    rules = [
+        r
+        for r in _renovate_config()["packageRules"]
+        if r.get("groupName") == "Python language version"
+    ]
+
+    assert len(rules) == 1
+    assert rules[0]["matchDepNames"] == ["python"]
+    assert rules[0]["matchUpdateTypes"] == ["minor"], "patches stay in the batch"
+
+
+_CATCH_ALL_RULE = {"matchUpdateTypes": ["minor", "patch"], "groupName": _CATCH_ALL_GROUP}
+_LATE_MINOR = {"matchUpdateTypes": ["minor"], "groupName": "late"}
+
+
+@pytest.mark.parametrize(
+    ("rules", "expected"),
+    [
+        pytest.param(
+            [{"matchUpdateTypes": ["minor"], "groupName": "early"}, _CATCH_ALL_RULE],
+            ["early"],
+            id="minor-ahead",
+        ),
+        pytest.param(
+            [{"matchDepNames": ["x"], "groupName": "untyped"}, _CATCH_ALL_RULE],
+            ["untyped"],
+            id="untyped-ahead",
+        ),
+        pytest.param(
+            [{"matchUpdateTypes": ["major"], "groupName": "majors"}, _CATCH_ALL_RULE, _LATE_MINOR],
+            [],
+            id="major-only-ahead-is-fine",
+        ),
+        pytest.param(
+            [
+                {"matchUpdateTypes": ["digest"], "groupName": _CATCH_ALL_GROUP},
+                _CATCH_ALL_RULE,
+                _LATE_MINOR,
+            ],
+            [],
+            id="joining-the-batch-is-not-a-carve-out",
+        ),
+    ],
+)
+def test_misordered_carve_outs(rules: list, expected: list) -> None:
+    assert _misordered_carve_outs(rules) == expected
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        pytest.param([_LATE_MINOR], id="no-catch-all"),
+        pytest.param(
+            [_CATCH_ALL_RULE, {"matchManagers": ["x"], "pinDigests": False}],
+            id="nothing-to-order",
+        ),
+    ],
+)
+def test_misordered_carve_outs_refuses_a_vacuous_pass(rules: list) -> None:
+    with pytest.raises(AssertionError):
+        _misordered_carve_outs(rules)
 
 
 def test_renovate_catch_all_does_not_group_majors() -> None:

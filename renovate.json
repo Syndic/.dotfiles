@@ -46,10 +46,17 @@
       "allowedVersions": "<9"
     },
     {
-      "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must stay last. See CLAUDE.md's 'Dependency updates' section.",
+      "description": "Batch every non-major update into a single PR. Grouped by update type, not by manager. Must follow every rule it overrides and precede every carve-out from it. See CLAUDE.md's 'Dependency updates' section.",
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "all non-major dependencies",
       "groupSlug": "all-minor-patch"
+    },
+    {
+      "description": "Carve Python minors out of the batch: a new interpreter minor can break the pinned tooling (ansible-core) until upstream catches up. Must follow the catch-all. See CLAUDE.md's 'Dependency updates' section.",
+      "matchDepNames": ["python"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "Python language version",
+      "groupSlug": "python-minor"
     }
   ],
   "customManagers": [
