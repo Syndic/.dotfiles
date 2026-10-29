@@ -1133,13 +1133,22 @@ can't slip back in behind a passing `@sha256`-present check.
 
 ## Claude Code plugin (`unnatural-designs-agent-tools/`)
 
-`unnatural-designs-agent-tools/` is a Claude Code plugin that is also its own one-plugin
-marketplace: `.claude-plugin/marketplace.json` lists a single entry with
-`source: "./"`, beside the plugin's `.claude-plugin/plugin.json` and `skills/`.
-It's laid out so moving the folder to its own repo extracts it
-unchanged — so nothing inside it may reference a path outside it. Personal
-skills and commands live here, not in `~/.claude/commands/` or
-`~/.claude/skills/`, so the repo is their only home.
+`unnatural-designs-agent-tools/` is a Claude Code plugin that is also its own
+one-plugin marketplace: `.claude-plugin/marketplace.json` lists a single entry
+with `source: "./"`, beside the plugin's `.claude-plugin/plugin.json`, `skills/`,
+`scripts/`, and `tests/`. It's laid out so moving the folder to its own repo
+extracts it unchanged — so nothing inside it may reference a path outside it,
+and its design notes live in its
+[README](unnatural-designs-agent-tools/README.md) (including the `dev-cleanup`
+script's tiers, session guard, and fail-closed apply). Personal skills and
+commands live here, not in `~/.claude/commands/` or `~/.claude/skills/`, so the
+repo is their only home.
+
+`unnatural-designs-agent-tools/scripts/` runs on the **host**, not in the
+devcontainer, so it is standard-library Python kept 3.9-compatible (same
+constraint as `phase2.py`); its tests in `unnatural-designs-agent-tools/tests/`
+run in the devcontainer as part of the python suite (`pytest.ini`'s `testpaths`
+lists it for both `./tests/run python` and CI's `python` job).
 
 The `claude_code` role registers it as a **`directory` marketplace** (absolute
 `path`, from `playbook_dir`, so the `~/.dotfiles` checkout in real use).
