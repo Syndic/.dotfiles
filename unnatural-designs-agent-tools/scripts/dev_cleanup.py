@@ -190,8 +190,9 @@ class Docker:
             for v in everything
         ]
 
-    def sizes(self) -> Dict[str, int]:
-        """Image ids and volume names → bytes, as `docker system df -v` shows them."""
+    def sizes(self) -> Tuple[Dict[str, int], Optional[int]]:
+        """(image ids and volume names → bytes, build cache bytes), from one
+        `docker system df -v`, which takes seconds."""
         res = self._run(["docker", "system", "df", "-v", "--format", "json"])
         try:
             data = json.loads(res.out) if res.ok else {}
@@ -199,14 +200,9 @@ class Docker:
             data = {}
         sizes = {v["Name"]: parse_size(v.get("Size", "")) for v in data.get("Volumes") or []}
         sizes.update({i["ID"]: parse_size(i.get("Size", "")) for i in data.get("Images") or []})
-        return sizes
-
-    def build_cache_bytes(self) -> Optional[int]:
-        rows = self._json_lines("system", "df", "--format", "{{json .}}")
-        for row in rows or []:
-            if row.get("Type") == "Build Cache":
-                return parse_size(row.get("Size", ""))
-        return None
+        cache = data.get("BuildCache")
+        total = None if cache is None else sum(parse_size(r.get("Size", "")) for r in cache)
+        return sizes, total
 
     def command(self, *args: str) -> Result:
         return self._run(["docker", *args])
@@ -704,6 +700,7 @@ class DockerState:
     images: List[dict]
     volumes: List[dict]
     sizes: Dict[str, int]
+    build_cache: Optional[int] = None
 
     def running(self) -> List[dict]:
         """Devcontainers not in a stopped state, which pin their worktree's id."""
@@ -717,10 +714,10 @@ def read_docker(docker: Docker, sizes: bool = True) -> Tuple[Optional[DockerStat
     containers, images, volumes = docker.containers(), docker.images(), docker.volumes()
     if containers is None or images is None or volumes is None:
         return None, "could not list containers, images, or volumes"
-    measured = docker.sizes() if sizes else {}
+    measured, cache = docker.sizes() if sizes else ({}, None)
     for image in images:
         image["size"] = measured.get(image["id"], image["size"])
-    return DockerState(containers, images, volumes, measured), "ok"
+    return DockerState(containers, images, volumes, measured, cache), "ok"
 
 
 def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> Tuple[str, str, Optional[int]]:
@@ -905,6 +902,7 @@ def collect(ctx: Context, measure: bool = True) -> Inventory:
     docker, why = read_docker(ctx.docker, sizes=measure)
     if docker is None:
         summary["docker"] = why
+    summary["build_cache_bytes"] = docker.build_cache if docker else None
 
     owners = {folder: main_checkout(folder) for folder in candidate_folders(scope.roots)}
     loose = [folder for folder, main in owners.items() if main is None]
@@ -939,7 +937,6 @@ def disk_usage(ctx: Context, summary: Dict[str, object]) -> None:
     summary["host_caches"] = {expand(str(p)): ctx.du(expand(str(p)))
                               for p in list(cfg["host_caches"])}
     summary["docker_raw_bytes"] = ctx.du(expand(str(cfg["docker_raw"])))
-    summary["build_cache_bytes"] = None if "docker" in summary else ctx.docker.build_cache_bytes()
 
 
 def build_inventory(ctx: Context) -> Dict[str, object]:

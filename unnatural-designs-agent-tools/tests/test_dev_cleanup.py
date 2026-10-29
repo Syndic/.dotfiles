@@ -307,11 +307,8 @@ class FakeDocker:
     def volumes(self):
         return copy.deepcopy(self._volumes)
 
-    def sizes(self) -> Dict[str, int]:
-        return {}
-
-    def build_cache_bytes(self) -> Optional[int]:
-        return None
+    def sizes(self):
+        return {}, None
 
     def command(self, *args: str) -> dc.Result:
         self.calls.append(args)
@@ -883,6 +880,25 @@ def test_removing_a_worktree_reaps_its_stopped_container_and_offers_its_image(re
     result = dc.apply(ctx, [only(found, "worktree", path=str(wt))["id"]])
     assert ("rm", "-v", "c") in docker.calls
     assert [i["id"] for i in result["follow_up"]] == ["image:sha256:v"]
+
+
+@pytest.mark.parametrize("out,cache", [
+    ('{"Images": [{"ID": "sha256:i", "Size": "2GB"}], "Volumes": [{"Name": "v", "Size": "1kB"}],'
+     ' "BuildCache": [{"Size": "1.5GB"}, {"Size": "500MB"}]}', 2 * 10**9),
+    ('{"Images": [], "Volumes": [], "BuildCache": []}', 0),
+    ('{"Images": [], "Volumes": []}', None),
+])
+def test_one_verbose_df_gives_sizes_and_the_build_cache(out: str, cache) -> None:
+    calls: List[list] = []
+
+    def runner(argv, **kwargs):
+        calls.append(argv)
+        return dc.Result(0, out)
+
+    sizes, total = dc.Docker(runner).sizes()
+    assert total == cache and len(calls) == 1
+    if "sha256:i" in out:
+        assert sizes == {"sha256:i": 2 * 10**9, "v": 1000}
 
 
 def test_apply_measures_only_docker_raw(repo) -> None:
