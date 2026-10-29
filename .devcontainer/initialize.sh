@@ -29,6 +29,9 @@ printf '%s\n' "$common" >"$pathfile"
 # see "Shared git index across stat domains" in CLAUDE.md.
 git config core.checkstat minimal
 git config core.trustctime false
+# In-container gc sees sibling worktrees as missing and would unregister them —
+# see "In-container gc and sibling worktrees" in CLAUDE.md.
+git config gc.worktreePruneExpire never
 
 # Discover host IANA zone; empty result → Dockerfile falls back to image default.
 tz=""

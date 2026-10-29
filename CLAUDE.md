@@ -191,6 +191,28 @@ That assertion doubles as proof that `devcontainers/ci` **does** run
 which precedes it and therefore can't see the gitignored `.git-plumbing/`
 runtime files (why those consumers guard with `[ -s … ]`).
 
+### In-container gc and sibling worktrees
+
+The other half of sharing the common dir: `.git/worktrees/` (every worktree's
+registration) is shared too, but the container mounts only its own worktree, so
+from inside it every *sibling* worktree's folder looks missing. A routine
+`git commit` can trigger `git gc --auto`, which runs `git worktree prune
+--expire <gc.worktreePruneExpire>` (default 3 months) — so an in-container commit
+silently unregisters every sibling worktree, Codex's included, whose index
+hasn't been touched in that long (`.git/worktrees/<id>/index` mtime, i.e. idle
+time). Files survive; the link from the main repo doesn't.
+
+`initialize.sh` therefore sets `gc.worktreePruneExpire = never` in the
+repo-local config (common dir, so one write covers host and container, same as
+`core.checkstat`). `never` stops the automatic prune on the host too, so stale
+entries now persist until something removes them, each still counting its
+branch as checked out. Clear them with `/dev-cleanup` on the host
+(`unnatural-designs-agent-tools`), which unregisters missing worktrees one entry
+at a time and refuses to run in a container. Don't run `git worktree prune`: it
+drops every entry whose folder is missing *right now*, including a worktree on
+an unmounted volume, and inside the container that's every sibling.
+`devcontainer.yml`'s smoke job asserts the setting.
+
 ### Signed commits under devcontainer CLI
 
 The repo's branch protection requires signed commits, and the host signs with
