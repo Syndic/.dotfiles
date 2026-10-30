@@ -1035,13 +1035,18 @@ accounted for 11 of the repo's first 24 Renovate PRs.
 
 Two things about the rule are load-bearing:
 
-- **It must stay last in `packageRules`.** Renovate merges matching rules
-  in order, last writer wins, and preset rules from `config:recommended`
-  merge in *ahead* of the repo's own. A `groupName` set by an earlier rule
-  would otherwise beat the catch-all and split the batch back out. (Today
-  the only sibling rule sets `enabled` alone, which the catch-all never
-  overwrites — so order is currently belt-and-braces, not a live
-  dependency. Don't rely on that staying true.)
+- **Its position in `packageRules` decides who wins.** Renovate merges
+  matching rules in order, last writer wins, and preset rules from
+  `config:recommended` merge in *ahead* of the repo's own. So the catch-all
+  overrides every grouping rule before it — that's how it swallows preset
+  groups into the batch — and is overridden by every rule after it. The
+  only rules allowed after it are **carve-outs**: grouping rules that
+  deliberately pull a subset of minor/patch updates back out (today, Python
+  minors — below). A carve-out placed ahead of the catch-all is silently
+  inert. `test_renovate_carve_outs_follow_the_catch_all` selects rules by
+  shape (sets a `groupName`, can match `minor` or `patch` — no
+  `matchUpdateTypes` counts as matching everything), so a new carve-out is
+  covered without editing the test.
 - **It's written out rather than pulled in as `group:allNonMajor`.** A
   preset's `packageRules` merge ahead of the repo's, which would put the
   catch-all *first* and let any repo rule override it.
@@ -1052,7 +1057,18 @@ which is the supply-chain signal worth its own PR, not something to bury in
 a batch of routine bumps.
 
 The trade-off accepted: one bad dependency blocks the rest of the batch.
-Reversible in a one-line edit if that ever bites.
+When a class of update is known to block it, that class gets a carve-out
+rather than the batch being dismantled.
+
+**Python minors are carved out** into their own `python-minor` PR. A new
+interpreter minor can outrun the pinned tooling — Python 3.15 landed before
+any stable ansible-core could import under it, turning every lint, molecule,
+and devcontainer check in the batch red. On its own branch the bump can sit
+red until upstream catches up while the rest of the batch merges. The rule
+matches `depName=python`, which every tracked tooling-Python site shares
+(`tooling_python`, the `tests.yml` `python-version`s, the `tests/run`
+shebang), so they move together. Patches stay in the batch, but every one of
+those pins is `MAJOR.MINOR`, so Renovate never proposes one.
 
 Two Renovate-adjacent mechanisms have their own sections: the devcontainer
 feature pinning policy and lock regeneration under "Devcontainer lock
