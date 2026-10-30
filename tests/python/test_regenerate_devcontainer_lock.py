@@ -157,7 +157,7 @@ class TestConfigFeatureRefs:
         # keys, so the shipped pair is in sync (what --verify-refs asserts).
         config_refs = config_feature_refs(COMMITTED_CONFIG.read_text(encoding="utf-8"))
         lock_refs = set(parse_features(COMMITTED_LOCK.read_text(encoding="utf-8")))
-        assert config_refs, "no feature refs parsed, so the equality above checked nothing"
+        assert config_refs, "no feature refs parsed, so the equality below would check nothing"
         assert config_refs == lock_refs
         # Full MAJOR.MINOR.PATCH tags; see CLAUDE.md "Devcontainer lock regeneration".
         unpinned = sorted(r for r in config_refs if not re.search(r":\d+\.\d+\.\d+$", r))
