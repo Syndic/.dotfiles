@@ -143,6 +143,21 @@ def test_consumers_install_pip_tooling_from_requirements_files() -> None:
             )
 
 
+def test_lint_installs_also_take_the_ansible_core_pin() -> None:
+    # ansible-lint only floors ansible-core; the pin lives in
+    # molecule-requirements.txt, so a lint-only install floats to latest.
+    for path in (POST_CREATE, TESTS_YML):
+        lint_lines = [
+            line for line in _pip_install_lines(path) if "lint-requirements.txt" in line
+        ]
+        assert lint_lines, f"{path.relative_to(REPO_ROOT)} installs no lint-requirements.txt"
+        for line in lint_lines:
+            assert "molecule-requirements.txt" in line, (
+                f"{path.relative_to(REPO_ROOT)} installs lint tooling without the "
+                f"ansible-core pin in molecule-requirements.txt:\n  {line.strip()}"
+            )
+
+
 def test_post_create_installs_every_requirements_file() -> None:
     missing = _requirements_files() - _installed_by(POST_CREATE)
     assert not missing, (

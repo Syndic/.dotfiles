@@ -706,9 +706,17 @@ Homebrew…" lines arrive at the very end of the captured log.
 Run locally via `./tests/run lint` (devcontainer; both tools live in the
 `~/.venv-ansible` uv venv `post-create.sh` builds, alongside ansible-core and
 the requirements-file collections — see "Galaxy collections come from
-requirements files, not a bundle"). The pre-commit hooks pin yamllint
-and ansible-lint to specific tags; Renovate's pre-commit manager keeps
-both `rev:` values current.
+requirements files, not a bundle"). The yamllint and ansible-lint
+pre-commit hooks are `repo: local` / `language: system`, running those same
+venv binaries — so `lint-requirements.txt` (plus the ansible-core pin in
+`molecule-requirements.txt`, which CI's `lint` job installs alongside it) is
+the one pin for local and CI lint. Don't switch them back to upstream
+`repo:` + `rev:` hooks: each builds its own env with an unpinned
+ansible-core, and Renovate's `pre-commit` manager is off by default, so the
+`rev:` never moves. `test_precommit_lint_hooks_run_the_pinned_venv_tools`
+guards it. The cost: the hooks need that venv on PATH, so commit from inside
+the devcontainer (`devcontainer exec … git commit`); a host commit touching
+YAML fails `Executable \`yamllint\` not found`.
 
 Adding a new YAML file or role: it'll get linted automatically. If a
 rule flags something genuinely wrong with the *rule* (not the code),
@@ -998,7 +1006,7 @@ gate.
 
 **Pin everything that can be pinned; let Renovate move the versions.** Across
 the repo — devcontainer features (full `MAJOR.MINOR.PATCH`), the frozen Python,
-pre-commit hook `rev:`s, the uv Docker tag, base images (tag + digest), Galaxy
+the uv Docker tag, base images (tag + digest), Galaxy
 collections in `requirements.yml` / `requirements-dev.yml`, and pip tooling in
 `*-requirements.txt` — a dependency is pinned to an exact version and every bump
 arrives as a reviewable Renovate PR. Pinning keeps
@@ -1049,7 +1057,7 @@ Two things about the rule are load-bearing:
   groups into the batch — and is overridden by every rule after it. The
   only rules allowed after it are **carve-outs**: grouping rules that
   deliberately pull a subset of minor/patch updates back out (today, Python
-  minors — below). A carve-out placed ahead of the catch-all is silently
+  minors and pre-1.0 minors — below). A carve-out placed ahead of the catch-all is silently
   inert. `test_renovate_carve_outs_follow_the_catch_all` selects rules by
   shape (sets a `groupName`, can match `minor` or `patch` — no
   `matchUpdateTypes` counts as matching everything), so a new carve-out is
@@ -1076,6 +1084,13 @@ matches `depName=python`, which every tracked tooling-Python site shares
 (`tooling_python`, the `tests.yml` `python-version`s, the `tests/run`
 shebang), so they move together. Patches stay in the batch, but every one of
 those pins is `MAJOR.MINOR`, so Renovate never proposes one.
+
+**Pre-1.0 minors are carved out** into a `pre-1-0-minor` PR. Under 0.x semver
+the minor *is* the breaking bump — uv ships its breaking changes as 0.x minors
+— but Renovate still classes it `minor`, so the catch-all would batch it as
+routine. The rule keys on `matchCurrentVersion: /^v?0\./`, so it covers every
+0.x dependency (uv, `devcontainers/ci`) and lets go on its own once one
+reaches 1.0. Patches stay in the batch.
 
 Two Renovate-adjacent mechanisms have their own sections: the devcontainer
 feature pinning policy and lock regeneration under "Devcontainer lock
