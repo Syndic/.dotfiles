@@ -376,10 +376,15 @@ def test_molecule_platform_names_are_unique_across_scenarios() -> None:
     for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
         text = scenario.read_text()
         block = re.search(r"^platforms:\n((?:[ #].*\n|\n)*)", text, re.MULTILINE)
-        assert block, f"{scenario.relative_to(REPO_ROOT)} has no platforms: block"
-        for name in re.findall(r"^  - name: (\S+)", block.group(1), re.MULTILINE):
-            owners.setdefault(name, []).append(str(scenario.relative_to(REPO_ROOT)))
-    assert owners, "no molecule platforms found — did the layout move?"
+        rel = scenario.relative_to(REPO_ROOT)
+        assert block, f"{rel} has no platforms: block"
+        names = re.findall(
+            r"^  - name: [\"']?([^\"'\s]+)", block.group(1), re.MULTILINE
+        )
+        # A layout the regex doesn't recognise must fail, not silently pass.
+        assert names, f"{rel}: no `  - name:` platform entries recognised"
+        for name in names:
+            owners.setdefault(name, []).append(str(rel))
     dupes = {n: paths for n, paths in owners.items() if len(paths) > 1}
     assert not dupes, f"platform names shared across scenarios: {dupes}"
 

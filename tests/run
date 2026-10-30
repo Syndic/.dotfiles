@@ -28,7 +28,8 @@ finishes, its full buffered output flushes above the dashboard prefixed
 with a PASS (yellow) or FAIL (red) announce_warning banner. On a non-tty (CI,
 piped) the dashboard is skipped — completed-suite output still flushes
 as each finishes; the summary still prints at the end. Exit is non-zero
-iff any suite failed.
+iff any suite failed. On SIGINT/SIGTERM, still-running suites are
+terminated and their partial logs flushed under an INTERRUPTED banner.
 
 Tunable via env: TICK=<seconds>, MAX_LIVE_LINES_PER_SUITE=<n>.
 
@@ -77,7 +78,7 @@ MAX_LIVE_LINES_PER_SUITE = int(os.environ.get("MAX_LIVE_LINES_PER_SUITE", "20"))
 
 # All molecule-covered roles. New roles with scenarios under
 # `roles/<role>/molecule/` must also be added to the `matrix.role` list in
-# .github/workflows/tests.yml — local serial runs and CI shard discovery
+# .github/workflows/tests.yml — local runs and CI shard discovery
 # read from different sources. test_molecule_role_lists_agree.py asserts
 # both lists match what's on disk.
 MOLECULE_ROLES = ["dotfiles", "apt", "flatpak", "homebrew", "claude_code"]
@@ -118,9 +119,8 @@ class Suite:
 
 def prepare_homebrew_image() -> None:
     """Build or pull the Linuxbrew base image used by every homebrew molecule
-    scenario. Plumbed through Suite.prepare so the parallel runner and the
-    serial single-suite path both pick it up without case-by-case knowledge
-    of which role needs setup.
+    scenario. Plumbed through Suite.prepare so the runner picks it up without
+    case-by-case knowledge of which role needs setup.
 
     MOLECULE_HOMEBREW_IMAGE (set by CI) names a published image to pull and
     retag. On pull failure — registry hiccup, image not yet published, PR
@@ -177,22 +177,12 @@ def molecule_role_suites(role: str) -> list[Suite]:
 
 
 # --------------------------------------------------------------------------- #
-# Serial single-suite paths (no dashboard, exit code propagates)
+# Single-suite path (no dashboard, exit code propagates)
 # --------------------------------------------------------------------------- #
 def run_single_suite(suite: Suite) -> int:
     if suite.prepare is not None:
         suite.prepare()
     return subprocess.call(suite.argv, cwd=REPO_ROOT)
-
-
-def run_molecule(target_role: str | None) -> int:
-    if target_role is not None and target_role not in MOLECULE_ROLES:
-        die(
-            f"unknown molecule role: {target_role} "
-            f"(known: {', '.join(MOLECULE_ROLES)})"
-        )
-    roles = MOLECULE_ROLES if target_role is None else [target_role]
-    return run_parallel([s for role in roles for s in molecule_role_suites(role)])
 
 
 # --------------------------------------------------------------------------- #
@@ -242,13 +232,16 @@ class ParallelRunner:
         return self
 
     def __exit__(self, *_exc: object) -> None:
+        self.terminate()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def terminate(self) -> None:
         for r in self.runs:
             if r.proc.poll() is None:
                 try:
                     r.proc.terminate()
                 except ProcessLookupError:
                     pass
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def poll(self) -> list[SuiteRun]:
         """Return any SuiteRuns that have completed since the last call."""
@@ -388,17 +381,32 @@ def flush_completed(newly_done: list[SuiteRun]) -> None:
         assert r.result is not None
         rc, elapsed = r.result
         status = "PASS" if rc == 0 else "FAIL"
-        banner = f"{r.name} · {status} · {format_duration(elapsed)}"
-        (announce_warning if rc == 0 else announce_fail)(banner)
-        try:
-            with open(r.log_path, "rb") as f:
-                # Stream in copyfileobj's default chunk size rather than
-                # loading the full log into memory — molecule logs can be
-                # multi-MB and we only need to pipe them through.
-                shutil.copyfileobj(f, sys.stdout.buffer)
-            sys.stdout.flush()
-        except (FileNotFoundError, OSError):
-            pass
+        _flush_log(r, f"{r.name} · {status} · {format_duration(elapsed)}", ok=rc == 0)
+
+
+def flush_interrupted(runner: ParallelRunner) -> None:
+    """Print each unfinished suite's partial log under an INTERRUPTED banner —
+    on a CI cancel or timeout, the only record of a hung suite."""
+    now = time.time()
+    for r in runner.running:
+        elapsed = format_duration(now - r.start_time)
+        _flush_log(r, f"{r.name} · INTERRUPTED · {elapsed}", ok=False)
+
+
+def _flush_log(r: SuiteRun, banner: str, ok: bool) -> None:
+    (announce_warning if ok else announce_fail)(banner)
+    # The banner sits in sys.stdout's text buffer; flush it before the log
+    # bytes go straight to sys.stdout.buffer, or a non-tty prints it after.
+    sys.stdout.flush()
+    try:
+        with open(r.log_path, "rb") as f:
+            # Stream in copyfileobj's default chunk size rather than
+            # loading the full log into memory — molecule logs can be
+            # multi-MB and we only need to pipe them through.
+            shutil.copyfileobj(f, sys.stdout.buffer)
+        sys.stdout.flush()
+    except (FileNotFoundError, OSError):
+        pass
 
 
 def print_summary(runner: ParallelRunner) -> int:
@@ -438,6 +446,16 @@ def run_multi(include_molecule: bool) -> int:
     return run_parallel(suites)
 
 
+def run_molecule(target_role: str | None) -> int:
+    if target_role is not None and target_role not in MOLECULE_ROLES:
+        die(
+            f"unknown molecule role: {target_role} "
+            f"(known: {', '.join(MOLECULE_ROLES)})"
+        )
+    roles = MOLECULE_ROLES if target_role is None else [target_role]
+    return run_parallel([s for role in roles for s in molecule_role_suites(role)])
+
+
 def run_parallel(suites: list[Suite]) -> int:
     # Prepare hooks run serially before any parallel spawn, each distinct
     # one once — only homebrew has one today (its base image), and parallel
@@ -460,23 +478,30 @@ def run_parallel(suites: list[Suite]) -> int:
         try:
             with ParallelRunner(suites) as runner:
                 dashboard_lines = 0
-                while True:
+                try:
+                    while True:
+                        if interactive:
+                            clear_dashboard(dashboard_lines)
+                            dashboard_lines = 0
+
+                        flush_completed(runner.poll())
+                        if runner.all_done:
+                            break
+
+                        if interactive:
+                            dashboard_lines = render_dashboard(runner)
+
+                        time.sleep(TICK)
+                except KeyboardInterrupt:
+                    # Stop the survivors, then print what they logged before
+                    # __exit__ deletes the tempdir.
                     if interactive:
                         clear_dashboard(dashboard_lines)
-                        dashboard_lines = 0
-
-                    flush_completed(runner.poll())
-                    if runner.all_done:
-                        break
-
-                    if interactive:
-                        dashboard_lines = render_dashboard(runner)
-
-                    time.sleep(TICK)
+                    runner.terminate()
+                    flush_interrupted(runner)
+                    return 130
         except KeyboardInterrupt:
-            # ParallelRunner.__exit__ has terminated survivors and
-            # cleaned up; we just need to surface the conventional
-            # SIGINT exit code.
+            # A second interrupt while flushing; __exit__ has still cleaned up.
             return 130
 
         return print_summary(runner)
