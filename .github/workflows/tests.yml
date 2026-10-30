@@ -50,19 +50,14 @@ jobs:
       - run: ansible-lint
 
   molecule:
-    # Per-role molecule scenarios, sharded across roles via the matrix. The
-    # previous serial single job was wall-clock-bound by whatever the slowest
-    # role happened to be (today: homebrew, which builds a Linuxbrew base
-    # image inline); sharding lets the lighter roles return in parallel while
-    # homebrew runs in its own cell. Local devs still get the serial path
-    # via `./tests/run molecule` (no role arg).
+    # One shard per role; tests/run runs each role's scenarios concurrently.
+    # See CLAUDE.md "Tests" for the sharding and the molecule-all aggregator.
     #
     # `fail-fast: false` so a failure in one role doesn't cancel sibling
-    # shards — we want every failing role surfaced in one CI run, not a
-    # whack-a-mole sequence.
+    # shards — we want every failing role surfaced in one CI run.
     #
     # New molecule-covered roles must be added here AND to MOLECULE_ROLES in
-    # tests/run (local serial and CI shard discovery read different sources).
+    # tests/run (test_molecule_role_lists_agree.py enforces it).
     strategy:
       fail-fast: false
       matrix:
@@ -87,10 +82,19 @@ jobs:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
       - run: pip install -r molecule-requirements.txt
+      # Every collection is version-pinned, so the requirements files' hash
+      # fully determines the cache contents; a hit skips Galaxy entirely.
+      - id: galaxy-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ansible/collections
+          key: galaxy-${{ runner.os }}-${{ hashFiles('requirements.yml', 'requirements-dev.yml') }}
       # Scenarios converge the real roles, so the runtime collections are
       # needed here too. Mirrors .devcontainer/post-create.sh.
-      - run: ansible-galaxy collection install -r requirements.yml
-      - run: ansible-galaxy collection install -r requirements-dev.yml
+      - if: steps.galaxy-cache.outputs.cache-hit != 'true'
+        run: ansible-galaxy collection install -r requirements.yml
+      - if: steps.galaxy-cache.outputs.cache-hit != 'true'
+        run: ansible-galaxy collection install -r requirements-dev.yml
       - run: ./tests/run molecule ${{ matrix.role }}
         env:
           # Pull the prebuilt Linuxbrew base image from ghcr instead of

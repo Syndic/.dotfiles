@@ -3,7 +3,8 @@
 # One formula per layer so verify.yml can attribute a specific install
 # back to the layer it came from. None of these are pre-baked into the
 # scenario base image, so every layer exercises a real
-# `brew bundle install`.
+# `brew bundle install`. All four have no Linux dependencies, so each
+# install is a single small bottle rather than a dependency tree.
 - name: Converge — homebrew role (multi-layer)
   hosts: all
   gather_facts: true
@@ -32,10 +33,10 @@
         dest: "{{ item.dest }}"
         mode: '0644'
       loop:
-        - {dest: "{{ common_brewfile }}", content: "brew \"jq\"\n"}
-        - {dest: "{{ group_purpose_brewfile }}", content: "brew \"wget\"\n"}
+        - {dest: "{{ common_brewfile }}", content: "brew \"jo\"\n"}
+        - {dest: "{{ group_purpose_brewfile }}", content: "brew \"pwgen\"\n"}
         - {dest: "{{ group_os_brewfile }}", content: "brew \"tree\"\n"}
-        - {dest: "{{ host_brewfile }}", content: "brew \"ripgrep\"\n"}
+        - {dest: "{{ host_brewfile }}", content: "brew \"entr\"\n"}
       loop_control:
         label: "{{ item.dest }}"
   roles:

@@ -731,15 +731,15 @@ molecule, ansible-lint, and yamllint).
 ./tests/run python                   # pytest only
 ./tests/run bash                     # bats only
 ./tests/run lint                     # yamllint + ansible-lint
-./tests/run molecule                 # all molecule roles, serial (needs docker)
-./tests/run molecule <role>          # one role's scenarios (used by the CI matrix)
+./tests/run molecule                 # every molecule scenario, in parallel (needs docker)
+./tests/run molecule <role>          # one role's scenarios, in parallel (used by the CI matrix)
 ```
 
 `tests/run` imports `announce` / `info` / `warn` / `die` from
 `_dotfiles_common` so the bracket-style banners stay consistent with
 the bootstrap.
 
-**Multi-suite invocations (`all`, `fast`) run every suite in parallel**,
+**Multi-suite invocations (`all`, `fast`, `molecule`) run every suite in parallel**,
 buffering each suite's output to a tempfile. On a tty, a live dashboard
 shows the tail of each running suite's log — capped at
 `MAX_LIVE_LINES_PER_SUITE` (default 20) per suite, compressed equally
@@ -768,7 +768,7 @@ On a non-tty (CI, piped) the live dashboard is skipped — completed-suite
 output still flushes as soon as each finishes (in completion order), the
 summary still prints at the end. The exit code semantics are identical.
 
-Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+Single-suite invocations (`python`, `bash`, `lint`) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
 Two trade-offs the parallel mode pays:
@@ -780,16 +780,16 @@ Two trade-offs the parallel mode pays:
    runs serially before the parallel block starts. Parallel `docker build`
    / `docker tag` against the same `:local` tag would race, and the bash
    shards' output would interleave on stdout (we buffer per-suite, but the
-   docker daemon writes to its own log streams). The summary's
-   `molecule:homebrew` time then reflects test work only, not image prep
-   — arguably more honest, but worth knowing when comparing wall-clocks
-   against pre-parallel runs.
+   docker daemon writes to its own log streams). Prepare hooks are
+   deduplicated, so the three homebrew scenario suites share one image
+   prep. The summary's `molecule:homebrew/*` times then reflect test work
+   only, not image prep.
 
 CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
 under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,
-flatpak, homebrew, and claude_code roles are covered. Most roles have a single `default/`
-scenario; **homebrew has three** (`default`, `multi_layer`, `gates`) — see
-"Homebrew molecule scenarios" below. The bare `./tests/run` runs everything;
+flatpak, homebrew, and claude_code roles are covered. apt and flatpak add an
+`empty_groups/` scenario beside `default/`; **homebrew has three** (`default`,
+`multi_layer`, `gates`) — see "Homebrew molecule scenarios" below. The bare `./tests/run` runs everything;
 use `./tests/run fast` when you don't have Docker (or don't want to pay the
 ~5-min molecule cost) and just need the python/bash gates.
 
@@ -797,8 +797,15 @@ use `./tests/run fast` when you don't have Docker (or don't want to pay the
 `tests.yml` — one runner per role, all in parallel. The previous single
 job was wall-clock-bound by the slowest role (homebrew, which builds a
 Linuxbrew base image inline); sharding lets the lighter roles return in
-1-2 min while homebrew runs in its own cell. The roles list is duplicated
-in two places — `MOLECULE_ROLES` in `tests/run` for local serial runs, and
+1-2 min while homebrew runs in its own cell. **Within a shard, each scenario
+is its own `tests/run` suite** (`molecule:<role>/<scenario>`, one `molecule
+test -s` each), so a role's scenarios run concurrently and the shard costs its
+slowest scenario rather than the sum. This works because every scenario's
+platform `name:` is unique — keep it that way when adding one, or two
+scenarios' containers collide. Molecule's own `--workers` isn't used: it
+requires collection mode (a `galaxy.yml`), and these are standalone roles.
+The roles list is duplicated
+in two places — `MOLECULE_ROLES` in `tests/run` for local runs, and
 `matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
 covered role requires updating both. **`tests/python/test_molecule_role_lists_agree.py`
 gates this**: it scans `roles/*/molecule/` on disk and asserts both lists

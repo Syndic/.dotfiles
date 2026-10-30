@@ -350,6 +350,22 @@ def test_molecule_base_images_are_digest_pinned() -> None:
     assert not problems, "\n".join(problems)
 
 
+def test_molecule_platform_names_are_unique_across_scenarios() -> None:
+    """tests/run runs scenarios concurrently, and a platform `name:` is the
+    docker container name — two scenarios sharing one would collide. See
+    CLAUDE.md "Tests"."""
+    owners: dict = {}
+    for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
+        text = scenario.read_text()
+        block = re.search(r"^platforms:\n((?:[ #].*\n|\n)*)", text, re.MULTILINE)
+        assert block, f"{scenario.relative_to(REPO_ROOT)} has no platforms: block"
+        for name in re.findall(r"^  - name: (\S+)", block.group(1), re.MULTILINE):
+            owners.setdefault(name, []).append(str(scenario.relative_to(REPO_ROOT)))
+    assert owners, "no molecule platforms found — did the layout move?"
+    dupes = {n: paths for n, paths in owners.items() if len(paths) > 1}
+    assert not dupes, f"platform names shared across scenarios: {dupes}"
+
+
 # Manifest media types: a multi-platform *index* (manifest list) vs a
 # single-arch *child* image manifest.
 _INDEX_MEDIA_TYPES = frozenset(
