@@ -44,6 +44,9 @@ DEFAULT_CONFIG: Dict[str, object] = {
 DEFAULT_CONFIG_PATH = "~/.config/unnatural-designs-agent-tools/dev-cleanup.json"
 ANON_VOLUME_LABEL = "com.docker.volume.anonymous"
 FOLDER_LABEL = "devcontainer.local_folder"
+CONFIG_LABEL = "devcontainer.config_file"
+# Named volumes the devcontainers docker-in-docker feature mounts per devcontainer.
+DIND_VOLUME = re.compile(r"dind-var-lib-(?:docker|containerd)-(?P<id>[0-9a-v]{52})")
 VSC_IMAGE = re.compile(r"vsc-(?P<base>.+)-(?P<hash>[0-9a-f]{64})")
 GITHUB_SLUG = re.compile(r"github\.com[:/](?P<slug>[^/]+/[^/]+?)(?:\.git)?/?$")
 PR_COPY = re.compile(r"pr-(?P<number>\d+)")
@@ -415,6 +418,23 @@ def classify_container(folder_exists: bool, state: str,
     return CONFIRM, f"worktree is gone; container is {state}"
 
 
+def classify_dind_volume(reaped: bool, folder: Optional[str], folder_exists: bool,
+                         in_scope: bool) -> Optional[Tuple[str, str]]:
+    """A docker-in-docker volume no container mounts; None means leave it alone.
+
+    `reaped`: a container this apply removed mounted it. `folder`: the worktree its
+    devcontainerId proves it belongs to, if any."""
+    if reaped:
+        return AUTO, "docker-in-docker volume of a devcontainer this run removed"
+    if folder is None:
+        return CONFIRM, "no container mounts it, and it can't be traced to a worktree"
+    if folder_exists:
+        return None
+    if not in_scope:
+        return REPORT, f"worktree {folder} is missing, but it is {OUT_OF_SCOPE}"
+    return CONFIRM, f"worktree {folder} is gone"
+
+
 def uptime(container: dict, now: float) -> str:
     """`up 3d` from docker's RFC 3339 StartedAt, so a long-idle container stands out."""
     try:
@@ -429,6 +449,33 @@ def uptime(container: dict, now: float) -> str:
 def folder_hash(path: str) -> str:
     """The devcontainer CLI names images `vsc-<basename>-<sha256(folder path)>`."""
     return hashlib.sha256(path.encode()).hexdigest()
+
+
+def devcontainer_id(folder: str, config_file: str) -> str:
+    """The devcontainer CLI's `${devcontainerId}`: sha256 of its id labels as key-sorted
+    compact JSON, in base 32, padded to 52 digits."""
+    labels = json.dumps({FOLDER_LABEL: folder, CONFIG_LABEL: config_file}, sort_keys=True,
+                        separators=(",", ":"), ensure_ascii=False)
+    number = int(hashlib.sha256(labels.encode()).hexdigest(), 16)
+    digits = ""
+    while number:
+        number, digit = divmod(number, 32)
+        digits = "0123456789abcdefghijklmnopqrstuv"[digit] + digits
+    return digits.rjust(52, "0")
+
+
+def dind_owners(folders: Iterable[str]) -> Dict[str, str]:
+    """devcontainerId → folder, for each folder's standard config paths (and, while the
+    folder exists, `.devcontainer/<name>/devcontainer.json`)."""
+    owners: Dict[str, str] = {}
+    for folder in sorted(folders):
+        devc = os.path.join(folder, ".devcontainer")
+        configs = [os.path.join(devc, "devcontainer.json"),
+                   os.path.join(folder, ".devcontainer.json")]
+        configs += [os.path.join(d, "devcontainer.json") for d in subdirs(devc)]
+        for config in configs:
+            owners.setdefault(devcontainer_id(folder, config), folder)
+    return owners
 
 
 def map_vsc_image(repo: str, candidates: Iterable[str]) -> Optional[str]:
@@ -778,7 +825,8 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
         item_id = f"worktree:{path}@{head}" + (f"+containers:{','.join(ids)}" if ids else "")
         items.append(Item(item_id, "worktree", tier, title, reason, path=path, age_days=age,
                           details={"repo": repo, "branch": branch, "head": head,
-                                   "containers": ids}))
+                                   "containers": ids,
+                                   "volumes": sorted({v for c in live for v in c["volumes"]})}))
 
     refs = git(repo, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads")
     base_name = base.split("/", 1)[1] if base else None
@@ -793,7 +841,8 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
 
 
 def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List[Item],
-                     summary: Dict[str, object]) -> None:
+                     summary: Dict[str, object], reaped: Iterable[str] = ()) -> None:
+    """`reaped`: volumes mounted by containers this apply removed."""
     containers, images, volumes, sizes = state.containers, state.images, state.volumes, state.sizes
     claimed_images: Set[str] = set()
     claimed_volumes: Set[str] = set()
@@ -810,7 +859,7 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
         items.append(Item(f"container:{c['id']}:{c['state']}", "container", verdict[0],
                           f"{c['name']} ({folder})", verdict[1], path=folder,
                           details={"container": c["id"], "image": c["image_id"],
-                                   "anonymous_volumes": c["volumes"]}))
+                                   "volumes": c["volumes"]}))
 
     in_use = {c["image_id"] for c in containers}
     # Folders a vsc-* image might have been built for: everything known, its
@@ -820,6 +869,7 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
     guesses = set(folders)
     for parent in parents:
         guesses.update(subdirs(parent))
+    mapped: Set[str] = set()
     for image in images:
         tag = next((t for t in image["tags"] if VSC_IMAGE.fullmatch(t.rsplit(":", 1)[0])), None)
         if tag is None:
@@ -832,7 +882,9 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
             items.append(Item(f"image:{image['id']}", "image", REPORT, tag,
                               "could not prove which folder this image was built for",
                               size_bytes=image["size"]))
-        elif not os.path.exists(folder):
+            continue
+        mapped.add(folder)
+        if not os.path.exists(folder):
             tier, reason = ((CONFIRM, f"worktree {folder} is gone") if scope.owns(folder) else
                             (REPORT, f"{folder} is missing, but it is {OUT_OF_SCOPE}"))
             items.append(Item(f"image:{image['id']}", "image", tier, tag, reason, path=folder,
@@ -873,6 +925,22 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
             items.append(Item(f"volume:{v['name']}", "volume", AUTO, v["name"][:12],
                               "anonymous volume no container references",
                               size_bytes=sizes.get(v["name"])))
+
+    loose_dind = [(v, m.group("id")) for v in volumes
+                  if v["dangling"] and v["name"] not in claimed_volumes
+                  for m in [DIND_VOLUME.fullmatch(v["name"])] if m]
+    owners = dind_owners(guesses | mapped) if loose_dind else {}
+    reaped = set(reaped)
+    for v, dc_id in loose_dind:
+        folder = owners.get(dc_id)
+        verdict = classify_dind_volume(v["name"] in reaped, folder,
+                                       folder is not None and os.path.exists(folder),
+                                       folder is not None and scope.owns(folder))
+        if verdict is None:
+            continue
+        claimed_volumes.add(v["name"])
+        items.append(Item(f"volume:{v['name']}", "volume", verdict[0], v["name"], verdict[1],
+                          path=folder, size_bytes=sizes.get(v["name"])))
 
     other_images = [i for i in images if i["id"] not in claimed_images]
     other_volumes = [v for v in volumes if v["name"] not in claimed_volumes]
@@ -1080,26 +1148,36 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
         else:
             queue.append(item)
     queue.sort(key=lambda i: KIND_ORDER.index(str(i["kind"])))
-    for item in queue:
+    reaped: Set[str] = set()
+
+    def act(item: Dict[str, object]) -> None:
         ok, msg = apply_item(ctx, item)
         record(done, skipped, item, ok, msg)
+        if ok and item["kind"] in ("worktree", "container"):
+            reaped.update(item["details"].get("volumes") or [])  # type: ignore[union-attr]
 
-    # Removing a worktree orphans its devcontainer: reap what is now auto-tier and
-    # hand back anything that now needs confirming. Only Docker state changed.
+    for item in queue:
+        act(item)
+
+    # Removing a worktree orphans its devcontainer, and removing a container orphans its
+    # named volumes: reap what is now auto-tier until nothing new appears, and hand back
+    # anything that now needs confirming. Only Docker state changed.
     follow_up: List[Dict[str, object]] = []
-    removed_worktree = any(i["kind"] == "worktree" for i in queue)
-    docker = read_docker(ctx.docker, sizes=False)[0] if removed_worktree else None
-    if docker is not None:
-        handled = {d["id"] for d in done} | {s["id"] for s in skipped}
+    handled = {d["id"] for d in done} | {s["id"] for s in skipped}
+    while reaped or any(i["kind"] == "worktree" for i in queue):
+        docker = read_docker(ctx.docker, sizes=False)[0]
+        if docker is None:
+            break
         exposed: List[Item] = []
-        inventory_docker(ctx, docker, inventory.scope, exposed, {})
-        for item in map(asdict, exposed):
-            if item["id"] in handled:
-                continue
-            if item["tier"] == AUTO:
-                record(done, skipped, item, *apply_item(ctx, item))
-            elif item["tier"] == CONFIRM:
-                follow_up.append(item)
+        inventory_docker(ctx, docker, inventory.scope, exposed, {}, reaped)
+        fresh = [i for i in map(asdict, exposed) if i["id"] not in handled]
+        follow_up = [i for i in fresh if i["tier"] == CONFIRM]
+        auto = [i for i in fresh if i["tier"] == AUTO]
+        if not auto:
+            break
+        for item in auto:
+            handled.add(str(item["id"]))
+            act(item)
     return {"done": done, "skipped": skipped, "follow_up": follow_up,
             "docker_raw_bytes_after": ctx.du(expand(str(ctx.config["docker_raw"])))}
 

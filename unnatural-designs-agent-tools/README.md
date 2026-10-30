@@ -99,13 +99,28 @@ digest or tag that any checkout's devcontainer setup mentions (everything under
 `.devcontainer/`, a root `.devcontainer.json`, and the Dockerfiles and compose builds those
 name), any image a container uses, and the newest in each repository. The rest go to the
 confirm tier, or are only reported if some named file couldn't be found. Ownerless
-anonymous volumes and unreferenced dangling images are auto. Removing a worktree in `apply`
-exposes its container and image, so `apply` then reaps what became auto and returns the
-rest as `follow_up`.
+anonymous volumes and unreferenced dangling images are auto.
+
+The `docker-in-docker` feature mounts two named volumes per devcontainer,
+`dind-var-lib-{docker,containerd}-<devcontainerId>`, which `docker rm -v` leaves behind. They
+are only considered once Docker lists them as dangling (no container mounts them):
+- mounted by a container this `apply` removed (read from its `Mounts`): auto;
+- traced to a worktree that is gone: confirm (reported outside the worktree roots);
+- traced to a worktree that still exists: left alone, since its next `devcontainer up`
+  reuses them;
+- not traceable: confirm.
+
+The trace recomputes the CLI's `devcontainerId` (base-32 `sha256` of the folder and config
+file labels as sorted JSON) for each known folder's standard config paths.
+
+Removing a worktree in `apply` exposes its container and image, and removing a container
+exposes its docker-in-docker volumes, so `apply` then reaps what became auto (repeating until
+nothing new appears) and returns the rest as `follow_up`.
 
 **Never touched:** remote branches, volume contents, `docker system prune` /
 `docker builder prune`, image pulls, or sessions. The report still sizes what it leaves
-alone: other tools' images and named volumes, the build cache, host caches,
+alone: other tools' images and named volumes (docker-in-docker volumes still mounted or
+traced to a live worktree among them), the build cache, host caches,
 `~/.claude/projects`, Codex worktrees, and `Docker.raw` on disk (measured with `du`, because
 the file is sparse).
 
