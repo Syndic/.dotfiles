@@ -505,6 +505,57 @@ def test_renovate_carves_python_minors_out_of_the_batch() -> None:
     assert rules[0]["matchUpdateTypes"] == ["minor"], "patches stay in the batch"
 
 
+def test_renovate_carves_pre_1_0_minors_out_of_the_batch() -> None:
+    """Under 0.x semver the minor is the breaking bump; see CLAUDE.md
+    "Dependency updates". The regex must catch both a bare docker tag (uv)
+    and a `v`-prefixed action tag, and nothing at 1.0 or above."""
+    rules = [
+        r
+        for r in _renovate_config()["packageRules"]
+        if r.get("groupName") == "pre-1.0 minor updates"
+    ]
+
+    assert len(rules) == 1
+    assert rules[0]["matchUpdateTypes"] == ["minor"], "patches stay in the batch"
+    pattern = rules[0]["matchCurrentVersion"]
+    assert pattern.startswith("/") and pattern.endswith("/"), "Renovate regex form is /…/"
+    regex = re.compile(pattern[1:-1])
+    for version in ("0.13.6", "v0.3.1900000450"):
+        assert regex.search(version), f"{pattern} misses {version}"
+    for version in ("1.0.0", "v10.2.0", "20.1.0"):
+        assert not regex.search(version), f"{pattern} wrongly matches {version}"
+
+
+def _precommit_hooks() -> dict:
+    """{hook id: (repo, hook body)} by plain parse — ~/.venv has no PyYAML."""
+    text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
+    hooks = {}
+    for repo_block in re.split(r"^  - repo: ", text, flags=re.MULTILINE)[1:]:
+        repo = repo_block.splitlines()[0].strip()
+        for hook in re.split(r"^      - id: ", repo_block, flags=re.MULTILINE)[1:]:
+            hooks[hook.splitlines()[0].strip()] = (repo, hook)
+    return hooks
+
+
+def test_precommit_lint_hooks_run_the_pinned_venv_tools() -> None:
+    """A remote `repo:` + `rev:` hook builds its own env, pinned apart from
+    lint-requirements.txt (and with ansible-core unpinned), so local and CI
+    lint drift. Every tool lint-requirements.txt pins must run as a local
+    `language: system` hook instead. See CLAUDE.md "Lint"."""
+    lint_reqs = (REPO_ROOT / "lint-requirements.txt").read_text()
+    tools = re.findall(r"^([\w.-]+)==", lint_reqs, flags=re.MULTILINE)
+    assert tools, "no pins parsed from lint-requirements.txt"
+
+    hooks = _precommit_hooks()
+    for tool in tools:
+        assert tool in hooks, f"no pre-commit hook for {tool}"
+        repo, body = hooks[tool]
+        assert repo == "local", f"{tool} hook comes from {repo}, not the venv"
+        assert re.search(r"^\s+language: system$", body, re.MULTILINE), (
+            f"{tool} hook must be `language: system`"
+        )
+
+
 _CATCH_ALL_RULE = {"matchUpdateTypes": ["minor", "patch"], "groupName": _CATCH_ALL_GROUP}
 _LATE_MINOR = {"matchUpdateTypes": ["minor"], "groupName": "late"}
 

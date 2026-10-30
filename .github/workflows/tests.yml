@@ -44,7 +44,8 @@ jobs:
         with:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      - run: pip install -r lint-requirements.txt
+      # molecule-requirements.txt carries the ansible-core pin ansible-lint runs on.
+      - run: pip install -r lint-requirements.txt -r molecule-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
       - run: ansible-lint

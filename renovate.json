@@ -57,6 +57,13 @@
       "matchUpdateTypes": ["minor"],
       "groupName": "Python language version",
       "groupSlug": "python-minor"
+    },
+    {
+      "description": "Carve pre-1.0 minors out of the batch: under 0.x semver a minor bump is the breaking one (uv ships its breaking changes this way), so it gets its own PR. Must follow the catch-all. See CLAUDE.md's 'Dependency updates' section.",
+      "matchCurrentVersion": "/^v?0\\./",
+      "matchUpdateTypes": ["minor"],
+      "groupName": "pre-1.0 minor updates",
+      "groupSlug": "pre-1-0-minor"
     }
   ],
   "customManagers": [
