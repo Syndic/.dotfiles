@@ -768,6 +768,12 @@ On a non-tty (CI, piped) the live dashboard is skipped — completed-suite
 output still flushes as soon as each finishes (in completion order), the
 summary still prints at the end. The exit code semantics are identical.
 
+On SIGINT/SIGTERM (including a CI cancel or job timeout) the still-running
+suites are terminated and their partial logs flushed under a red
+`INTERRUPTED` banner before the tempdir is removed; exit is 130. Without
+that, a hung scenario would leave nothing in the CI log, since every
+suite's output is buffered until it exits.
+
 Single-suite invocations (`python`, `bash`, `lint`) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
@@ -802,8 +808,7 @@ is its own `tests/run` suite** (`molecule:<role>/<scenario>`, one `molecule
 test -s` each), so a role's scenarios run concurrently and the shard costs its
 slowest scenario rather than the sum. This works because every scenario's
 platform `name:` is unique — keep it that way when adding one, or two
-scenarios' containers collide. Molecule's own `--workers` isn't used: it
-requires collection mode (a `galaxy.yml`), and these are standalone roles.
+scenarios' containers collide.
 The roles list is duplicated
 in two places — `MOLECULE_ROLES` in `tests/run` for local runs, and
 `matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
