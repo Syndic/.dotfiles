@@ -13,7 +13,7 @@ driver:
 platforms:
   - name: apt-empty-groups
     # renovate: datasource=docker depName=geerlingguy/docker-debian12-ansible
-    image: geerlingguy/docker-debian12-ansible:latest@sha256:e642ef9fc4932231fdd98b553fff0b1880df89d7bb64f9baff3c85811286cb5b
+    image: geerlingguy/docker-debian12-ansible:latest@sha256:065397d339c9fe52011f0626fa187afb290038ce4b2162de69d36ad55332ff50
     pre_build_image: true
     privileged: true
     cgroupns_mode: host
