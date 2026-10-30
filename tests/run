@@ -7,14 +7,15 @@
   ./tests/run python           # just pytest
   ./tests/run bash             # just bats
   ./tests/run lint             # yamllint + ansible-lint
-  ./tests/run molecule         # all molecule roles, serial (needs docker)
-  ./tests/run molecule <role>  # one role's scenarios — used by the CI matrix
+  ./tests/run molecule         # every molecule scenario, in parallel (needs docker)
+  ./tests/run molecule <role>  # one role's scenarios, in parallel — used by the CI matrix
 
 CI runs each suite as its own job — see .github/workflows/tests.yml. The
 molecule job shards across roles via `./tests/run molecule <role>` so wall-
-clock is bounded by the slowest shard (homebrew) instead of the sum.
+clock is bounded by the slowest shard instead of the sum. Each molecule
+scenario is its own suite, so a role's scenarios also run concurrently.
 
-Multi-suite invocations (`all` / `fast`) run every suite in parallel,
+Multi-suite invocations (`all` / `fast` / `molecule`) run every suite in parallel,
 buffering each suite's output to a tempfile. On a tty, a live dashboard
 shows the tail of each currently-running suite's log — capped at
 MAX_LIVE_LINES_PER_SUITE (default 20) per suite, compressed equally
@@ -31,7 +32,7 @@ iff any suite failed.
 
 Tunable via env: TICK=<seconds>, MAX_LIVE_LINES_PER_SUITE=<n>.
 
-Single-suite invocations (`./tests/run python`, etc.) preserve fail-fast
+Single-suite invocations (`python` / `bash` / `lint`) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
 Runs under `tooling_python` (3.14) — same interpreter as the
@@ -103,9 +104,10 @@ def format_duration(seconds: float) -> str:
 @dataclass(frozen=True, slots=True)
 class Suite:
     """One named test suite — an argv that runs the whole thing as a single
-    subprocess. `prepare`, if set, runs serially before the suite starts;
-    used by homebrew to build/pull its molecule base image without racing
-    parallel sibling shards on `docker build`. Multi-command suites (lint,
+    subprocess. `prepare`, if set, runs serially before the suite starts —
+    once per distinct callable, so suites sharing one run it once; used by
+    homebrew's scenarios to build/pull their shared base image without
+    racing each other on `docker build`. Multi-command suites (lint,
     molecule) wrap their commands in `bash -c '... && ...'` so they're
     still one Popen-able invocation."""
 
@@ -155,14 +157,23 @@ BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
 LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])
 
 
-def molecule_role_suite(role: str) -> Suite:
-    """The factory is the *only* place that knows homebrew needs image prep.
-    Both run paths (serial and parallel) just call `suite.prepare()`."""
-    return Suite(
-        name=f"molecule:{role}",
-        argv=["bash", "-c", f"cd roles/{role} && molecule test --all"],
-        prepare=prepare_homebrew_image if role == "homebrew" else None,
+def molecule_role_suites(role: str) -> list[Suite]:
+    """One suite per scenario under roles/<role>/molecule/. Scenario instance
+    names are unique, so their containers can run side by side. The factory
+    is the *only* place that knows homebrew needs image prep."""
+    scenarios = sorted(
+        d.name
+        for d in (REPO_ROOT / "roles" / role / "molecule").iterdir()
+        if (d / "molecule.yml").is_file()
     )
+    return [
+        Suite(
+            name=f"molecule:{role}/{scenario}",
+            argv=["bash", "-c", f"cd roles/{role} && molecule test -s {scenario}"],
+            prepare=prepare_homebrew_image if role == "homebrew" else None,
+        )
+        for scenario in scenarios
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -175,19 +186,13 @@ def run_single_suite(suite: Suite) -> int:
 
 
 def run_molecule(target_role: str | None) -> int:
-    info("=== molecule ===")
     if target_role is not None and target_role not in MOLECULE_ROLES:
         die(
             f"unknown molecule role: {target_role} "
             f"(known: {', '.join(MOLECULE_ROLES)})"
         )
     roles = MOLECULE_ROLES if target_role is None else [target_role]
-    rc = 0
-    for role in roles:
-        info(f"--- molecule: roles/{role} ---")
-        if (result := run_single_suite(molecule_role_suite(role))) != 0:
-            rc = result
-    return rc
+    return run_parallel([s for role in roles for s in molecule_role_suites(role)])
 
 
 # --------------------------------------------------------------------------- #
@@ -429,17 +434,20 @@ def _sigterm_to_keyboard_interrupt(_signum: int, _frame: object) -> None:
 def run_multi(include_molecule: bool) -> int:
     suites = [PYTHON_SUITE, BASH_SUITE, LINT_SUITE]
     if include_molecule:
-        suites.extend(molecule_role_suite(role) for role in MOLECULE_ROLES)
+        suites.extend(s for role in MOLECULE_ROLES for s in molecule_role_suites(role))
+    return run_parallel(suites)
 
-    # Per-suite prepare hooks run serially before any parallel spawn —
-    # only homebrew has one today (its base image), and parallel
+
+def run_parallel(suites: list[Suite]) -> int:
+    # Prepare hooks run serially before any parallel spawn, each distinct
+    # one once — only homebrew has one today (its base image), and parallel
     # `docker build` / `docker tag` against the same `:local` tag would
-    # race. The summary's molecule:homebrew wall-clock therefore reflects
+    # race. The summary's molecule:homebrew/* wall-clocks therefore reflect
     # test work only, not image prep.
-    for s in suites:
-        if s.prepare is not None:
-            info(f"preparing {s.name}")
-            s.prepare()
+    prepares = dict.fromkeys(s.prepare for s in suites if s.prepare is not None)
+    for prepare in prepares:
+        info(f"preparing {prepare.__name__}")
+        prepare()
 
     interactive = sys.stdout.isatty()
     signal.signal(signal.SIGTERM, _sigterm_to_keyboard_interrupt)

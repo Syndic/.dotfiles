@@ -10,10 +10,10 @@
       changed_when: false
       failed_when: false
       loop:
-        - jq       # common_brewfile
-        - wget     # group_purpose_brewfile
+        - jo       # common_brewfile
+        - pwgen    # group_purpose_brewfile
         - tree     # group_os_brewfile
-        - ripgrep  # host_brewfile
+        - entr     # host_brewfile
 
     - name: Each layer's formula must be installed
       ansible.builtin.assert:

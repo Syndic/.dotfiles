@@ -4,7 +4,7 @@ molecule scenarios":
   1. The filesystem — `roles/<role>/molecule/` directories. This is the
      ground truth: if a role has scenarios on disk, both consumers below
      must cover it.
-  2. `MOLECULE_ROLES` in `tests/run` — drives the local serial run.
+  2. `MOLECULE_ROLES` in `tests/run` — drives local runs.
   3. `matrix.role` in `.github/workflows/tests.yml` — drives CI shards.
 
 The two consumers read independently (one bash array, one workflow YAML)
