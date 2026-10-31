@@ -1,23 +1,7 @@
 ---
-# Build + push the prebuilt molecule base images to ghcr. The molecule CI
-# shards (.github/workflows/tests.yml) pull these instead of rebuilding the
-# image from scratch every run — sharding gave us per-role parallelism but
-# left every homebrew shard paying the ~5min cold image build, since matrix
-# cells don't share docker layer caches across runs.
-#
-# Fires on main when an image source changes, on a monthly schedule, and
-# on manual dispatch. The monthly rebuild bounds base-image staleness —
-# see CLAUDE.md "Homebrew molecule scenarios" for why.
-#
-# PRs do NOT trigger publishing — they consume the latest published image
-# via the pull-with-fallback path in tests/run (falls back to local build
-# if pull fails, so a PR that *changes* the Dockerfile still gets tested
-# against its own changes via the fallback).
-#
-# Package visibility: the published packages must be set to **public** in
-# the GitHub UI (Packages → Settings → Change visibility). Once-per-package
-# manual step. Public packages let fork PRs pull anonymously; switching to
-# private would require docker/login-action in tests.yml and break fork PRs.
+# Build + push the prebuilt molecule base images to ghcr. Who pulls them, the
+# per-Dockerfile tag, the monthly rebuild, and the public-visibility
+# requirement: CLAUDE.md "Homebrew molecule scenarios".
 
 name: publish-molecule-images
 
@@ -26,6 +10,7 @@ on:
     branches: [main]
     paths:
       - 'roles/homebrew/molecule/Dockerfile'
+      - 'roles/homebrew/molecule/image-tag.sh'
       - '.github/workflows/publish-molecule-images.yml'
   schedule:
     - cron: '0 8 1 * *'   # 1st of the month, 08:00 UTC — bounds image staleness
@@ -53,14 +38,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `latest` for the tests.yml consumer; `sha-<short>` so a regression
-      # can be pinned to the publishing commit while debugging.
+      - id: image-tag
+        run: echo "value=$(roles/homebrew/molecule/image-tag.sh)" >> "$GITHUB_OUTPUT"
+
+      # The image-tag value is what tests/run pulls; `sha-<short>` pins a
+      # regression to the publishing commit while debugging.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ steps.owner.outputs.value }}/dotfiles-homebrew-molecule
           tags: |
             type=raw,value=latest
+            type=raw,value=${{ steps.image-tag.outputs.value }}
             type=sha,format=short
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
