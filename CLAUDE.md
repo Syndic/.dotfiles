@@ -437,6 +437,17 @@ tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
 (`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
 "Dependency updates".
 
+CI installs them with uv too: each Python job in `tests.yml` adds an
+`astral-sh/setup-uv` step and runs `uv pip install --system -r …` into the
+setup-python interpreter. The `version:` there must equal the devcontainer's
+`COPY --from=ghcr.io/astral-sh/uv:<tag>`. Both pins share the depName
+`ghcr.io/astral-sh/uv`, so Renovate moves them in the same update (via a
+`customManager` for the workflow side).
+`test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it` guards both the
+agreement and the manager match. setup-uv's cache is off (`enable-cache:
+false`), because an uncached install of these pinned files already takes
+only a few seconds.
+
 `test-requirements.txt` feeds the **frozen** 3.9 (both `~/.venv` and the
 `python` CI job), so a `packageRule` in `renovate.json` caps pytest at
 `allowedVersions: <9` — pytest 9 dropped 3.9 (needs >= 3.10) with no 8.x

@@ -418,7 +418,7 @@ def test_molecule_ci_prepulls_images_before_the_installs() -> None:
     install it overlaps. See CLAUDE.md "Tests"."""
     tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
     pull = tests_yml.find("- run: ./tests/run pull ${{ matrix.role }}")
-    install = tests_yml.find("- run: pip install -r molecule-requirements.txt")
+    install = tests_yml.find("- run: uv pip install --system -r molecule-requirements.txt")
     assert pull != -1, "molecule job no longer pre-pulls images"
     assert install != -1, "molecule job's pip install step moved"
     assert pull < install
@@ -618,3 +618,28 @@ def test_host_brewfiles_live_under_brewfiles_hosts() -> None:
             f'host_brewfile: "{{{{ playbook_dir }}}}/brewfiles/hosts/{host_name}.Brewfile"'
             in host_vars_text
         )
+
+
+def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
+    """Every setup-uv `version:` in tests.yml equals the devcontainer's uv
+    tag, and the Renovate customManager matches each one (an unmatched pin
+    would freeze). See CLAUDE.md "Python 3.9 pin"."""
+    tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
+    dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text()
+
+    devcontainer_uv = re.search(r"ghcr\.io/astral-sh/uv:([^@\s]+)@", dockerfile)
+    assert devcontainer_uv, "devcontainer no longer COPYs uv from ghcr.io/astral-sh/uv"
+
+    setup_uv_steps = tests_yml.count("uses: astral-sh/setup-uv@")
+    assert setup_uv_steps, "tests.yml no longer uses setup-uv"
+
+    manager = next(
+        m for m in _renovate_config()["customManagers"] if "setup-uv" in m["description"]
+    )
+    pattern = re.compile(manager["matchStrings"][0].replace("(?<", "(?P<"))
+    pins = [m.groupdict() for m in pattern.finditer(tests_yml)]
+
+    assert len(pins) == setup_uv_steps, "a setup-uv step lacks a tracked `version:` pin"
+    for pin in pins:
+        assert pin["depName"] == "ghcr.io/astral-sh/uv"
+        assert pin["currentValue"] == devcontainer_uv.group(1)

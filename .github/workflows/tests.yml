@@ -20,7 +20,13 @@ jobs:
           # Frozen at the macOS CLT version phase2.py runs under. See the
           # "Python 3.9 pin" section in CLAUDE.md for the rationale.
           python-version: '3.9'
-      - run: pip install -r test-requirements.txt
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
+          # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+          version: '0.13.6'
+          enable-cache: false
+      - run: uv pip install --system -r test-requirements.txt
       - run: pytest -v
 
   bash:
@@ -44,7 +50,13 @@ jobs:
         with:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      - run: pip install -r lint-requirements.txt
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
+          # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+          version: '0.13.6'
+          enable-cache: false
+      - run: uv pip install --system -r lint-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
       - run: ansible-lint
@@ -87,7 +99,13 @@ jobs:
           python-version: '3.14'
       # Backgrounded so the image pulls overlap the installs below.
       - run: ./tests/run pull ${{ matrix.role }} > "$RUNNER_TEMP/pull.log" 2>&1 &
-      - run: pip install -r molecule-requirements.txt
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
+          # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+          version: '0.13.6'
+          enable-cache: false
+      - run: uv pip install --system -r molecule-requirements.txt
       # Every collection is version-pinned, so the requirements files' hash
       # fully determines the cache contents; a hit skips Galaxy entirely.
       - id: galaxy-cache
