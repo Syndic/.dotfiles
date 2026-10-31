@@ -20,7 +20,13 @@ jobs:
           # Frozen at the macOS CLT version phase2.py runs under. See the
           # "Python 3.9 pin" section in CLAUDE.md for the rationale.
           python-version: '3.9'
-      - run: pip install -r test-requirements.txt
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
+          # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+          version: '0.13.6'
+          enable-cache: false
+      - run: uv pip install --system -r test-requirements.txt
       - run: pytest -v
 
   bash:
@@ -44,7 +50,13 @@ jobs:
         with:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      - run: pip install -r lint-requirements.txt
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
+          # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+          version: '0.13.6'
+          enable-cache: false
+      - run: uv pip install --system -r lint-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
       - run: ansible-lint
@@ -71,6 +83,10 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      # Pull the prebuilt Linuxbrew base image instead of rebuilding it; only
+      # the homebrew shard reads it. Lowercase because ghcr requires it.
+      MOLECULE_HOMEBREW_IMAGE_REPO: ghcr.io/syndic/dotfiles-homebrew-molecule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -81,7 +97,15 @@ jobs:
           # in renovate.json.
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
-      - run: pip install -r molecule-requirements.txt
+      # Backgrounded so the image pulls overlap the installs below.
+      - run: ./tests/run pull ${{ matrix.role }} > "$RUNNER_TEMP/pull.log" 2>&1 &
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
+          # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+          version: '0.13.6'
+          enable-cache: false
+      - run: uv pip install --system -r molecule-requirements.txt
       # Every collection is version-pinned, so the requirements files' hash
       # fully determines the cache contents; a hit skips Galaxy entirely.
       - id: galaxy-cache
@@ -96,14 +120,6 @@ jobs:
           ansible-galaxy collection install -r requirements.yml
           ansible-galaxy collection install -r requirements-dev.yml
       - run: ./tests/run molecule ${{ matrix.role }}
-        env:
-          # Pull the prebuilt Linuxbrew base image from ghcr instead of
-          # rebuilding it. Only consulted by tests/run when the homebrew
-          # shard is the one running; the other matrix cells ignore it.
-          # The env var is hardcoded lowercase (ghcr requires it) — the
-          # publish workflow lowercases dynamically from repository_owner,
-          # but here we know the owner statically.
-          MOLECULE_HOMEBREW_IMAGE: ghcr.io/syndic/dotfiles-homebrew-molecule:latest
 
   molecule-all:
     # Aggregator: collapses the `molecule (<role>)` shards into one stable
