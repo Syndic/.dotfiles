@@ -27,3 +27,8 @@ collections:
   # the role to succeed.
   - name: geerlingguy.mac
     version: "5.0.0"
+
+  # Not used directly: community.general and community.docker depend on it
+  # unpinned (>=1.0.0), so it's declared here to pin it like the rest.
+  - name: community.library_inventory_filtering_v1
+    version: "1.1.5"

@@ -92,9 +92,9 @@ jobs:
       # Scenarios converge the real roles, so the runtime collections are
       # needed here too. Mirrors .devcontainer/post-create.sh.
       - if: steps.galaxy-cache.outputs.cache-hit != 'true'
-        run: ansible-galaxy collection install -r requirements.yml
-      - if: steps.galaxy-cache.outputs.cache-hit != 'true'
-        run: ansible-galaxy collection install -r requirements-dev.yml
+        run: |
+          ansible-galaxy collection install -r requirements.yml
+          ansible-galaxy collection install -r requirements-dev.yml
       - run: ./tests/run molecule ${{ matrix.role }}
         env:
           # Pull the prebuilt Linuxbrew base image from ghcr instead of
