@@ -1,6 +1,6 @@
 ---
 name: dev-cleanup
-description: Reap worktrees, merged branches, devcontainer containers and images, superseded devcontainer-base images, and ownerless anonymous Docker volumes left behind by archived Claude Code sessions, machine-wide. Reports first and asks per tier before deleting anything.
+description: Reap worktrees, merged branches, devcontainer containers and images, superseded devcontainer-base images, ownerless anonymous Docker volumes, and orphaned docker-in-docker volumes left behind by archived Claude Code sessions, machine-wide. Reports first and asks per tier before deleting anything.
 disable-model-invocation: true
 ---
 
@@ -44,14 +44,16 @@ prints JSON: `items` (each with `id`, `kind`, `tier`, `title`, `reason`,
 Group by tier, and within a tier by kind. Show sizes in human units, and ages in days.
 
 - **Auto — runs without asking**: `tier: auto` (stale worktree entries, stopped
-  containers whose worktree is gone, dangling images, ownerless anonymous volumes).
+  containers whose worktree is gone, dangling images, ownerless anonymous volumes,
+  docker-in-docker volumes of a container `apply` just removed).
 - **Needs your OK**: `tier: confirm`, one group per kind (worktrees — each also
   deletes its branch, and stops any devcontainer its `reason` names — show each
   one's uptime from the reason, since a recently started one may still be in use;
-  branches; containers; images). Number the items.
+  branches; containers; images; volumes). Number the items.
 - **Your call — never touched**: `tier: report`, with each `reason` and age
   (closed/no-PR/open/dirty/unpushed branches and worktrees, unregistered folders, Codex
-  worktrees, unmapped images, anything outside the worktree roots).
+  worktrees, unmapped images, untraceable docker-in-docker volumes, anything outside the
+  worktree roots).
 - **Space**: from `summary` — `docker_raw_bytes`, `build_cache_bytes` (self-capped
   by Docker's GC; not pruned here), `untouched_docker`, `host_caches`,
   `claude_projects_bytes` (transcripts back archived-session restore),
@@ -72,9 +74,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/dev_cleanup.py" apply --sessions <file> -
 actionable tier; anything that changed since the report is skipped. Report `done`, every
 `skipped` entry with its reason, and Docker.raw before → `docker_raw_bytes_after`.
 
-If `follow_up` is non-empty (removing a worktree exposed its devcontainer image or
-a running container), present those items the same way, ask, and run `apply` again
-with the chosen ids.
+If `follow_up` is non-empty (removing a worktree or container exposed an image, a
+running container, or docker-in-docker volumes), present those items the same way, ask,
+and run `apply` again with the chosen ids.
 
 ## Never
 
