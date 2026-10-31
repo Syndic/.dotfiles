@@ -9,6 +9,7 @@
   ./tests/run lint             # yamllint + ansible-lint
   ./tests/run molecule         # every molecule scenario, in parallel (needs docker)
   ./tests/run molecule <role>  # one role's scenarios, in parallel — used by the CI matrix
+  ./tests/run pull [role]      # pre-pull the scenarios' registry images
 
 CI runs each suite as its own job — see .github/workflows/tests.yml. The
 molecule job shards across roles via `./tests/run molecule <role>` so wall-
@@ -43,6 +44,7 @@ all three stay in step. The bootstrap's frozen 3.9.6 doesn't apply
 here; this is dev tooling.
 """
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -117,16 +119,38 @@ class Suite:
     prepare: Callable[[], None] | None = None
 
 
+HOMEBREW_IMAGE_DIR = REPO_ROOT / "roles" / "homebrew" / "molecule"
+
+
+def published_homebrew_image() -> str | None:
+    """The published image to pull, or None to build locally.
+    MOLECULE_HOMEBREW_IMAGE (a full ref, e.g. a `sha-<short>` tag while
+    debugging) wins; otherwise MOLECULE_HOMEBREW_IMAGE_REPO (set by CI) at
+    this checkout's Dockerfile tag. A tag-script failure warns and builds."""
+    if image := os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip():
+        return image
+    repo = os.environ.get("MOLECULE_HOMEBREW_IMAGE_REPO", "").strip()
+    if not repo:
+        return None
+    try:
+        tag = subprocess.check_output(
+            [HOMEBREW_IMAGE_DIR / "image-tag.sh"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as e:
+        warn(f"molecule: can't compute the homebrew image tag ({e})")
+        return None
+    return f"{repo}:{tag}"
+
+
 def prepare_homebrew_image() -> None:
     """Build or pull the Linuxbrew base image used by every homebrew molecule
     scenario. Plumbed through Suite.prepare so the runner picks it up without
     case-by-case knowledge of which role needs setup.
 
-    MOLECULE_HOMEBREW_IMAGE (set by CI) names a published image to pull and
-    retag. On pull failure — registry hiccup, image not yet published, PR
-    editing the Dockerfile — fall back to a local docker build so a fresh
-    Dockerfile is tested against its own changes."""
-    if image := os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip():
+    Pulls the published image when there is one for this Dockerfile; any pull
+    failure (including a PR's edited Dockerfile not being published yet)
+    falls back to a local docker build."""
+    if image := published_homebrew_image():
         info(f"molecule: pulling homebrew base image from {image}")
         try:
             run(["docker", "pull", image], cwd=REPO_ROOT)
@@ -144,7 +168,7 @@ def prepare_homebrew_image() -> None:
             "build",
             "-t",
             "dotfiles-homebrew-molecule:local",
-            "roles/homebrew/molecule/",
+            str(HOMEBREW_IMAGE_DIR),
         ],
         cwd=REPO_ROOT,
     )
@@ -157,23 +181,50 @@ BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
 LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])
 
 
-def molecule_role_suites(role: str) -> list[Suite]:
-    """One suite per scenario under roles/<role>/molecule/. Scenario instance
-    names are unique, so their containers can run side by side. The factory
-    is the *only* place that knows homebrew needs image prep."""
-    scenarios = sorted(
-        d.name
+def molecule_scenarios(role: str) -> list[Path]:
+    return sorted(
+        d
         for d in (REPO_ROOT / "roles" / role / "molecule").iterdir()
         if (d / "molecule.yml").is_file()
     )
+
+
+def molecule_role_suites(role: str) -> list[Suite]:
+    """One suite per scenario under roles/<role>/molecule/. Scenario instance
+    names are unique, so their containers can run side by side."""
     return [
         Suite(
-            name=f"molecule:{role}/{scenario}",
-            argv=["bash", "-c", f"cd roles/{role} && molecule test -s {scenario}"],
+            name=f"molecule:{role}/{scenario.name}",
+            argv=["bash", "-c", f"cd roles/{role} && molecule test -s {scenario.name}"],
             prepare=prepare_homebrew_image if role == "homebrew" else None,
         )
-        for scenario in scenarios
+        for scenario in molecule_scenarios(role)
     ]
+
+
+def molecule_role_images(role: str) -> list[str]:
+    """Registry images the role's scenarios will pull. Every registry pull is
+    digest-pinned, so `@sha256:` tells them apart from local tags."""
+    images = {
+        m.group(1)
+        for scenario in molecule_scenarios(role)
+        for m in re.finditer(
+            r"^\s+image:\s*[\"']?([^\"'\s]+@sha256:[0-9a-f]+)",
+            (scenario / "molecule.yml").read_text(),
+            re.MULTILINE,
+        )
+    }
+    if role == "homebrew" and (image := published_homebrew_image()):
+        images.add(image)
+    return sorted(images)
+
+
+def pull_images(target_role: str | None) -> int:
+    """Pull the roles' images concurrently. CI runs this in the background so
+    the pulls overlap its pip/galaxy installs; molecule then finds them local."""
+    images = sorted({i for r in molecule_roles(target_role) for i in molecule_role_images(r)})
+    procs = [subprocess.Popen(["docker", "pull", "-q", i]) for i in images]
+    return max((p.wait() for p in procs), default=0)
 
 
 # --------------------------------------------------------------------------- #
@@ -446,13 +497,17 @@ def run_multi(include_molecule: bool) -> int:
     return run_parallel(suites)
 
 
-def run_molecule(target_role: str | None) -> int:
+def molecule_roles(target_role: str | None) -> list[str]:
     if target_role is not None and target_role not in MOLECULE_ROLES:
         die(
             f"unknown molecule role: {target_role} "
             f"(known: {', '.join(MOLECULE_ROLES)})"
         )
-    roles = MOLECULE_ROLES if target_role is None else [target_role]
+    return MOLECULE_ROLES if target_role is None else [target_role]
+
+
+def run_molecule(target_role: str | None) -> int:
+    roles = molecule_roles(target_role)
     return run_parallel([s for role in roles for s in molecule_role_suites(role)])
 
 
@@ -514,7 +569,7 @@ def run_parallel(suites: list[Suite]) -> int:
 # --------------------------------------------------------------------------- #
 # Dispatch
 # --------------------------------------------------------------------------- #
-USAGE = "usage: tests/run [python|bash|lint|molecule [role]|fast|all]"
+USAGE = "usage: tests/run [python|bash|lint|molecule [role]|pull [role]|fast|all]"
 
 
 def main(argv: list[str]) -> int:
@@ -531,6 +586,10 @@ def main(argv: list[str]) -> int:
             return run_molecule(None)
         case ["molecule", role, *_]:
             return run_molecule(role)
+        case ["pull"]:
+            return pull_images(None)
+        case ["pull", role, *_]:
+            return pull_images(role)
         case ["fast", *_]:
             return run_multi(include_molecule=False)
         case ["all", *_]:

@@ -71,6 +71,10 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      # Pull the prebuilt Linuxbrew base image instead of rebuilding it; only
+      # the homebrew shard reads it. Lowercase because ghcr requires it.
+      MOLECULE_HOMEBREW_IMAGE_REPO: ghcr.io/syndic/dotfiles-homebrew-molecule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -81,6 +85,8 @@ jobs:
           # in renovate.json.
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
+      # Backgrounded so the image pulls overlap the installs below.
+      - run: ./tests/run pull ${{ matrix.role }} > "$RUNNER_TEMP/pull.log" 2>&1 &
       - run: pip install -r molecule-requirements.txt
       # Every collection is version-pinned, so the requirements files' hash
       # fully determines the cache contents; a hit skips Galaxy entirely.
@@ -96,14 +102,8 @@ jobs:
           ansible-galaxy collection install -r requirements.yml
           ansible-galaxy collection install -r requirements-dev.yml
       - run: ./tests/run molecule ${{ matrix.role }}
-        env:
-          # Pull the prebuilt Linuxbrew base image from ghcr instead of
-          # rebuilding it. Only consulted by tests/run when the homebrew
-          # shard is the one running; the other matrix cells ignore it.
-          # The env var is hardcoded lowercase (ghcr requires it) — the
-          # publish workflow lowercases dynamically from repository_owner,
-          # but here we know the owner statically.
-          MOLECULE_HOMEBREW_IMAGE: ghcr.io/syndic/dotfiles-homebrew-molecule:latest
+      - if: always()
+        run: cat "$RUNNER_TEMP/pull.log"
 
   molecule-all:
     # Aggregator: collapses the `molecule (<role>)` shards into one stable

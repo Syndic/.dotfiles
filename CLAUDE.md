@@ -808,7 +808,12 @@ is its own `tests/run` suite** (`molecule:<role>/<scenario>`, one `molecule
 test -s` each), so a role's scenarios run concurrently and the shard costs its
 slowest scenario rather than the sum. This works because every scenario's
 platform `name:` is unique — keep it that way when adding one, or two
-scenarios' containers collide.
+scenarios' containers collide. Each shard's first step after setup-python
+backgrounds `./tests/run pull <role>`, which pulls every digest-pinned
+`image:` in the role's scenarios (plus homebrew's published base) so the
+pulls overlap the pip and Galaxy installs instead of landing inside
+molecule's `create`. Best-effort: its log goes to `$RUNNER_TEMP`, and a
+failed or unfinished pull just leaves molecule to pull as before.
 The roles list is duplicated
 in two places — `MOLECULE_ROLES` in `tests/run` for local runs, and
 `matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
@@ -850,17 +855,27 @@ base image built locally by `./tests/run molecule` from
 `roles/homebrew/molecule/Dockerfile` and tagged
 `dotfiles-homebrew-molecule:local`. The image bakes Linuxbrew + a
 pre-installed `hello` formula; building it cold costs ~5 min, but the
-docker layer cache makes rebuilds near-free locally. CI pays the cold-
-build cost every run today — a followup will bake-and-publish to ghcr so
-CI pulls instead. Each scenario references the tag with
+docker layer cache makes rebuilds near-free locally, and CI pulls a
+published copy (below). Each scenario references the tag with
 `pre_build_image: true`.
 
 The image deliberately diverges from the apt/dotfiles/flatpak base
 (`geerlingguy/docker-debian12-ansible`): the homebrew role has no
-`become:` and doesn't manage services, so a plain `debian:bookworm-slim`
+`become:` and doesn't manage services, so a plain `debian:trixie-slim`
 with `python3` and a non-root `linuxbrew` user (brew refuses to run as
 root on Linux) is enough. Scenarios connect ansible via
 `ansible_user: linuxbrew` in `provisioner.inventory.host_vars`.
+
+**The base must have glibc and libstdc++ at least as new as Homebrew's
+Linux CI baseline** (`LINUX_GLIBC_CI_VERSION` / `LINUX_LIBSTDCXX_CI_VERSION`
+in brew's `os.rb` — Ubuntu 24.04's today). Below it, brew installs its own
+`glibc` + `gcc` (and `binutils`, `isl`, `mpfr`, …) as a dependency of
+*every* formula. On bookworm (glibc 2.36) that was ~620MB of Cellar,
+doubling the image to 731MB compressed and making the pull the biggest
+fixed cost in the homebrew shard. trixie (2.41) clears the baseline, and
+`brew deps <formula>` comes back empty for the scenarios' formulae. The
+Dockerfile also drops brew's downloaded bottles, keeping the cache's
+`api/` so scenarios don't re-fetch the formula index.
 
 What each scenario covers:
 
@@ -903,26 +918,31 @@ don't pay for an image they never use. Two paths, same outcome (an image
 tagged `dotfiles-homebrew-molecule:local`, which every scenario's
 `molecule.yml` references):
 
-- **Pull from ghcr** when `MOLECULE_HOMEBREW_IMAGE` is set. CI sets it
-  on the homebrew matrix cell to
-  `ghcr.io/syndic/dotfiles-homebrew-molecule:latest` (lowercased; ghcr
-  requires it). The published image is built + pushed by
-  `.github/workflows/publish-molecule-images.yml` on pushes to `main`
+- **Pull from ghcr** when `MOLECULE_HOMEBREW_IMAGE_REPO` is set. CI sets
+  it (job-level, in `tests.yml`) to
+  `ghcr.io/syndic/dotfiles-homebrew-molecule` (lowercased; ghcr requires
+  it), and `tests/run` appends the tag `roles/homebrew/molecule/image-tag.sh`
+  prints: `dockerfile-<first 12 hex of the Dockerfile's sha256>`. The
+  published image is built + pushed by
+  `.github/workflows/publish-molecule-images.yml` under that same tag (via
+  the same script, plus `latest` and `sha-<short>`) on pushes to `main`
   that touch the Dockerfile, **plus a monthly `schedule:` rebuild** that
   bounds base-image staleness so the gates scenario's upgrade path
   doesn't accumulate `brew upgrade` work as the baked formulae drift
   from live upstream.
 - **Local `docker build`** otherwise (no env var) or as a fallback when
-  the pull fails (registry hiccup, image not yet published, PR that
-  changes the Dockerfile and therefore needs the *modified* version
-  tested rather than the published one).
+  the pull fails (registry hiccup, or no image published for this
+  Dockerfile yet).
 
-The fallback is load-bearing for that last case: a PR editing the
-Dockerfile must be tested against its own Dockerfile, not the `:latest`
-published from main. The pull is best-effort; failure quietly drops to
-build. Don't replace it with a hard pull — that would couple PR CI to
-the publish workflow having already shipped, and break Dockerfile-
-editing PRs.
+The content-addressed tag is what makes a PR that edits the Dockerfile —
+including every Renovate bump of its base digest — test its *own*
+Dockerfile: its hash has no published image, so the pull misses and the
+fallback builds it. Pulling `:latest` instead would succeed with main's
+image and silently test the old one. The pull is best-effort; failure
+quietly drops to build. Don't replace it with a hard pull — that would
+couple PR CI to the publish workflow having already shipped, and break
+Dockerfile-editing PRs. The cost: the first `main` run after such a merge
+races the publish workflow and usually builds locally once.
 
 The published package must be set to **public** in the GitHub UI
 (Packages → Settings → Change visibility) so fork PRs can pull
@@ -1122,7 +1142,7 @@ allowlists it.
 Every registry-pulled container base is pinned to a **digest**, not a bare
 tag: `.devcontainer/Dockerfile` (`mcr.microsoft.com/devcontainers/base:debian`
 and the `COPY --from` uv image), `roles/homebrew/molecule/Dockerfile`
-(`debian:bookworm-slim`), and the five non-homebrew molecule scenarios
+(`debian:trixie-slim`), and the six non-homebrew molecule scenarios
 (`geerlingguy/docker-debian12-ansible:latest`). The tag stays for
 readability; the `@sha256:…` is what actually makes the pull reproducible.
 `test_molecule_base_images_are_digest_pinned` enforces this for the molecule
