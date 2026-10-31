@@ -137,7 +137,7 @@ def test_classify_container_outside_the_roots_is_report_only() -> None:
 
 @pytest.mark.parametrize("reaped,folder,exists,in_scope,tier", [
     (True, None, False, False, dc.AUTO),
-    (False, None, False, False, dc.CONFIRM),
+    (False, None, False, False, dc.REPORT),
     (False, "/w", False, True, dc.CONFIRM),
     (False, "/w", False, False, dc.REPORT),
     (False, "/w", True, True, None),
@@ -969,22 +969,25 @@ def test_loose_dind_volumes_are_traced_by_devcontainer_id(repo) -> None:
     # Known only through a container rebuilt without the docker-in-docker feature.
     away = str(repo.tmp / "external-drive" / "project")
     mounted = str(repo.root / "r" / "eloquent-shannon-7eb6c5")
+    # Known only as an archived session's cwd: git and docker have both forgotten it.
+    forgotten = str(repo.root / "r" / "forgotten-fox-777777")
     untraced = f"dind-var-lib-docker-{'0' * 52}"
     docker = FakeDocker(
         containers=[{**container("c", mounted, "exited"), "volumes": dind(mounted)},
                     container("c-away", away, "exited")],
-        volumes=[volume(v, dangling=True) for v in dind(live) + dind(gone) + dind(away)]
+        volumes=[volume(v, dangling=True)
+                 for v in dind(live) + dind(gone) + dind(away) + dind(forgotten)]
         + [volume(v) for v in dind(mounted)]
         + [volume(untraced, dangling=True), volume("ud-cache", dangling=True)])
-    ctx = context(repo, docker=docker)
+    ctx = context(repo, sessions((forgotten, True, False)), docker=docker)
     inventory = dc.build_inventory(ctx)
     found = {i["id"]: i for i in inventory["items"] if i["kind"] == "volume"}
 
-    for name in dind(gone):
+    for name in dind(gone) + dind(forgotten):
         assert found.pop(f"volume:{name}")["tier"] == dc.CONFIRM
     for name in dind(away):
         assert "outside the worktree roots" in found.pop(f"volume:{name}")["reason"]
-    assert found.pop(f"volume:{untraced}")["tier"] == dc.CONFIRM
+    assert found.pop(f"volume:{untraced}")["tier"] == dc.REPORT
     assert found == {}  # the live worktree's, the mounted ones, and ud-cache aren't offered
     untouched = inventory["summary"]["untouched_docker"]["volumes"]
     assert set(dind(live) + dind(mounted) + ["ud-cache"]) <= set(untouched)
@@ -992,6 +995,26 @@ def test_loose_dind_volumes_are_traced_by_devcontainer_id(repo) -> None:
     result = dc.apply(ctx, [f"volume:{dind(gone)[0]}", f"volume:{dind(away)[0]}"])
     assert [d["id"] for d in result["done"]] == [f"volume:{dind(gone)[0]}"]
     assert "no longer eligible" in result["skipped"][0]["reason"]
+
+
+def test_follow_up_offers_only_what_the_apply_exposed(repo) -> None:
+    gone = repo.worktree("gone-goat-666666")
+    subprocess.run(["rm", "-rf", str(gone)], check=True)
+    reaped = str(repo.root / "r" / "eloquent-shannon-7eb6c5")
+    docker = FakeDocker(
+        containers=[{**container("c", reaped, "exited"), "volumes": dind(reaped)}],
+        volumes=[volume(v) for v in dind(reaped)]
+        + [volume(v, dangling=True) for v in dind(gone)]
+        + [volume("a" * 64, anonymous=True, dangling=True)])
+    ctx = context(repo, docker=docker)
+    declined = {i["id"] for i in dc.build_inventory(ctx)["items"] if i["kind"] == "volume"}
+    assert declined == {f"volume:{v}" for v in dind(gone)} | {f"volume:{'a' * 64}"}
+
+    result = dc.apply(ctx, ["container:c:exited"])
+    assert [d["id"] for d in result["done"]] == ["container:c:exited"] + [
+        f"volume:{v}" for v in dind(reaped)]
+    assert result["follow_up"] == []  # the report's confirm items were already answered
+    assert {f"volume:{v['name']}" for v in docker.volumes()} == declined
 
 
 @pytest.mark.parametrize("out,cache", [

@@ -108,14 +108,15 @@ are only considered once Docker lists them as dangling (no container mounts them
 - traced to a worktree that is gone: confirm (reported outside the worktree roots);
 - traced to a worktree that still exists: left alone, since its next `devcontainer up`
   reuses them;
-- not traceable: confirm.
+- not traceable: reported.
 
-The trace recomputes the CLI's `devcontainerId` (base-32 `sha256` of the folder and config
-file labels as sorted JSON) for each known folder's standard config paths.
+The trace matches the volume's `devcontainerId` against each known folder, including the
+`cwd` of every session passed in, which is often the only record of a removed worktree.
 
 Removing a worktree in `apply` exposes its container and image, and removing a container
 exposes its docker-in-docker volumes, so `apply` then reaps what became auto (repeating until
-nothing new appears) and returns the rest as `follow_up`.
+nothing new appears) and returns the rest as `follow_up`. Only items the report didn't already
+show count: the user has answered those.
 
 **Never touched:** remote branches, volume contents, `docker system prune` /
 `docker builder prune`, image pulls, or sessions. The report still sizes what it leaves

@@ -427,7 +427,7 @@ def classify_dind_volume(reaped: bool, folder: Optional[str], folder_exists: boo
     if reaped:
         return AUTO, "docker-in-docker volume of a devcontainer this run removed"
     if folder is None:
-        return CONFIRM, "no container mounts it, and it can't be traced to a worktree"
+        return REPORT, "no container mounts it, and it can't be traced to a worktree"
     if folder_exists:
         return None
     if not in_scope:
@@ -840,9 +840,26 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
                           details={"repo": repo, "branch": name, "tip": tip, "pr": number}))
 
 
+SourceRefs = Tuple[Set[str], Set[str], List[str]]
+
+
+def devcontainer_refs(checkout: str) -> SourceRefs:
+    """Image digests and tags a checkout's devcontainer setup names, and files it couldn't read."""
+    digests: Set[str] = set()
+    tags: Set[str] = set()
+    files, missing = devcontainer_sources(checkout)
+    for path in files:
+        d, t = image_refs(read_text(path) or "")
+        digests |= d
+        tags |= t
+    return digests, tags, missing
+
+
 def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List[Item],
-                     summary: Dict[str, object], reaped: Iterable[str] = ()) -> None:
-    """`reaped`: volumes mounted by containers this apply removed."""
+                     summary: Dict[str, object], sources: Dict[str, SourceRefs],
+                     reaped: Iterable[str] = ()) -> None:
+    """`sources`: devcontainer_refs per checkout, filled as needed and reused across apply's
+    passes. `reaped`: volumes mounted by containers this apply removed."""
     containers, images, volumes, sizes = state.containers, state.images, state.volumes, state.sizes
     claimed_images: Set[str] = set()
     claimed_volumes: Set[str] = set()
@@ -894,12 +911,12 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
     tags: Set[str] = set()
     unread: Set[str] = set()
     for checkout in sorted(p for p in folders if os.path.isdir(p)):
-        files, missing = devcontainer_sources(checkout)
+        if checkout not in sources:
+            sources[checkout] = devcontainer_refs(checkout)
+        d, t, missing = sources[checkout]
+        digests |= d
+        tags |= t
         unread.update(missing)
-        for path in files:
-            d, t = image_refs(read_text(path) or "")
-            digests |= d
-            tags |= t
     kept = []
     for image, tier, reason in classify_base_images(images, digests, tags, in_use,
                                                     str(ctx.config["base_image_pattern"]),
@@ -929,7 +946,9 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
     loose_dind = [(v, m.group("id")) for v in volumes
                   if v["dangling"] and v["name"] not in claimed_volumes
                   for m in [DIND_VOLUME.fullmatch(v["name"])] if m]
-    owners = dind_owners(guesses | mapped) if loose_dind else {}
+    # Archived sessions' cwds name worktrees that are gone and that nothing else remembers.
+    session_cwds = {s.cwd for s in ctx.sessions.sessions}
+    owners = dind_owners(guesses | mapped | session_cwds) if loose_dind else {}
     reaped = set(reaped)
     for v, dc_id in loose_dind:
         folder = owners.get(dc_id)
@@ -958,6 +977,7 @@ class Inventory:
     notes: List[str]
     summary: Dict[str, object]
     scope: Scope
+    sources: Dict[str, SourceRefs] = field(default_factory=dict)
 
 
 def collect(ctx: Context, measure: bool = True) -> Inventory:
@@ -991,9 +1011,10 @@ def collect(ctx: Context, measure: bool = True) -> Inventory:
                               "git doesn't list this folder as a worktree", path=folder))
     scope.known.update(loose)
 
+    inventory = Inventory(items, notes, summary, scope)
     if docker is not None:
-        inventory_docker(ctx, docker, scope, items, summary)
-    return Inventory(items, notes, summary, scope)
+        inventory_docker(ctx, docker, scope, items, summary, inventory.sources)
+    return inventory
 
 
 def disk_usage(ctx: Context, summary: Dict[str, object]) -> None:
@@ -1161,18 +1182,19 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
 
     # Removing a worktree orphans its devcontainer, and removing a container orphans its
     # named volumes: reap what is now auto-tier until nothing new appears, and hand back
-    # anything that now needs confirming. Only Docker state changed.
+    # anything that now needs confirming. Only Docker state changed. Items the report already
+    # showed are the user's answered question, so only newly exposed ones count.
     follow_up: List[Dict[str, object]] = []
-    handled = {d["id"] for d in done} | {s["id"] for s in skipped}
+    handled = set(fresh) | {d["id"] for d in done} | {s["id"] for s in skipped}
     while reaped or any(i["kind"] == "worktree" for i in queue):
         docker = read_docker(ctx.docker, sizes=False)[0]
         if docker is None:
             break
         exposed: List[Item] = []
-        inventory_docker(ctx, docker, inventory.scope, exposed, {}, reaped)
-        fresh = [i for i in map(asdict, exposed) if i["id"] not in handled]
-        follow_up = [i for i in fresh if i["tier"] == CONFIRM]
-        auto = [i for i in fresh if i["tier"] == AUTO]
+        inventory_docker(ctx, docker, inventory.scope, exposed, {}, inventory.sources, reaped)
+        new = [i for i in map(asdict, exposed) if i["id"] not in handled]
+        follow_up = [i for i in new if i["tier"] == CONFIRM]
+        auto = [i for i in new if i["tier"] == AUTO]
         if not auto:
             break
         for item in auto:
