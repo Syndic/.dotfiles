@@ -1,7 +1,7 @@
 # Brewfile layer for the `macos` group in the `os` group set.
 # If a package is macOS-only, it goes here. Includes:
 #   - macOS-only formulae (e.g. `depends_on :macos`)
-#   - casks (cask is a macOS-only format)
+#   - casks without Linux builds (most of them)
 #   - anything you only want installed on ALL Macs
 # Installed only on hosts that are members of the `macos` group (per
 # inventory.yml).
@@ -11,6 +11,8 @@
 # either `dockitems_persist` or `dockitems_remove` is non-empty).
 brew "dockutil"
 
+# Claude desktop app; updates itself, so `brew upgrade` leaves it alone
+cask "claude"
 cask "font-roboto-mono-nerd-font"
 # Terminal emulator that uses platform-native UI and GPU acceleration
 cask "ghostty"

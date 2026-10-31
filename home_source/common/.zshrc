@@ -7,7 +7,8 @@ fi
 
 export OMP_DEFAULT_USER=$(logname)
 export EDITOR=nano
-export PATH="$HOME/.local/bin:$PATH"
+# Appended, so a Homebrew install beats a same-named one in ~/.local/bin.
+export PATH="$PATH:$HOME/.local/bin"
 # LS_COLORS should influence ls output, and zsh tab completion output.
 # di=01;34 means directories should be bold and blue
 # ex=01;31 means executables should be bold and red

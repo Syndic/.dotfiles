@@ -14,7 +14,7 @@
 # vars here.
 
 # Brewfile layer for the macos group. Anything macOS-only goes here:
-# casks, macOS-only formulae, packages you only want on Macs.
+# casks without Linux builds, macOS-only formulae, packages you only want on Macs.
 group_os_brewfile: "{{ playbook_dir }}/brewfiles/groups/macos.Brewfile"
 
 # Dotfiles overlay for the macos group. macOS-only home_source files go

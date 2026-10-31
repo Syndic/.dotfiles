@@ -32,7 +32,7 @@ Opt-in flags broaden the teardown:
 
 | Flag | Effect |
 |------|--------|
-| `--brew-packages` | Uninstall packages listed in the layered Brewfiles. |
+| `--brew-packages` | Uninstall packages listed in the layered Brewfiles. On macOS this includes the Claude desktop app (`cask "claude"`), which is quit first — even a copy you installed yourself, since install adopts it. |
 | `--apt-packages` | Uninstall apt packages from the layered apt lists (Linux). |
 | `--flatpak-packages` | Uninstall flatpaks from the layered lists (Linux). |
 | `--ansible` | `brew uninstall ansible`. |
@@ -106,9 +106,9 @@ it with a symlink into the repo.
 
 | Goal | Where it goes |
 |------|---------------|
-| Cross-platform CLI tool via Homebrew (works on macOS and Linuxbrew) | `brewfiles/common.Brewfile` |
+| Cross-platform tool via Homebrew (works on macOS and Linuxbrew) — formula, or cask with Linux builds | `brewfiles/common.Brewfile` |
 | Purpose-scoped (personal vs work) | `brewfiles/groups/<personal\|work>.Brewfile` |
-| macOS-only — formula, cask, or anything you only want on Macs | `brewfiles/groups/macos.Brewfile` |
+| macOS-only — formula, cask without Linux builds, or anything you only want on Macs | `brewfiles/groups/macos.Brewfile` |
 | Host-specific | `brewfiles/hosts/<host>.Brewfile` |
 | Linux-only system package | `common_apt` in `group_vars/all.yml`, `group_<set>_apt` in any `group_vars/<group>.yml`, or `host_apt` in `host_vars/<host>.yml` |
 | Linux GUI app via Flatpak | `common_flatpak` / `group_<set>_flatpak` / `host_flatpak` — same three-layer shape as apt |

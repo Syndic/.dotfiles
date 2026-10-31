@@ -873,7 +873,12 @@ What each scenario covers:
   production's `group_sets: [purpose, os]`. Asserts every formula ends
   up installed. Regression cover for `0861663`: the install task's
   `loop_var` indirection must resolve `item.item` to the path string;
-  if that breaks, the assertions in `verify.yml` fail.
+  if that breaks, the assertions in `verify.yml` fail. The common layer also
+  installs a cask from a local tap whose archive is a `file://` URL, so the
+  cask path (install, `brew bundle check`, idempotent re-run) is covered on
+  Linuxbrew with no network. It runs with `HOMEBREW_NO_AUTO_UPDATE` (production
+  updates in `phase2.py` first), so it needs the image's Homebrew to have
+  `brew trust`.
 - **`gates/`** — two converges in one play file against a single
   container. First play (`homebrew_upgrade_outdated: true`, default)
   asserts the install task is gated off (image satisfies the Brewfile)

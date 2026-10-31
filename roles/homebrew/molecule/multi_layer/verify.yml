@@ -2,6 +2,8 @@
 - name: Verify — homebrew role (multi-layer)
   hosts: all
   gather_facts: false
+  environment:
+    HOMEBREW_NO_AUTO_UPDATE: "1"
   tasks:
     - name: Query brew for one formula per layer
       ansible.builtin.command:
@@ -26,3 +28,19 @@
       loop: "{{ homebrew_multi_results.results }}"
       loop_control:
         label: "{{ item.item }}"
+
+    - name: Run the common layer's fixture cask binary
+      ansible.builtin.command:
+        cmd: molecule-fixture
+      register: homebrew_fixture_run
+      changed_when: false
+      failed_when: false
+
+    - name: The fixture cask must be installed and linked
+      ansible.builtin.assert:
+        that:
+          - homebrew_fixture_run.rc == 0
+          - homebrew_fixture_run.stdout == 'molecule fixture cask'
+        fail_msg: >-
+          molecule-fixture cask not runnable
+          (rc={{ homebrew_fixture_run.rc }}, stderr={{ homebrew_fixture_run.stderr }})

@@ -4,10 +4,15 @@
 # back to the layer it came from. None of these are pre-baked into the
 # scenario base image, so every layer exercises a real
 # `brew bundle install`. All four have no Linux dependencies, so each
-# install is a single small bottle rather than a dependency tree.
+# install is a single small bottle rather than a dependency tree. The common
+# layer also carries a cask from a local tap, so the cask path runs on
+# Linuxbrew offline.
 - name: Converge — homebrew role (multi-layer)
   hosts: all
   gather_facts: true
+  # Production runs `brew update` before the playbook; don't update mid-run here.
+  environment:
+    HOMEBREW_NO_AUTO_UPDATE: "1"
   vars:
     # Mirror production's group_sets exactly (see group_vars/all.yml). The
     # role's resolve loop iterates this list and `lookup('vars', ...)`
@@ -20,6 +25,7 @@
     group_purpose_brewfile: /tmp/molecule-homebrew/purpose.Brewfile
     group_os_brewfile: /tmp/molecule-homebrew/os.Brewfile
     host_brewfile: /tmp/molecule-homebrew/host.Brewfile
+    homebrew_fixture_tap: "{{ homebrew_fixture_repo.stdout }}/Library/Taps/dotfiles/homebrew-fixtures"
   pre_tasks:
     - name: Ensure fixture dir exists
       ansible.builtin.file:
@@ -27,13 +33,71 @@
         state: directory
         mode: '0755'
 
+    - name: Locate the Homebrew repository
+      ansible.builtin.command:
+        cmd: brew --repository
+      register: homebrew_fixture_repo
+      changed_when: false
+
+    # A directory under Taps/ is a tap; `brew tap-new` would turn on developer mode.
+    - name: Create the fixture cask's payload directory and local tap
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /tmp/molecule-homebrew/payload/bin
+        - "{{ homebrew_fixture_tap }}/Casks"
+
+    - name: Write the fixture cask's binary
+      ansible.builtin.copy:
+        content: "#!/bin/sh\necho molecule fixture cask\n"
+        dest: /tmp/molecule-homebrew/payload/bin/molecule-fixture
+        mode: '0755'
+
+    # Built once: the cask pins its sha256, and community.general.archive
+    # rewrites the file (new gzip timestamp) on every run.
+    - name: Archive the fixture cask's payload
+      ansible.builtin.command:
+        argv: [tar, -czf, /tmp/molecule-homebrew/fixture.tar.gz, -C, /tmp/molecule-homebrew/payload, bin]
+        creates: /tmp/molecule-homebrew/fixture.tar.gz
+
+    - name: Checksum the fixture cask's archive
+      ansible.builtin.stat:
+        path: /tmp/molecule-homebrew/fixture.tar.gz
+        checksum_algorithm: sha256
+      register: homebrew_fixture_archive
+
+    - name: Write the fixture cask
+      ansible.builtin.copy:
+        dest: "{{ homebrew_fixture_tap }}/Casks/molecule-fixture.rb"
+        mode: '0644'
+        content: |
+          cask "molecule-fixture" do
+            version "1.0"
+            sha256 "{{ homebrew_fixture_archive.stat.checksum }}"
+            url "file:///tmp/molecule-homebrew/fixture.tar.gz"
+            name "molecule fixture"
+            desc "Offline cask for the homebrew role's molecule scenario"
+            homepage "https://example.invalid"
+            binary "bin/molecule-fixture"
+          end
+
+    # Homebrew 7 refuses casks from an untrusted non-official tap.
+    - name: Trust the fixture tap
+      ansible.builtin.command:
+        cmd: brew trust --tap dotfiles/fixtures
+      register: homebrew_fixture_trust
+      changed_when: homebrew_fixture_trust.stdout is search('^Trusted')
+
     - name: Write per-layer Brewfile fixtures
       ansible.builtin.copy:
         content: "{{ item.content }}"
         dest: "{{ item.dest }}"
         mode: '0644'
       loop:
-        - {dest: "{{ common_brewfile }}", content: "brew \"jo\"\n"}
+        - dest: "{{ common_brewfile }}"
+          content: "tap \"dotfiles/fixtures\"\nbrew \"jo\"\ncask \"molecule-fixture\"\n"
         - {dest: "{{ group_purpose_brewfile }}", content: "brew \"pwgen\"\n"}
         - {dest: "{{ group_os_brewfile }}", content: "brew \"tree\"\n"}
         - {dest: "{{ host_brewfile }}", content: "brew \"entr\"\n"}
