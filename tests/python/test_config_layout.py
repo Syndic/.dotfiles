@@ -618,3 +618,16 @@ def test_host_brewfiles_live_under_brewfiles_hosts() -> None:
             f'host_brewfile: "{{{{ playbook_dir }}}}/brewfiles/hosts/{host_name}.Brewfile"'
             in host_vars_text
         )
+
+
+def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
+    """image-tag.sh hashes only the Dockerfile, so the build must read
+    nothing else from its context — a COPY'd file edited in a PR would
+    otherwise keep main's tag and test main's image."""
+    dockerfile = REPO_ROOT / "roles" / "homebrew" / "molecule" / "Dockerfile"
+    reads = [
+        line
+        for line in dockerfile.read_text().splitlines()
+        if re.match(r"\s*(COPY|ADD)\b", line, re.IGNORECASE)
+    ]
+    assert not reads, f"extend image-tag.sh to hash these inputs too: {reads}"

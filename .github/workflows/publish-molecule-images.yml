@@ -42,13 +42,12 @@ jobs:
         run: echo "value=$(roles/homebrew/molecule/image-tag.sh)" >> "$GITHUB_OUTPUT"
 
       # The image-tag value is what tests/run pulls; `sha-<short>` pins a
-      # regression to the publishing commit while debugging.
+      # regression to the publishing commit (via MOLECULE_HOMEBREW_IMAGE).
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ steps.owner.outputs.value }}/dotfiles-homebrew-molecule
           tags: |
-            type=raw,value=latest
             type=raw,value=${{ steps.image-tag.outputs.value }}
             type=sha,format=short
 

@@ -123,14 +123,22 @@ HOMEBREW_IMAGE_DIR = REPO_ROOT / "roles" / "homebrew" / "molecule"
 
 
 def published_homebrew_image() -> str | None:
-    """The published image built from this checkout's Dockerfile, or None when
-    MOLECULE_HOMEBREW_IMAGE_REPO (set by CI) is unset."""
+    """The published image to pull, or None to build locally.
+    MOLECULE_HOMEBREW_IMAGE (a full ref, e.g. a `sha-<short>` tag while
+    debugging) wins; otherwise MOLECULE_HOMEBREW_IMAGE_REPO (set by CI) at
+    this checkout's Dockerfile tag. A tag-script failure warns and builds."""
+    if image := os.environ.get("MOLECULE_HOMEBREW_IMAGE", "").strip():
+        return image
     repo = os.environ.get("MOLECULE_HOMEBREW_IMAGE_REPO", "").strip()
     if not repo:
         return None
-    tag = subprocess.check_output(
-        [HOMEBREW_IMAGE_DIR / "image-tag.sh"], text=True
-    ).strip()
+    try:
+        tag = subprocess.check_output(
+            [HOMEBREW_IMAGE_DIR / "image-tag.sh"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as e:
+        warn(f"molecule: can't compute the homebrew image tag ({e})")
+        return None
     return f"{repo}:{tag}"
 
 
@@ -160,7 +168,7 @@ def prepare_homebrew_image() -> None:
             "build",
             "-t",
             "dotfiles-homebrew-molecule:local",
-            "roles/homebrew/molecule/",
+            str(HOMEBREW_IMAGE_DIR),
         ],
         cwd=REPO_ROOT,
     )
@@ -183,8 +191,7 @@ def molecule_scenarios(role: str) -> list[Path]:
 
 def molecule_role_suites(role: str) -> list[Suite]:
     """One suite per scenario under roles/<role>/molecule/. Scenario instance
-    names are unique, so their containers can run side by side. This and
-    molecule_role_images are the only places that know homebrew's image."""
+    names are unique, so their containers can run side by side."""
     return [
         Suite(
             name=f"molecule:{role}/{scenario.name}",
@@ -202,7 +209,7 @@ def molecule_role_images(role: str) -> list[str]:
         m.group(1)
         for scenario in molecule_scenarios(role)
         for m in re.finditer(
-            r"^\s+image:\s*(\S+@sha256:[0-9a-f]+)",
+            r"^\s+image:\s*[\"']?([^\"'\s]+@sha256:[0-9a-f]+)",
             (scenario / "molecule.yml").read_text(),
             re.MULTILINE,
         )

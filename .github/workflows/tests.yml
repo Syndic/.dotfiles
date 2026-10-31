@@ -102,6 +102,8 @@ jobs:
           ansible-galaxy collection install -r requirements.yml
           ansible-galaxy collection install -r requirements-dev.yml
       - run: ./tests/run molecule ${{ matrix.role }}
+      - if: always()
+        run: cat "$RUNNER_TEMP/pull.log"
 
   molecule-all:
     # Aggregator: collapses the `molecule (<role>)` shards into one stable
