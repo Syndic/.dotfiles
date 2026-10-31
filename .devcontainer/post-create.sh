@@ -12,7 +12,7 @@ set -euo pipefail
 
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
 # renovate: datasource=python-version depName=python
-tooling_python='3.14'
+tooling_python='3.15'
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
