@@ -162,6 +162,27 @@ def _renovate_config() -> dict:
     return json.loads((REPO_ROOT / "renovate.json").read_text())
 
 
+_CATCH_ALL_GROUP = "all non-major dependencies"
+
+
+def _matches_minor_or_patch(rule: dict) -> bool:
+    """No `matchUpdateTypes` means the rule matches every update type."""
+    types = rule.get("matchUpdateTypes")
+    return types is None or bool({"minor", "patch"} & set(types))
+
+
+def _catch_all_index(rules: list) -> int:
+    """The minor/patch catch-all, keyed on its groupName: the base-image digest
+    rule shares that groupName but matches only digests."""
+    matches = [
+        i
+        for i, r in enumerate(rules)
+        if r.get("groupName") == _CATCH_ALL_GROUP and _matches_minor_or_patch(r)
+    ]
+    assert len(matches) == 1, f"expected exactly one minor/patch catch-all, found {len(matches)}"
+    return matches[0]
+
+
 # `uses: owner/repo[/path]@<40-hex sha> # v<major>.<minor>.<patch>`. The version
 # comment is what Renovate reads to compute the next update, so all three
 # components are required — see the assertion's docstring.
@@ -241,17 +262,14 @@ def test_renovate_exempts_the_floating_cross_repo_action() -> None:
 
 def test_renovate_batches_non_major_updates_in_one_group() -> None:
     """The catch-all that collapses routine minor/patch bumps into a single
-    PR. Identified by its matcher, not its groupName — the base-image digest
-    rule shares the groupName to land in the same batch (see that test). See
-    CLAUDE.md "Dependency updates" for why the axis is update type, and why
-    digest is excluded from the catch-all by default (a moving digest on an
+    PR. See CLAUDE.md "Dependency updates" for why the axis is update type, and
+    why digest is excluded from the catch-all by default (a moving digest on an
     immutable version tag is a re-tag — a supply-chain signal that deserves
     its own PR)."""
     rules = _renovate_config()["packageRules"]
-    catch_all = [rule for rule in rules if rule.get("matchUpdateTypes") == ["minor", "patch"]]
+    catch_all = rules[_catch_all_index(rules)]
 
-    assert len(catch_all) == 1, "expected exactly one minor/patch catch-all rule"
-    assert catch_all[0]["groupName"] == "all non-major dependencies"
+    assert sorted(catch_all.get("matchUpdateTypes", [])) == ["minor", "patch"]
 
 
 def test_renovate_batches_floating_base_image_digests() -> None:
@@ -267,7 +285,7 @@ def test_renovate_batches_floating_base_image_digests() -> None:
         rule
         for rule in rules
         if rule.get("matchUpdateTypes") == ["digest"]
-        and rule.get("groupName") == "all non-major dependencies"
+        and rule.get("groupName") == _CATCH_ALL_GROUP
     ]
 
     assert len(digest_rules) == 1, "expected exactly one base-image digest-batching rule"
@@ -442,35 +460,30 @@ def test_molecule_images_pin_index_not_child_digest() -> None:
     assert checked, "no digest-pinned molecule images were checked — did the layout move?"
 
 
-_CATCH_ALL_GROUP = "all non-major dependencies"
-
-
 def _is_carve_out(rule: dict) -> bool:
     """A grouping rule the catch-all would overwrite if it came first."""
     if rule.get("groupName") in (None, _CATCH_ALL_GROUP):
         return False
-    types = rule.get("matchUpdateTypes")
-    return types is None or bool({"minor", "patch"} & set(types))
+    return _matches_minor_or_patch(rule)
 
 
 def _misordered_carve_outs(rules: list) -> list:
-    """Carve-outs placed ahead of the catch-all. Raises when there is no
-    catch-all or no carve-out, since `[]` would then be a pass that checked
-    nothing."""
-    catch_all = [i for i, r in enumerate(rules) if r.get("matchUpdateTypes") == ["minor", "patch"]]
-    if len(catch_all) != 1:
-        raise AssertionError(f"expected exactly one minor/patch catch-all, found {len(catch_all)}")
-    carve_outs = [i for i, r in enumerate(rules) if _is_carve_out(r)]
-    if not carve_outs:
-        raise AssertionError("no carve-out from the catch-all, so there is nothing to order")
-    return [rules[i]["groupName"] for i in carve_outs if i < catch_all[0]]
+    """Carve-outs placed ahead of the catch-all."""
+    catch_all = _catch_all_index(rules)
+    return [r["groupName"] for r in rules[:catch_all] if _is_carve_out(r)]
 
 
 def test_renovate_carve_outs_follow_the_catch_all() -> None:
     """Last matching rule wins, so a carve-out ahead of the catch-all is
     overwritten by it and its updates go silently back into the batch. See
     CLAUDE.md "Dependency updates"."""
-    assert _misordered_carve_outs(_renovate_config()["packageRules"]) == []
+    misordered = _misordered_carve_outs(_renovate_config()["packageRules"])
+
+    assert misordered == [], (
+        f"{misordered} sit ahead of the catch-all, which overrides them for minor/patch "
+        "updates. Move a carve-out after it. A rule that should group only majors and "
+        "leave minor/patch to the batch says so with `matchUpdateTypes: [\"major\"]`."
+    )
 
 
 def test_renovate_carves_python_minors_out_of_the_batch() -> None:
@@ -518,25 +531,30 @@ _LATE_MINOR = {"matchUpdateTypes": ["minor"], "groupName": "late"}
             [],
             id="joining-the-batch-is-not-a-carve-out",
         ),
+        pytest.param(
+            [_CATCH_ALL_RULE, {"matchManagers": ["x"], "pinDigests": False}],
+            [],
+            id="no-carve-out",
+        ),
+        pytest.param(
+            [{"matchUpdateTypes": ["patch", "minor"], "groupName": _CATCH_ALL_GROUP}, _LATE_MINOR],
+            [],
+            id="catch-all-types-in-any-order",
+        ),
+        pytest.param(
+            [_CATCH_ALL_RULE, {"matchUpdateTypes": ["minor", "patch"], "groupName": "late"}],
+            [],
+            id="minor-and-patch-carve-out-is-not-a-catch-all",
+        ),
     ],
 )
 def test_misordered_carve_outs(rules: list, expected: list) -> None:
     assert _misordered_carve_outs(rules) == expected
 
 
-@pytest.mark.parametrize(
-    "rules",
-    [
-        pytest.param([_LATE_MINOR], id="no-catch-all"),
-        pytest.param(
-            [_CATCH_ALL_RULE, {"matchManagers": ["x"], "pinDigests": False}],
-            id="nothing-to-order",
-        ),
-    ],
-)
-def test_misordered_carve_outs_refuses_a_vacuous_pass(rules: list) -> None:
+def test_misordered_carve_outs_requires_a_catch_all() -> None:
     with pytest.raises(AssertionError):
-        _misordered_carve_outs(rules)
+        _misordered_carve_outs([_LATE_MINOR])
 
 
 def test_renovate_catch_all_does_not_group_majors() -> None:

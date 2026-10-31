@@ -1046,11 +1046,13 @@ Two things about the rule are load-bearing:
   matching rules in order, last writer wins, and preset rules from
   `config:recommended` merge in *ahead* of the repo's own. So the catch-all
   overrides every grouping rule before it — that's how it swallows preset
-  groups into the batch — and is overridden by every rule after it. The
-  only rules allowed after it are **carve-outs**: grouping rules that
-  deliberately pull a subset of minor/patch updates back out (today, Python
-  minors — below). A carve-out placed ahead of the catch-all is silently
-  inert. `test_renovate_carve_outs_follow_the_catch_all` selects rules by
+  groups into the batch — and is overridden by every rule after it. A
+  grouping rule that can match minor or patch and sits after the catch-all
+  is a **carve-out**: it deliberately pulls those updates back out of the
+  batch (today, Python minors — below). Every carve-out must come after the
+  catch-all; one placed ahead of it is silently inert. Rules that set no
+  `groupName` (`enabled`, `allowedVersions`, …) can go anywhere.
+  `test_renovate_carve_outs_follow_the_catch_all` selects rules by
   shape (sets a `groupName`, can match `minor` or `patch` — no
   `matchUpdateTypes` counts as matching everything), so a new carve-out is
   covered without editing the test.
