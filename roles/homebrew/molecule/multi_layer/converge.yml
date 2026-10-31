@@ -83,20 +83,12 @@
             binary "bin/molecule-fixture"
           end
 
-    - name: Check whether this Homebrew has tap trust
-      ansible.builtin.command:
-        cmd: brew help trust
-      register: homebrew_fixture_has_trust
-      changed_when: false
-      failed_when: false
-
     # Homebrew 7 refuses casks from an untrusted non-official tap.
     - name: Trust the fixture tap
       ansible.builtin.command:
         cmd: brew trust --tap dotfiles/fixtures
       register: homebrew_fixture_trust
       changed_when: homebrew_fixture_trust.stdout is search('^Trusted')
-      when: homebrew_fixture_has_trust.rc == 0
 
     - name: Write per-layer Brewfile fixtures
       ansible.builtin.copy:

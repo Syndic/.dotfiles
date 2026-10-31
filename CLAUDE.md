@@ -877,7 +877,7 @@ What each scenario covers:
   installs a cask from a local tap whose archive is a `file://` URL, so the
   cask path (install, `brew bundle check`, idempotent re-run) is covered on
   Linuxbrew with no network. It runs with `HOMEBREW_NO_AUTO_UPDATE` (production
-  updates in `phase2.py` first) and trusts the tap only when that Homebrew has
+  updates in `phase2.py` first), so it needs the image's Homebrew to have
   `brew trust`.
 - **`gates/`** — two converges in one play file against a single
   container. First play (`homebrew_upgrade_outdated: true`, default)
