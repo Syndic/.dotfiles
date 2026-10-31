@@ -43,7 +43,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           # renovate: datasource=python-version depName=python
-          python-version: '3.14'
+          python-version: '3.15'
       - run: pip install -r lint-requirements.txt
       - run: ansible-galaxy collection install -r requirements.yml
       - run: yamllint .
@@ -80,7 +80,7 @@ jobs:
           # same interpreter. Renovate keeps this in step via the customManager
           # in renovate.json.
           # renovate: datasource=python-version depName=python
-          python-version: '3.14'
+          python-version: '3.15'
       - run: pip install -r molecule-requirements.txt
       # Every collection is version-pinned, so the requirements files' hash
       # fully determines the cache contents; a hit skips Galaxy entirely.
