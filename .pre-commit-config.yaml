@@ -19,20 +19,23 @@ repos:
         pass_filenames: false
         files: ^\.devcontainer/devcontainer(-lock)?\.json$
 
-  - repo: https://github.com/adrienverge/yamllint
-    rev: v1.38.0
-    hooks:
+      # Lint hooks run the ~/.venv-ansible binaries, so lint-requirements.txt
+      # is their only pin — see CLAUDE.md "Lint".
       - id: yamllint
+        name: yamllint
+        entry: yamllint
+        language: system
+        types: [yaml]
         args: [--strict]
 
-  # ansible-lint config in .ansible-lint; collections picked up from
-  # ~/.ansible/collections (post-create.sh / phase2.py installs them).
-  # `files:` gates on Ansible inputs; `pass_filenames: false` keeps the
-  # actual run whole-repo so cross-file findings still surface.
-  - repo: https://github.com/ansible/ansible-lint
-    rev: v26.4.0
-    hooks:
+      # ansible-lint config in .ansible-lint; collections picked up from
+      # ~/.ansible/collections (post-create.sh / phase2.py installs them).
+      # `files:` gates on Ansible inputs; `pass_filenames: false` keeps the
+      # actual run whole-repo so cross-file findings still surface.
       - id: ansible-lint
+        name: ansible-lint
+        entry: ansible-lint
+        language: system
         pass_filenames: false
         # (?x) = verbose regex; wraps under yamllint's 120-char limit.
         # Root-level .yml/.yaml without a leading dot catches new top-level
