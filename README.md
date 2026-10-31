@@ -32,7 +32,7 @@ Opt-in flags broaden the teardown:
 
 | Flag | Effect |
 |------|--------|
-| `--brew-packages` | Uninstall packages listed in the layered Brewfiles. |
+| `--brew-packages` | Uninstall packages listed in the layered Brewfiles. On macOS this includes the Claude desktop app (`cask "claude"`), which is quit first — even a copy you installed yourself, since install adopts it. |
 | `--apt-packages` | Uninstall apt packages from the layered apt lists (Linux). |
 | `--flatpak-packages` | Uninstall flatpaks from the layered lists (Linux). |
 | `--ansible` | `brew uninstall ansible`. |

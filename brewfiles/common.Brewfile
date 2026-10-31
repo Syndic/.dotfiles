@@ -13,8 +13,8 @@ brew "zsh-completions"
 # Fish shell like syntax highlighting for zsh
 brew "zsh-syntax-highlighting"
 
-# Claude Code CLI. This cask ships Linux builds, so Linuxbrew installs it too.
+# Claude Code CLI
 cask "claude-code"
 
-# Most casks are macOS-only and go in brewfiles/groups/macos.Brewfile. A cask
-# belongs here only if it ships Linux builds (its source has an `os linux:`).
+# Most casks are macOS-only and go in brewfiles/groups/macos.Brewfile; one here
+# must ship Linux builds (tests/python/test_brewfile_casks.py checks).
