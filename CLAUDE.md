@@ -812,8 +812,9 @@ scenarios' containers collide. Each shard's first step after setup-python
 backgrounds `./tests/run pull <role>`, which pulls every digest-pinned
 `image:` in the role's scenarios (plus homebrew's published base) so the
 pulls overlap the pip and Galaxy installs instead of landing inside
-molecule's `create`. Best-effort: its log goes to `$RUNNER_TEMP`, and a
-failed or unfinished pull just leaves molecule to pull as before.
+molecule's `create`. Best-effort: its log is printed at the end of the
+job, and a failed or unfinished pull just leaves molecule to pull as
+before.
 The roles list is duplicated
 in two places — `MOLECULE_ROLES` in `tests/run` for local runs, and
 `matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
@@ -873,9 +874,7 @@ in brew's `os.rb` — Ubuntu 24.04's today). Below it, brew installs its own
 *every* formula. On bookworm (glibc 2.36) that was ~620MB of Cellar,
 doubling the image to 731MB compressed and making the pull the biggest
 fixed cost in the homebrew shard. trixie (2.41) clears the baseline, and
-`brew deps <formula>` comes back empty for the scenarios' formulae. The
-Dockerfile also drops brew's downloaded bottles, keeping the cache's
-`api/` so scenarios don't re-fetch the formula index.
+`brew deps <formula>` comes back empty for the scenarios' formulae.
 
 What each scenario covers:
 
@@ -925,11 +924,13 @@ tagged `dotfiles-homebrew-molecule:local`, which every scenario's
   prints: `dockerfile-<first 12 hex of the Dockerfile's sha256>`. The
   published image is built + pushed by
   `.github/workflows/publish-molecule-images.yml` under that same tag (via
-  the same script, plus `latest` and `sha-<short>`) on pushes to `main`
+  the same script, plus `sha-<short>`) on pushes to `main`
   that touch the Dockerfile, **plus a monthly `schedule:` rebuild** that
   bounds base-image staleness so the gates scenario's upgrade path
   doesn't accumulate `brew upgrade` work as the baked formulae drift
-  from live upstream.
+  from live upstream. `MOLECULE_HOMEBREW_IMAGE` (a full ref) overrides
+  both the repo and the computed tag, e.g. to pull a `sha-<short>` build
+  while bisecting a regression.
 - **Local `docker build`** otherwise (no env var) or as a fallback when
   the pull fails (registry hiccup, or no image published for this
   Dockerfile yet).
