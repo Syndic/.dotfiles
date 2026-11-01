@@ -11,7 +11,7 @@ driver:
 platforms:
   - name: flatpak-empty-groups
     # renovate: datasource=docker depName=geerlingguy/docker-debian12-ansible
-    image: geerlingguy/docker-debian12-ansible:latest@sha256:065397d339c9fe52011f0626fa187afb290038ce4b2162de69d36ad55332ff50
+    image: geerlingguy/docker-debian12-ansible:latest@sha256:e365f7f43a95b8bd31b4ed25da1a4e3a5ae576151c4df67cf51776e696644e4e
     pre_build_image: true
     privileged: true
     cgroupns_mode: host
