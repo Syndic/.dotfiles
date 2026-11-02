@@ -684,10 +684,13 @@ def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
 
 def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
     """Every setup-uv `version:` in tests.yml equals the devcontainer's uv
-    tag, and the Renovate customManager matches each one (an unmatched pin
-    would freeze). See CLAUDE.md "Python 3.9 pin"."""
-    tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
+    tag and has exactly one Renovate owner: a docker customManager, with the
+    github-actions manager's own extraction of it disabled (two owners can
+    bump it at different times). See CLAUDE.md "Python 3.9 pin"."""
+    tests_yml_path = ".github/workflows/tests.yml"
+    tests_yml = (REPO_ROOT / tests_yml_path).read_text()
     dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text()
+    config = _renovate_config()
 
     devcontainer_uv = re.search(r"ghcr\.io/astral-sh/uv:([^@\s]+)@", dockerfile)
     assert devcontainer_uv, "devcontainer no longer COPYs uv from ghcr.io/astral-sh/uv"
@@ -695,13 +698,24 @@ def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
     setup_uv_steps = tests_yml.count("uses: astral-sh/setup-uv@")
     assert setup_uv_steps, "tests.yml no longer uses setup-uv"
 
-    manager = next(
-        m for m in _renovate_config()["customManagers"] if "setup-uv" in m["description"]
-    )
-    pattern = re.compile(manager["matchStrings"][0].replace("(?<", "(?P<"))
-    pins = [m.groupdict() for m in pattern.finditer(tests_yml)]
+    pins = []
+    for manager in config["customManagers"]:
+        if not any(re.search(p.strip("/"), tests_yml_path) for p in manager["managerFilePatterns"]):
+            continue
+        for match_string in manager["matchStrings"]:
+            for m in re.finditer(match_string.replace("(?<", "(?P<"), tests_yml):
+                if m.group("depName") == "ghcr.io/astral-sh/uv":
+                    pins.append((manager, m.groupdict()))
 
     assert len(pins) == setup_uv_steps, "a setup-uv step lacks a tracked `version:` pin"
-    for pin in pins:
-        assert pin["depName"] == "ghcr.io/astral-sh/uv"
+    for manager, pin in pins:
+        assert pin["datasource"] == "docker"
+        assert manager.get("versioningTemplate") == "docker"
         assert pin["currentValue"] == devcontainer_uv.group(1)
+
+    assert any(
+        rule.get("enabled") is False
+        and rule.get("matchManagers") == ["github-actions"]
+        and rule.get("matchPackageNames") == ["astral-sh/uv"]
+        for rule in config["packageRules"]
+    ), "the github-actions manager must not also track setup-uv's version"
