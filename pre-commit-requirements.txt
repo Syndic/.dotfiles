@@ -1,0 +1,5 @@
+# pre-commit for the `~/.venv-ansible` devcontainer venv (post-create.sh).
+# Every hook is `language: system`, so pre-commit builds no hook envs and only
+# needs to sit beside the tools they run. Pinned and Renovate-managed — see
+# CLAUDE.md "Dependency updates".
+pre-commit==4.7.0

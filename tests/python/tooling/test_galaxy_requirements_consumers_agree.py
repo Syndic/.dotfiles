@@ -131,9 +131,7 @@ def test_every_pip_requirement_is_pinned() -> None:
 def test_consumers_install_pip_tooling_from_requirements_files() -> None:
     # Every pip install in the devcontainer and CI must go through a pinned
     # requirements file (`-r`), never bare package names — that's what keeps
-    # the pins authoritative. Inline `uv tool install pre-commit==X` is not a
-    # `pip install`, so it's out of scope here (pinned + Renovate-managed via
-    # the customManager in renovate.json).
+    # the pins authoritative.
     for path in (POST_CREATE, TESTS_YML):
         for line in _pip_install_lines(path):
             assert "-r " in line, (

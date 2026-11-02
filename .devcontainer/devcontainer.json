@@ -40,9 +40,9 @@
   "containerEnv": {
     "SSH_AUTH_SOCK": "/run/host-services/ssh-auth.sock"
   },
-  // PATH for the three uv venvs post-create.sh builds. Keep in sync with that file.
+  // PATH for the two uv venvs post-create.sh builds. Keep in sync with that file.
   "remoteEnv": {
-    "PATH": "/home/vscode/.venv/bin:/home/vscode/.venv-ansible/bin:/home/vscode/.local/bin:${containerEnv:PATH}"
+    "PATH": "/home/vscode/.venv/bin:/home/vscode/.venv-ansible/bin:${containerEnv:PATH}"
   },
   "customizations": {
     "vscode": {

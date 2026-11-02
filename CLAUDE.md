@@ -417,27 +417,27 @@ of the old startup time; the feature compiled both interpreters every build).
 uv is baked into the image in `.devcontainer/Dockerfile`
 (`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
 
-`post-create.sh` builds three venvs in parallel: `~/.venv` (the frozen 3.9.6 —
-the runtime pytest run + the default `python3` on PATH), `~/.venv-ansible`
-(`tooling_python` — the Ansible dev stack, `ansible-core`, `ansible-lint`,
-`molecule`, the docker driver, all in one venv so they share a single
-ansible-core, since a second copy is what produced the duplicate-version
-warnings, #46/#48; plus pytest for the tooling run), and a
-`uv tool` venv for `pre-commit`. The Ansible stack is a plain venv rather than
-`uv tool` because only a venv exposes every package's entry points
-(`ansible-playbook`, `ansible-galaxy`, `ansible-lint`, `molecule`); `uv tool`
-exposes the primary package's scripts only. Their bin dirs are put on PATH via
+`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv`
+(the frozen 3.9.6 — the runtime pytest run + the default `python3` on PATH) and
+`~/.venv-ansible` (`tooling_python` — everything else: the Ansible dev stack,
+`ansible-core`, `ansible-lint`, `molecule`, the docker driver, all in one venv
+so they share a single ansible-core, since a second copy is what produced the
+duplicate-version warnings, #46/#48; plus pytest for the tooling run and
+`pre-commit`). Both are plain venvs rather than `uv tool` installs because only
+a venv exposes every package's entry points (`ansible-playbook`,
+`ansible-galaxy`, `ansible-lint`, `molecule`) and installs from a requirements
+file. pre-commit can share the tooling venv because every hook is `language:
+system` — it builds no hook environments, and its hooks' `python3` still
+resolves to the frozen 3.9.6 through PATH. Their bin dirs are put on PATH via
 `remoteEnv` in `devcontainer.json` — keep that layout and `post-create.sh` in
 step.
 
 Package versions come from pinned `*-requirements.txt` files at the repo root
-(`test-` for `~/.venv`, `lint-` + `molecule-` + `tooling-test-` for
-`~/.venv-ansible`), which the
-matching CI jobs in `tests.yml` install from too — one pinned source per
-tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
-`uv tool install` reads no requirements file, so it's pinned inline
-(`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
-"Dependency updates".
+(`test-` for `~/.venv`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
+for `~/.venv-ansible`), which the matching CI jobs in `tests.yml` install from
+too — one pinned source per tooling set, shared between devcontainer and CI
+(`pre-commit-requirements.txt` has no CI consumer; CI runs the hooks' tools
+directly). All are Renovate-managed — see "Dependency updates".
 
 CI installs them with uv too: each Python job in `tests.yml` runs one shared
 `astral-sh/setup-uv` step (a YAML anchor) and `uv pip install --system -r …`
@@ -477,8 +477,7 @@ needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 `3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
 `tooling_python`, matching only the annotated assignment so the frozen 3.9.6 in
 the same file is never touched; a second keeping every annotated
-`python-version` in tests.yml — the tooling-Python jobs — in step; and a third
-for `pre_commit_version`).
+`python-version` in tests.yml — the tooling-Python jobs — in step).
 The frozen 3.9.6 lives in a plain `uv venv --python 3.9.6` line that no Renovate
 manager matches, so it stays put without a disable rule.
 
@@ -1105,9 +1104,9 @@ with no clean way to pin a formula to an arbitrary version, so the Brewfiles
 carry no pins by tooling constraint, not by preference — don't generalize that
 to anything else.
 
-Pip tooling (`test-`/`lint-`/`molecule-requirements.txt`) is named
-`<purpose>-requirements.txt` so Renovate's built-in pip manager matches it with
-no extra config; the Galaxy files need the `ansible-galaxy` widening below
+Pip tooling (`test-`/`lint-`/`molecule-`/`tooling-test-`/
+`pre-commit-requirements.txt`) is named `<purpose>-requirements.txt` so
+Renovate's built-in pip manager matches it with no extra config; the Galaxy files need the `ansible-galaxy` widening below
 because their names don't match that manager's default. Both consumers —
 `post-create.sh` venvs and the `tests.yml` jobs — install from these files;
 `tests/python/tooling/test_galaxy_requirements_consumers_agree.py` guards that every
