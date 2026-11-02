@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 import pytest
+from molecule_images import image_lines
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -336,15 +337,10 @@ def test_renovate_custom_manager_tracks_molecule_images() -> None:
 
 def _molecule_image_lines():
     """Yield (relpath, lineno, prev_line, image_ref) for every `image:` line in
-    the molecule scenarios. Shared by the digest-pin and index-digest guards."""
+    the molecule scenarios, via the parser tests/run's pre-pull also uses."""
     for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
-        lines = scenario.read_text().splitlines()
-        for lineno, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if stripped.startswith("image:"):
-                image = stripped[len("image:") :].strip()
-                prev = lines[lineno - 2] if lineno >= 2 else ""
-                yield scenario.relative_to(REPO_ROOT), lineno, prev, image
+        for line in image_lines(scenario):
+            yield scenario.relative_to(REPO_ROOT), line.lineno, line.prev, line.ref
 
 
 def test_molecule_base_images_are_digest_pinned() -> None:
@@ -674,11 +670,13 @@ def test_host_brewfiles_live_under_brewfiles_hosts() -> None:
 def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
     """image-tag.sh hashes only the Dockerfile, so the build must read
     nothing else from its context — a COPY'd file edited in a PR would
-    otherwise keep main's tag and test main's image."""
+    otherwise keep main's tag and test main's image. Any `--mount` counts:
+    a bare one defaults to a bind of the context."""
     dockerfile = REPO_ROOT / "roles" / "homebrew" / "molecule" / "Dockerfile"
     reads = [
         line
         for line in dockerfile.read_text().splitlines()
-        if re.match(r"\s*(COPY|ADD)\b", line, re.IGNORECASE)
+        if not line.lstrip().startswith("#")
+        and (re.match(r"\s*(COPY|ADD)\b", line, re.IGNORECASE) or "--mount" in line)
     ]
     assert not reads, f"extend image-tag.sh to hash these inputs too: {reads}"

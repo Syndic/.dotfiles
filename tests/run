@@ -44,7 +44,6 @@ all three stay in step. The bootstrap's frozen 3.9.6 doesn't apply
 here; this is dev tooling.
 """
 import os
-import re
 import shutil
 import signal
 import subprocess
@@ -72,6 +71,9 @@ from _dotfiles_common import (  # noqa: E402
     run,
     warn,
 )
+
+sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
+from molecule_images import image_lines  # noqa: E402
 
 # Tunable via env. Cast at import so bad values surface immediately, not
 # partway through a parallel run.
@@ -206,13 +208,10 @@ def molecule_role_images(role: str) -> list[str]:
     """Registry images the role's scenarios will pull. Every registry pull is
     digest-pinned, so `@sha256:` tells them apart from local tags."""
     images = {
-        m.group(1)
+        line.ref
         for scenario in molecule_scenarios(role)
-        for m in re.finditer(
-            r"^\s+image:\s*[\"']?([^\"'\s]+@sha256:[0-9a-f]+)",
-            (scenario / "molecule.yml").read_text(),
-            re.MULTILINE,
-        )
+        for line in image_lines(scenario / "molecule.yml")
+        if "@sha256:" in line.ref
     }
     if role == "homebrew" and (image := published_homebrew_image()):
         images.add(image)
