@@ -686,7 +686,7 @@ def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
     """Every setup-uv `version:` in tests.yml equals the devcontainer's uv
     tag and has exactly one Renovate owner: a docker customManager, with the
     github-actions manager's own extraction of it disabled (two owners can
-    bump it at different times). See CLAUDE.md "Python 3.9 pin"."""
+    bump it at different times). See CLAUDE.md "Dependency updates"."""
     tests_yml_path = ".github/workflows/tests.yml"
     tests_yml = (REPO_ROOT / tests_yml_path).read_text()
     dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text()

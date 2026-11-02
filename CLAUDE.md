@@ -437,14 +437,11 @@ tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
 (`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
 "Dependency updates".
 
-CI installs them with uv too: each Python job in `tests.yml` adds an
-`astral-sh/setup-uv` step and runs `uv pip install --system -r …` into the
-setup-python interpreter. The `version:` there must equal the devcontainer's
-`COPY --from=ghcr.io/astral-sh/uv:<tag>`. Both pins share the depName
-`ghcr.io/astral-sh/uv`, so Renovate moves them in the same update (via a
-`customManager` for the workflow side).
-`test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it` guards both the
-agreement and the manager match. setup-uv's cache is off (`enable-cache:
+CI installs them with uv too: each Python job in `tests.yml` runs one shared
+`astral-sh/setup-uv` step (a YAML anchor) and `uv pip install --system -r …`
+into the setup-python interpreter. Its `version:` must equal the devcontainer's
+`COPY --from=ghcr.io/astral-sh/uv:<tag>`; how Renovate keeps the two together
+is under "Dependency updates". setup-uv's cache is off (`enable-cache:
 false`), because an uncached install of these pinned files already takes
 only a few seconds.
 
@@ -1048,7 +1045,8 @@ gate.
 
 **Pin everything that can be pinned; let Renovate move the versions.** Across
 the repo — devcontainer features (full `MAJOR.MINOR.PATCH`), the frozen Python,
-the uv Docker tag, base images (tag + digest), Galaxy
+uv (the devcontainer's Docker tag and CI's setup-uv `version:`), base images
+(tag + digest), Galaxy
 collections in `requirements.yml` / `requirements-dev.yml`, and pip tooling in
 `*-requirements.txt` — a dependency is pinned to an exact version and every bump
 arrives as a reviewable Renovate PR. Pinning keeps
@@ -1082,6 +1080,16 @@ would be invisible to it. The top-level `ansible-galaxy.managerFilePatterns`
 key in `renovate.json` widens the match to `requirements(-dev)?.yml`;
 `requirements.yml` stays covered either way. A pin without that widening is a
 pin nothing updates — the trap the file's own header warns about.
+
+**The uv pin has one Renovate owner.** The devcontainer's `COPY
+--from=ghcr.io/astral-sh/uv` and CI's setup-uv `version:` share the docker
+depName `ghcr.io/astral-sh/uv` (the workflow side via a `customManager`), so
+one update moves both. The github-actions manager would also track the
+setup-uv input on its own, through github-releases `astral-sh/uv`; a
+`packageRule` disables that, because uv's GitHub release lands before its ghcr
+image, and a run in that gap would bump the CI pin alone.
+`test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it` guards the
+agreement, the single owner, and the disable rule.
 
 Grouping is by **update type, not by manager**. Manager is the wrong axis:
 what decides whether a bump is safe to merge is how far it moves the
