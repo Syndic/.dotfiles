@@ -23,6 +23,12 @@
       "enabled": false
     },
     {
+      "description": "Disable the github-actions manager's built-in extraction of setup-uv's `version:` (github-releases astral-sh/uv); the docker customManager owns that pin. See CLAUDE.md's 'Dependency updates' section.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["astral-sh/uv"],
+      "enabled": false
+    },
+    {
       "description": "Keep the cross-repo commit-file-via-app action floating on @main; helpers:pinGitHubActionDigestsToSemver would otherwise SHA-pin it. Deliberate — see CLAUDE.md's 'Devcontainer lock regeneration' section.",
       "matchPackageNames": ["Syndic/unnatural_designs"],
       "pinDigests": false
@@ -101,6 +107,15 @@
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*python-version: '(?<currentValue>[^']+)'"
       ],
       "versioningTemplate": "python"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep CI's setup-uv `version:` pin (tests.yml) in step with the devcontainer's uv image. See CLAUDE.md's 'Dependency updates' section.",
+      "managerFilePatterns": ["/^\\.github/workflows/tests\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*version: '(?<currentValue>[^']+)'"
+      ],
+      "versioningTemplate": "docker"
     },
     {
       "customType": "regex",

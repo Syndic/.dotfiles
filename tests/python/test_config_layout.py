@@ -414,7 +414,7 @@ def test_molecule_ci_prepulls_images_before_the_installs() -> None:
     install it overlaps. See CLAUDE.md "Tests"."""
     tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
     pull = tests_yml.find("- run: ./tests/run pull ${{ matrix.role }}")
-    install = tests_yml.find("- run: pip install -r molecule-requirements.txt")
+    install = tests_yml.find("- run: uv pip install --system -r molecule-requirements.txt")
     assert pull != -1, "molecule job no longer pre-pulls images"
     assert install != -1, "molecule job's pip install step moved"
     assert pull < install
@@ -680,3 +680,42 @@ def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
         and (re.match(r"\s*(COPY|ADD)\b", line, re.IGNORECASE) or "--mount" in line)
     ]
     assert not reads, f"extend image-tag.sh to hash these inputs too: {reads}"
+
+
+def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
+    """Every setup-uv `version:` in tests.yml equals the devcontainer's uv
+    tag and has exactly one Renovate owner: a docker customManager, with the
+    github-actions manager's own extraction of it disabled (two owners can
+    bump it at different times). See CLAUDE.md "Dependency updates"."""
+    tests_yml_path = ".github/workflows/tests.yml"
+    tests_yml = (REPO_ROOT / tests_yml_path).read_text()
+    dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text()
+    config = _renovate_config()
+
+    devcontainer_uv = re.search(r"ghcr\.io/astral-sh/uv:([^@\s]+)@", dockerfile)
+    assert devcontainer_uv, "devcontainer no longer COPYs uv from ghcr.io/astral-sh/uv"
+
+    setup_uv_steps = tests_yml.count("uses: astral-sh/setup-uv@")
+    assert setup_uv_steps, "tests.yml no longer uses setup-uv"
+
+    pins = []
+    for manager in config["customManagers"]:
+        if not any(re.search(p.strip("/"), tests_yml_path) for p in manager["managerFilePatterns"]):
+            continue
+        for match_string in manager["matchStrings"]:
+            for m in re.finditer(match_string.replace("(?<", "(?P<"), tests_yml):
+                if m.group("depName") == "ghcr.io/astral-sh/uv":
+                    pins.append((manager, m.groupdict()))
+
+    assert len(pins) == setup_uv_steps, "a setup-uv step lacks a tracked `version:` pin"
+    for manager, pin in pins:
+        assert pin["datasource"] == "docker"
+        assert manager.get("versioningTemplate") == "docker"
+        assert pin["currentValue"] == devcontainer_uv.group(1)
+
+    assert any(
+        rule.get("enabled") is False
+        and rule.get("matchManagers") == ["github-actions"]
+        and rule.get("matchPackageNames") == ["astral-sh/uv"]
+        for rule in config["packageRules"]
+    ), "the github-actions manager must not also track setup-uv's version"
