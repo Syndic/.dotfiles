@@ -10,7 +10,7 @@
     {
       "name": "unnatural-designs-agent-tools",
       "source": "./",
-      "description": "Machine-scoped workflow skills: branch upkeep and post-session cleanup."
+      "description": "Machine-scoped workflow skills: reviewed implementation, branch upkeep, and post-session cleanup."
     }
   ]
 }

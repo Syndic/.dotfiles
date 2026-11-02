@@ -13,6 +13,10 @@ unchanged.
 
 ## Skills
 
+- **`implement-work-item`**: implements a triaged work item. It stops to ask about any
+  ambiguity before coding, opens a PR, then iterates with a separate review session running
+  `/code-review --comment` until both agree, bringing disagreements to the user. It ends with a
+  per-file summary for the merge review. User-invoked only (`disable-model-invocation`).
 - **`rebase-branch-on-origin-main`**: rebases the current branch onto `origin/main`, checks
   that commits are still signed, then force-pushes with lease.
 - **`dev-cleanup`**: reaps what archived sessions leave behind, across the whole machine. It is
