@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 import pytest
+from molecule_images import image_lines
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -336,15 +337,10 @@ def test_renovate_custom_manager_tracks_molecule_images() -> None:
 
 def _molecule_image_lines():
     """Yield (relpath, lineno, prev_line, image_ref) for every `image:` line in
-    the molecule scenarios. Shared by the digest-pin and index-digest guards."""
+    the molecule scenarios, via the parser tests/run's pre-pull also uses."""
     for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
-        lines = scenario.read_text().splitlines()
-        for lineno, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if stripped.startswith("image:"):
-                image = stripped[len("image:") :].strip()
-                prev = lines[lineno - 2] if lineno >= 2 else ""
-                yield scenario.relative_to(REPO_ROOT), lineno, prev, image
+        for line in image_lines(scenario):
+            yield scenario.relative_to(REPO_ROOT), line.lineno, line.prev, line.ref
 
 
 def test_molecule_base_images_are_digest_pinned() -> None:
@@ -387,6 +383,43 @@ def test_molecule_platform_names_are_unique_across_scenarios() -> None:
             owners.setdefault(name, []).append(str(rel))
     dupes = {n: paths for n, paths in owners.items() if len(paths) > 1}
     assert not dupes, f"platform names shared across scenarios: {dupes}"
+
+
+def test_ci_pulls_the_homebrew_image_tag_the_publish_workflow_pushes() -> None:
+    """tests/run pulls MOLECULE_HOMEBREW_IMAGE_REPO at image-tag.sh's tag, so
+    the publish workflow must push that repo under that tag. See CLAUDE.md
+    "Homebrew molecule scenarios"."""
+    workflows = REPO_ROOT / ".github" / "workflows"
+    tests_yml = (workflows / "tests.yml").read_text()
+    publish = (workflows / "publish-molecule-images.yml").read_text()
+
+    repo = re.search(r"MOLECULE_HOMEBREW_IMAGE_REPO:\s*(\S+)", tests_yml)
+    assert repo, "tests.yml no longer sets MOLECULE_HOMEBREW_IMAGE_REPO"
+    repo = repo.group(1)
+    # tests/run appends the tag; one here would produce `repo:tag:tag`.
+    assert ":" not in repo.rsplit("/", 1)[-1], f"repo carries a tag: {repo}"
+
+    images = re.search(r"images:[ \t]*(.+)$", publish, re.MULTILINE)
+    assert images, "publish workflow has no metadata-action `images:`"
+    owner = repo.split("/")[1]
+    published = images.group(1).strip().replace("${{ steps.owner.outputs.value }}", owner)
+    assert published == repo
+
+    assert "roles/homebrew/molecule/image-tag.sh" in publish
+    assert "type=raw,value=${{ steps.image-tag.outputs.value }}" in publish
+
+
+def test_molecule_ci_prepulls_images_before_the_installs() -> None:
+    """The background pull only saves time if it starts before the pip
+    install it overlaps. See CLAUDE.md "Tests"."""
+    tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
+    pull = tests_yml.find("- run: ./tests/run pull ${{ matrix.role }}")
+    install = tests_yml.find("- run: pip install -r molecule-requirements.txt")
+    assert pull != -1, "molecule job no longer pre-pulls images"
+    assert install != -1, "molecule job's pip install step moved"
+    assert pull < install
+    pull_line = tests_yml[pull:].splitlines()[0]
+    assert pull_line.rstrip().endswith("&"), "pre-pull must run in the background"
 
 
 # Manifest media types: a multi-platform *index* (manifest list) vs a
@@ -632,3 +665,18 @@ def test_host_brewfiles_live_under_brewfiles_hosts() -> None:
             f'host_brewfile: "{{{{ playbook_dir }}}}/brewfiles/hosts/{host_name}.Brewfile"'
             in host_vars_text
         )
+
+
+def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
+    """image-tag.sh hashes only the Dockerfile, so the build must read
+    nothing else from its context — a COPY'd file edited in a PR would
+    otherwise keep main's tag and test main's image. Any `--mount` counts:
+    a bare one defaults to a bind of the context."""
+    dockerfile = REPO_ROOT / "roles" / "homebrew" / "molecule" / "Dockerfile"
+    reads = [
+        line
+        for line in dockerfile.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+        and (re.match(r"\s*(COPY|ADD)\b", line, re.IGNORECASE) or "--mount" in line)
+    ]
+    assert not reads, f"extend image-tag.sh to hash these inputs too: {reads}"
