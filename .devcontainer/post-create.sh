@@ -3,10 +3,11 @@ set -euo pipefail
 
 # Provision dev/test venvs with uv. Three parallel environments — full
 # rationale in CLAUDE.md "Python 3.9 pin":
-#   ~/.venv          frozen 3.9.6, pytest, default python3 on PATH
-#   ~/.venv-ansible  ansible-core, ansible-lint, yamllint, molecule (one venv
-#                    so they share ansible-core and avoid duplicate-collection
-#                    warnings #46/#48; plain venv exposes all entry points)
+#   ~/.venv          frozen 3.9.6, pytest (runtime run), default python3 on PATH
+#   ~/.venv-ansible  tooling_python: ansible-core, ansible-lint, yamllint,
+#                    molecule (one venv so they share ansible-core and avoid
+#                    duplicate-collection warnings #46/#48; plain venv exposes
+#                    all entry points), plus pytest for the tooling run
 #   pre-commit       uv tool venv
 # PATH wiring lives in devcontainer.json's remoteEnv — keep both in step.
 
@@ -27,10 +28,11 @@ setup_test_env() {
 
 setup_ansible_env() {
   uv venv --python "$tooling_python" "$HOME/.venv-ansible"
-  # One venv holds both the lint and molecule stacks, so install both files.
+  # One venv holds the lint, molecule, and tooling-pytest stacks.
   uv pip install --python "$HOME/.venv-ansible/bin/python" \
     -r "$repo_root/lint-requirements.txt" \
-    -r "$repo_root/molecule-requirements.txt"
+    -r "$repo_root/molecule-requirements.txt" \
+    -r "$repo_root/tooling-test-requirements.txt"
 
   # Runtime collections (mirrors phase2.install_galaxy_requirements()) plus the
   # test-only ones molecule's docker driver needs.

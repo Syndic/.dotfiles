@@ -9,16 +9,15 @@ PR #57 added the `Initialize <role>_group_layer` task on the install side
 (roles/<role>/tasks/main.yml). The uninstall siblings need the same
 guarantee.
 
-Asserted via line-matching rather than YAML parsing so the pytest venv
-doesn't need PyYAML (the test venv ships pytest + pytest-cov only —
-see .devcontainer/post-create.sh). Matches the precedent set by
+Asserted via line-matching rather than YAML parsing —
+tooling-test-requirements.txt carries no PyYAML. Matches the precedent set by
 test_homebrew_role_defaults.py."""
 
 import re
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _find_line(lines: list, pattern: str) -> int:

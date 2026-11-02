@@ -58,8 +58,8 @@ jobs:
           push: never
           # Asserts the default interpreter is still the pinned 3.9.x (this is
           # ~/.venv on PATH via remoteEnv; a bump of the frozen pin would fail
-          # here). `bats` confirms the Dockerfile apt install; `pytest`/
-          # `pre-commit`/`ansible`/`ansible-lint`/`molecule` confirm post-create.sh
+          # here). `bats` confirms the Dockerfile apt install; `pytest` (both
+          # runs)/`pre-commit`/`ansible`/`ansible-lint`/`molecule` confirm post-create.sh
           # built the uv venvs and that remoteEnv put their bin dirs on PATH.
           # `docker info` needs the docker-in-docker daemon, not just its client,
           # and the loop waits out the daemon's startup. The
@@ -73,6 +73,7 @@ jobs:
             python3 --version | grep '^Python 3\.9\.'
             bats --version
             pytest --version
+            ~/.venv-ansible/bin/python -m pytest --version
             pre-commit --version
             ansible --version
             ansible-lint --version

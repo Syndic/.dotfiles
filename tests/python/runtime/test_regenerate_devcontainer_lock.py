@@ -21,7 +21,7 @@ from regenerate_devcontainer_lock import (
     serialize,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEVCONTAINER = REPO_ROOT / ".devcontainer"
 COMMITTED_LOCK = DEVCONTAINER / "devcontainer-lock.json"
 COMMITTED_CONFIG = DEVCONTAINER / "devcontainer.json"

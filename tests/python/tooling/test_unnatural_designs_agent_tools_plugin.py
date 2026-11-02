@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_ROOT = REPO_ROOT / "unnatural-designs-agent-tools"
 SKILL_DIRS = sorted(p for p in (PLUGIN_ROOT / "skills").iterdir() if p.is_dir())
 
@@ -22,7 +22,7 @@ def _load(name: str) -> dict:
 
 
 def _frontmatter(path: Path) -> dict:
-    """Top-level `key: value` pairs of a SKILL.md frontmatter block (no PyYAML in ~/.venv)."""
+    """Top-level `key: value` pairs of a SKILL.md frontmatter block (no PyYAML in the tooling run)."""
     lines = path.read_text().splitlines()
     assert lines and lines[0] == "---", f"{path} has no frontmatter"
     end = lines.index("---", 1)

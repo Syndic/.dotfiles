@@ -3,10 +3,10 @@ import re
 from pathlib import Path
 
 import pytest
-from molecule_images import image_lines
+from tests_run import image_lines
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_site_targets_all_hosts() -> None:
@@ -560,7 +560,7 @@ def test_renovate_carves_pre_1_0_minors_out_of_the_batch() -> None:
 
 
 def _precommit_hooks() -> dict:
-    """{hook id: (repo, hook body)} by plain parse — ~/.venv has no PyYAML."""
+    """{hook id: (repo, hook body)} by plain parse — no PyYAML in the tooling run."""
     text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
     hooks = {}
     for repo_block in re.split(r"^  - repo: ", text, flags=re.MULTILINE)[1:]:

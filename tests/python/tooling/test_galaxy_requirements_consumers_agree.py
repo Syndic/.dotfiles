@@ -19,14 +19,14 @@ Galaxy collection and every pip requirement carries a version, and the
 two consumers install pip tooling from the pinned `*-requirements.txt`
 files rather than naming bare packages inline.
 
-Plain string parsing — `~/.venv` carries pytest + pytest-cov only; no
-PyYAML. See test_molecule_role_lists_agree.py for the same precedent."""
+Plain string parsing — tooling-test-requirements.txt carries no PyYAML.
+See test_molecule_role_lists_agree.py for the same precedent."""
 
 import re
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 POST_CREATE = REPO_ROOT / ".devcontainer" / "post-create.sh"
 TESTS_YML = REPO_ROOT / ".github" / "workflows" / "tests.yml"
@@ -89,7 +89,7 @@ def _pip_pins(path: Path) -> list:
 def _collection_entries(path: Path) -> list:
     """(name, pinned) for every collection entry in a requirements file.
 
-    Plain parse — the pytest venv has no PyYAML. Splitting on each
+    Plain parse — no PyYAML in the tooling run. Splitting on each
     `- name:` list item scopes any following `version:` to that entry, so
     the one-collection-per-item layout is the only assumption."""
     blocks = re.split(r"\n\s*-\s+name:", path.read_text())
