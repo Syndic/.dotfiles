@@ -9,8 +9,7 @@ PR #57 added the `Initialize <role>_group_layer` task on the install side
 (roles/<role>/tasks/main.yml). The uninstall siblings need the same
 guarantee.
 
-Asserted via line-matching rather than YAML parsing —
-tooling-test-requirements.txt carries no PyYAML. Matches the precedent set by
+Asserted via line-matching rather than YAML parsing, matching
 test_homebrew_role_defaults.py."""
 
 import re

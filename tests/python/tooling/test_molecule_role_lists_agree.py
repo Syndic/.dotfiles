@@ -32,10 +32,7 @@ def _roles_in_tests_run() -> set:
 
 
 def _roles_in_ci_matrix() -> set:
-    """Set of role names in the `matrix.role: [...]` axis of tests.yml.
-
-    Parsed via regex rather than YAML so this test stays stdlib-only
-    (tooling-test-requirements.txt carries no PyYAML)."""
+    """Set of role names in the `matrix.role: [...]` axis of tests.yml."""
     text = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
     # Match `role: [a, b, c]` under the matrix: block. The leading indent
     # disambiguates from any other `role:` key elsewhere in the file.

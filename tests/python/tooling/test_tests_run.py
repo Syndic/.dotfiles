@@ -184,6 +184,8 @@ def test_main_python_runs_both_pytest_runs_in_parallel(monkeypatch):
     assert [s.name for s in suites] == ["python:runtime", "python:tooling"]
     # The tooling run must share tests/run's interpreter, which is what can load it.
     assert suites[1].argv[:3] == [sys.executable, "-m", "pytest"]
+    caches = [arg for s in suites for arg in s.argv if arg.startswith("cache_dir=")]
+    assert len(caches) == len(set(caches)) == 2, "parallel runs would overwrite one cache"
 
 
 def test_main_rejects_unknown_argv(capsys):

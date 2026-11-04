@@ -174,12 +174,13 @@ def prepare_homebrew_image() -> None:
     )
 
 
-# The runtime run takes its paths from pytest.ini (shared with CI) and runs on
-# ~/.venv's frozen-3.9 pytest, first on PATH; the tooling run uses this
-# interpreter. See CLAUDE.md "Tests".
+# See CLAUDE.md "Two pytest runs". Own cache dirs: they run at once from one rootdir.
 PYTHON_SUITES = [
-    Suite("python:runtime", ["pytest", "-v"]),
-    Suite("python:tooling", [sys.executable, "-m", "pytest", "-v", "tests/python/tooling"]),
+    Suite("python:runtime", ["pytest", "-v", "-o", "cache_dir=.pytest_cache/runtime"]),
+    Suite(
+        "python:tooling",
+        [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling", "tests/python/tooling"],
+    ),
 ]
 BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
 # `&&` so a yamllint failure short-circuits ansible-lint.

@@ -560,7 +560,7 @@ def test_renovate_carves_pre_1_0_minors_out_of_the_batch() -> None:
 
 
 def _precommit_hooks() -> dict:
-    """{hook id: (repo, hook body)} by plain parse — no PyYAML in the tooling run."""
+    """{hook id: (repo, hook body)} by plain parse."""
     text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
     hooks = {}
     for repo_block in re.split(r"^  - repo: ", text, flags=re.MULTILINE)[1:]:

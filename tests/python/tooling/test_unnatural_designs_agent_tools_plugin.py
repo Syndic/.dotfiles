@@ -22,7 +22,7 @@ def _load(name: str) -> dict:
 
 
 def _frontmatter(path: Path) -> dict:
-    """Top-level `key: value` pairs of a SKILL.md frontmatter block (no PyYAML in the tooling run)."""
+    """Top-level `key: value` pairs of a SKILL.md frontmatter block."""
     lines = path.read_text().splitlines()
     assert lines and lines[0] == "---", f"{path} has no frontmatter"
     end = lines.index("---", 1)

@@ -33,14 +33,18 @@ def test_runtime_modules_are_discovered():
 
 
 def test_every_test_file_belongs_to_a_run():
-    stray = sorted(p.name for p in PYTHON_TESTS.glob("test_*.py"))
+    stray = sorted(
+        str(p.relative_to(PYTHON_TESTS))
+        for p in PYTHON_TESTS.rglob("test_*.py")
+        if p.relative_to(PYTHON_TESTS).parts[0] not in ("runtime", "tooling")
+    )
     assert not stray, f"move these into tests/python/runtime/ or tests/python/tooling/: {stray}"
 
 
 def test_tooling_tests_import_no_runtime_module():
     offenders = {
-        p.name: sorted(_imported_modules(p) & RUNTIME_MODULES)
-        for p in sorted((PYTHON_TESTS / "tooling").glob("*.py"))
+        str(p.relative_to(PYTHON_TESTS)): sorted(_imported_modules(p) & RUNTIME_MODULES)
+        for p in sorted((PYTHON_TESTS / "tooling").rglob("*.py"))
     }
     offenders = {name: mods for name, mods in offenders.items() if mods}
     assert not offenders, (
@@ -50,7 +54,7 @@ def test_tooling_tests_import_no_runtime_module():
 
 
 def test_runtime_tests_each_import_a_runtime_module():
-    files = sorted((PYTHON_TESTS / "runtime").glob("test_*.py")) + sorted(PLUGIN_TESTS.glob("test_*.py"))
+    files = sorted((PYTHON_TESTS / "runtime").rglob("test_*.py")) + sorted(PLUGIN_TESTS.rglob("test_*.py"))
     assert files
-    idle = [p.name for p in files if not _imported_modules(p) & RUNTIME_MODULES]
+    idle = [str(p.relative_to(REPO_ROOT)) for p in files if not _imported_modules(p) & RUNTIME_MODULES]
     assert not idle, f"these runtime tests test no 3.9 runtime module; move them to tests/python/tooling/: {idle}"

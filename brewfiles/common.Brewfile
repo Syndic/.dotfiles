@@ -15,4 +15,4 @@ brew "zsh-syntax-highlighting"
 cask "claude-code"
 
 # Most casks are macOS-only and go in brewfiles/groups/macos.Brewfile; one here
-# must ship Linux builds (tests/python/test_brewfile_casks.py checks).
+# must ship Linux builds (tests/python/tooling/test_brewfile_casks.py checks).

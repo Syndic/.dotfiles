@@ -33,7 +33,7 @@ jobs:
 
   python-tooling:
     # Tests of dev tooling (tests/run, CI/Renovate config) — no 3.9 constraint.
-    # See CLAUDE.md "Tests".
+    # Installs the same files as ~/.venv-ansible; see CLAUDE.md "Two pytest runs".
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +42,9 @@ jobs:
           # renovate: datasource=python-version depName=python
           python-version: '3.14'
       - *setup-uv
-      - run: uv pip install --system -r tooling-test-requirements.txt
+      - run: |
+          uv pip install --system -r lint-requirements.txt -r molecule-requirements.txt \
+            -r tooling-test-requirements.txt -r pre-commit-requirements.txt
       - run: pytest -v tests/python/tooling
 
   bash:

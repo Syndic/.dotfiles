@@ -436,8 +436,8 @@ Package versions come from pinned `*-requirements.txt` files at the repo root
 (`test-` for `~/.venv`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
 for `~/.venv-ansible`), which the matching CI jobs in `tests.yml` install from
 too — one pinned source per tooling set, shared between devcontainer and CI
-(`pre-commit-requirements.txt` has no CI consumer; CI runs the hooks' tools
-directly). All are Renovate-managed — see "Dependency updates".
+(the `python-tooling` job installs all four `~/.venv-ansible` files; see "Two
+pytest runs"). All are Renovate-managed — see "Dependency updates".
 
 CI installs them with uv too: each Python job in `tests.yml` runs one shared
 `astral-sh/setup-uv` step (a YAML anchor) and `uv pip install --system -r …`
@@ -892,7 +892,13 @@ executes as `python3`, so pytest runs twice, split by directory:
 - **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
   layout, role-file shape checks. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-ansible`, the `python-tooling` CI
-  job, and `pytest tests/python/tooling`. `tests/python/tooling/conftest.py`
+  job, and `pytest tests/python/tooling`. The CI job installs every requirements
+  file `~/.venv-ansible` does (lint + molecule + tooling-test + pre-commit), so a
+  tooling test that imports, say, `yaml` sees it in both places;
+  `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
+  VS Code's Test Explorer shows only the runtime run (its interpreter is
+  `~/.venv`, which can't load `tests/run`); run the tooling tests via
+  `./tests/run python`. `tests/python/tooling/conftest.py`
   loads `tests/run` (syntax too new for 3.9, no `.py` suffix) via
   `SourceFileLoader` and registers it as the module `tests_run`, so its tests
   import the real thing rather than regex its source. The molecule `image:` parser lives in
@@ -904,8 +910,9 @@ via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
 shebang's `python3.14` resolves to `~/.venv-ansible`'s, the one interpreter
 guaranteed able to load `tests/run`.
 
-`tests/python/tooling/test_pytest_run_split.py` keeps the split honest: no test
-file sits directly in `tests/python/`, no tooling test imports a runtime module
+`tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
+test file under `tests/python/` (at any depth) sits under `runtime/` or
+`tooling/`, no tooling test imports a runtime module
 (repo-root `*.py` or the plugin's `scripts/`, discovered from disk), and every
 runtime test imports one. A test that imports `phase2` therefore can't land in
 the run that wouldn't catch a 3.9 regression.
