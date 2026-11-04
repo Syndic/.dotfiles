@@ -58,8 +58,9 @@ The brief tells the reviewer:
 - Report only by ending the turn — never by `SendMessage`, so each round raises
   exactly one notice. The final message (and any wrap-up recap) begins with one
   verdict line: `VERDICT: AGREE` (the PR correctly addresses the work item and
-  every review thread is resolved) or `VERDICT: <n> OPEN` — then, per open
-  finding, a number, `file:line`, and a one-line claim.
+  every thread the reviewer opened is resolved) or `VERDICT: <n> OPEN` — then,
+  per open finding, a number, `file:line`, and a one-line claim. Every comment
+  posts as the user's account, so track its own threads by id, not by author.
 - On later rounds the implementer will message it with a disposition per finding
   and the new commits. Re-check each fix, review the new commits for regressions
   (`git diff <old-head>..<new-head>`, not a repeat full-PR `--comment` run, which
