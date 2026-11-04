@@ -52,18 +52,24 @@ The brief tells the reviewer:
   whether the PR **correctly and completely addresses that work item**, not just
   whether the diff is bug-free.
 - Run `/code-review --comment <number>`.
-- Read only: no edits, commits, branch switches or pushes. The implementer makes
-  every change.
+- Read only for code: no edits, commits, branch switches or pushes. The
+  implementer makes every change. The reviewer's only writes are on the PR: its
+  review comments, and the thread replies and resolutions below.
 - Report only by ending the turn — never by `SendMessage`, so each round raises
   exactly one notice. The final message (and any wrap-up recap) begins with one
   verdict line: `VERDICT: AGREE` (the PR correctly addresses the work item and
-  nothing is outstanding) or `VERDICT: <n> OPEN` — then, per open finding, a
-  number, `file:line`, and a one-line claim.
+  every review thread is resolved) or `VERDICT: <n> OPEN` — then, per open
+  finding, a number, `file:line`, and a one-line claim.
 - On later rounds the implementer will message it with a disposition per finding
   and the new commits. Re-check each fix, review the new commits for regressions
   (`git diff <old-head>..<new-head>`, not a repeat full-PR `--comment` run, which
   would duplicate comments), and say for each disputed finding whether it concedes
-  or still holds — with its reasoning.
+  or still holds — with its reasoning. Post any new finding as an inline PR
+  comment, so every finding has a thread.
+- On each of its threads, reply with how the finding was addressed (or why it
+  concedes, or the user's decision), then resolve the thread once satisfied; a
+  finding it still holds stays unresolved. Resolve with the GraphQL
+  `resolveReviewThread` mutation (thread ids from `pullRequest.reviewThreads`).
 
 Then end your turn. The app continues you when the reviewer finishes; don't poll.
 If the app stops continuing you (it holds notes after many in a row), the loop
@@ -81,7 +87,7 @@ For each round:
    - **Accept** — fix it (new commit, never an amend), validate, push.
    - **Dispute** — explain concretely why it's wrong or out of scope.
 3. Reply on each of the reviewer's PR comments with its disposition (the fix
-   commit, or why it was dropped). Leave resolving threads to the user.
+   commit, or why it was dropped). Leave resolving threads to the reviewer.
 4. `SendMessage` the reviewer (its `local_…` id) with every finding's disposition,
    the fix commits, and the old and new head SHAs. End your turn.
 
@@ -99,7 +105,8 @@ Relay the user's decision to the reviewer quoting their words, then continue.
 
 When the reviewer's verdict is `VERDICT: AGREE` and you have nothing outstanding:
 
-1. Confirm the branch is pushed and the PR head matches your local head.
+1. Confirm the branch is pushed, the PR head matches your local head, and no
+   review thread is unresolved (list any that are, and why).
 2. Summarize, for the user's review before merging:
    - **Per file** (from `git diff --stat origin/<default>...HEAD`): what changed and
      why, grouped by purpose when several files serve one change. Point at the
