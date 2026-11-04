@@ -26,8 +26,9 @@ item; the user decides anything you two disagree on.
 
 ## 2. Implement and open the PR
 
-1. Never work on the default branch. If you're on it, stop before any git
-   write, say so, and propose a feature branch name.
+1. Never work on the default branch. If you're on it, create a feature branch
+   with a name you choose and say which; invoking this command is the go-ahead,
+   so don't stop to ask.
 2. Implement, including the docs and tests the change needs. Validate with the
    project's own checks (tests, linters) and fix what fails.
 3. Commit (signed, per the repo's rules), push, and open a PR whose body links the
@@ -35,8 +36,9 @@ item; the user decides anything you two disagree on.
 
 ## 3. Start the reviewer
 
-Start one session with `mcp__ccd_session__start_session` (load it with
-`ToolSearch` if it's deferred): `initiation: "user_asked"` (this command is the
+Start one session with `mcp__ccd_session__start_session` (if it or
+`mcp__ccd_session_mgmt__list_events`, used in step 4, is deferred, load both
+with one `ToolSearch`): `initiation: "user_asked"` (this command is the
 user's request for it), `context: "fresh"`, `use_worktree: false` (it only
 reads), `name: "review-pr-<number>"`, a `title`, the brief below as `prompt`,
 and a `background` (80+ characters: the repo's conventions and that the user
