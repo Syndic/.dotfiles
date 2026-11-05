@@ -1,6 +1,6 @@
 ---
 name: implement-work-item
-description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session running /code-review --comment until both sessions agree, escalating disagreements to the user, and finish with a per-file summary to guide the merge review.
+description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once agreement and a green CI run are in hand.
 argument-hint: <issue number or URL, or a description of the work>
 disable-model-invocation: true
 ---
@@ -22,7 +22,8 @@ item; the user decides anything you two disagree on.
    criterion you can't check. Answer the ones the code or repo docs settle
    yourself; don't ask about those.
 4. If any remain, **stop and ask** — end the turn with the questions and implement
-   nothing. If none remain, say so in one line and continue.
+   nothing. The user's answers become part of the work item. If none remain, say
+   so in one line and continue.
 
 ## 2. Implement and open the PR
 
@@ -32,65 +33,52 @@ item; the user decides anything you two disagree on.
 2. Implement, including the docs and tests the change needs. Validate with the
    project's own checks (tests, linters) and fix what fails.
 3. Commit (signed, per the repo's rules), push, and open a PR whose body links the
-   work item and says how it was validated. Note the PR number.
+   work item and says how it was validated. Note the PR number and the head SHA:
+   the **first full implementation**, which step 5's CI condition counts from.
+4. Turn on the app's CI monitor so failures wake you: `mcp__ccd_pr__set_monitor`
+   with `auto_fix: true` and the PR's URL.
 
 ## 3. Start the reviewer
 
-Start one session with `mcp__ccd_session__start_session` (if it or
-`mcp__ccd_session_mgmt__list_events`, used in step 4, is deferred, load both
-with one `ToolSearch`): `initiation: "user_asked"` (this command is the
-user's request for it), `context: "fresh"`, `use_worktree: false` (it only
-reads), `name: "review-pr-<number>"`, a `title`, the brief below as `prompt`,
-and a `background` (80+ characters: the repo's conventions and that the user
-decides disagreements). If session tools aren't available here (for example in
-the CLI), stop and tell the user, and ask whether to run the review in a
-subagent instead.
+Load `mcp__ccd_session__start_session` and `mcp__ccd_session_mgmt__list_events`
+with one `ToolSearch` if either is deferred. If session tools aren't available
+here (for example in the CLI), stop and tell the user, and ask whether to run the
+review in a subagent instead.
 
-The brief tells the reviewer:
+Call `start_session` with `initiation: "user_asked"` (this command is the user's
+request for it), `context: "fresh"`, `use_worktree: false` (it only reads code),
+`name: "review-pr-<number>"`, a `title`, and:
 
-- The work item (link or full text) and the PR number. Its job is to judge
-  whether the PR **correctly and completely addresses that work item**, not just
-  whether the diff is bug-free.
-- Run `/code-review --comment <number>`.
-- Read only for code: no edits, commits, branch switches or pushes. The
-  implementer makes every change. The reviewer's only writes are on the PR: its
-  review comments, and the thread replies and resolutions below.
-- Report only by ending the turn — never by `SendMessage`, so each round raises
-  exactly one notice. The final message (and any wrap-up recap) begins with one
-  verdict line: `VERDICT: AGREE` (the PR correctly addresses the work item and
-  every thread the reviewer opened is resolved) or `VERDICT: <n> OPEN` — then,
-  per open finding, a number, `file:line`, and a one-line claim. Every comment
-  posts as the user's account, so track its own threads by id, not by author.
-- On later rounds the implementer will message it with a disposition per finding
-  and the new commits. Re-check each fix, review the new commits for regressions
-  (`git diff <old-head>..<new-head>`, not a repeat full-PR `--comment` run, which
-  would duplicate comments), and say for each disputed finding whether it concedes
-  or still holds — with its reasoning. Post any new finding as an inline PR
-  comment, so every finding has a thread.
-- On each of its threads, reply with how the finding was addressed (or why it
-  concedes, or the user's decision), then resolve the thread once satisfied; a
-  finding it still holds stays unresolved. Resolve with the GraphQL
-  `resolveReviewThread` mutation (thread ids from `pullRequest.reviewThreads`).
+- `prompt`: `/unnatural-designs-agent-tools:review-work-item <number> <work item>`.
+  The work item is the link the user gave, or their text verbatim, plus their
+  step-1 answers verbatim. Never your paraphrase, plan or summary: the reviewer
+  exists to catch a misreading, and your words would carry it over.
+- `background` (80+ characters): the repo's conventions, and that the user
+  decides disagreements. Leave out the work and your approach.
 
-Then end your turn. The app continues you when the reviewer finishes; don't poll.
-If the app stops continuing you (it holds notes after many in a row), the loop
-resumes from the held note on the user's next message.
+Then end your turn. The app continues you when the reviewer finishes or CI fails;
+don't poll. If the app stops continuing you (it holds notes after many in a row),
+the loop resumes from the held note on the user's next message.
 
 ## 4. Iterate to agreement
 
-For each round:
+Each time you're continued, handle what woke you, then check step 5's condition:
 
-1. Read the reviewer's full final message with
-   `mcp__ccd_session_mgmt__list_events` (the notice quotes only its first ~400
-   characters). On round 1, also read the PR's review comments
-   (`gh api repos/{owner}/{repo}/pulls/<number>/comments`) for detail.
-2. Decide each finding on its merits, never by deference:
-   - **Accept** — fix it (new commit, never an amend), validate, push.
-   - **Dispute** — explain concretely why it's wrong or out of scope.
-3. Reply on each of the reviewer's PR comments with its disposition (the fix
-   commit, or why it was dropped). Leave resolving threads to the reviewer.
-4. `SendMessage` the reviewer (its `local_…` id) with every finding's disposition,
-   the fix commits, and the old and new head SHAs. End your turn.
+- **The reviewer's turn ended.**
+  1. Read its full final message with `list_events` (the notice quotes only the
+     first ~400 characters). On round 1, also read its review comments
+     (`gh api repos/{owner}/{repo}/pulls/<number>/comments`).
+  2. Decide each finding on its merits, never by deference: **accept** (fix it in
+     a new commit, never an amend, then validate and push) or **dispute** (explain
+     concretely why it's wrong or out of scope).
+  3. Reply on each of the reviewer's threads with its disposition (the fix commit,
+     or why it was dropped). The reviewer resolves threads, not you.
+  4. `SendMessage` the reviewer (its `local_…` id) every disposition, the fix
+     commits, and the old and new head SHAs.
+- **CI failed** on the latest commit. Read the failing logs, fix (new commit),
+  validate, push, and send the fix to the reviewer as a round.
+- **A review comment the reviewer posted mid-round.** Ignore it and wait for its
+  verdict.
 
 **Escalate to the user** — stop iterating, present both positions side by side
 with each session's reasoning, and wait — when:
@@ -102,17 +90,33 @@ with each session's reasoning, and wait — when:
 
 Relay the user's decision to the reviewer quoting their words, then continue.
 
-## 5. Hand off for the merge review
+## 5. Notify the user
 
-When the reviewer's verdict is `VERDICT: AGREE` and you have nothing outstanding:
+Notify the user as soon as both of these hold:
 
-1. Confirm the branch is pushed, the PR head matches your local head, and no
-   review thread is unresolved (list any that are, and why).
-2. Summarize, for the user's review before merging:
-   - **Per file** (from `git diff --stat origin/<default>...HEAD`): what changed and
-     why, grouped by purpose when several files serve one change. Point at the
-     parts most worth a careful look.
-   - **Review outcome**: each finding, and whether it was fixed (commit) or
-     dropped (why, and who decided).
-   - **Not verified**: anything no check covered.
-3. Offer to archive the reviewer session; archive it only on the user's yes.
+- the reviewer's latest verdict is `VERDICT: AGREE` and you have nothing
+  outstanding; and
+- CI has fully passed on at least one commit at or after the first full
+  implementation: every check finished with none failing (`get_status` covers the
+  latest commit; `gh pr checks` or the check-runs API covers earlier ones).
+
+To notify, send a one-line `PushNotification`, then end your turn with this
+summary for the user's review before merging:
+
+- **Per file** (from `git diff --stat origin/<default>...HEAD`): what changed and
+  why, grouped by purpose when several files serve one change. Point at the parts
+  most worth a careful look.
+- **Review outcome**: each finding, and whether it was fixed (commit) or dropped
+  (why, and who decided). Name any unresolved thread that isn't the reviewer's.
+- **CI**: which commit passed, and whether the latest commit's run is still going.
+- **Not verified**: anything no check covered.
+
+## 6. Watch CI to the end
+
+If the latest commit's CI was still running when you notified, stay with it. If
+it fails, send a brief `PushNotification` and message saying you have work left,
+with a concise summary of what failed. Then fix it as in step 4, and notify again
+with a short update once step 5's condition holds for the new head.
+
+Once the latest commit's CI has passed, offer to archive the reviewer session, and
+archive it only on the user's yes.
