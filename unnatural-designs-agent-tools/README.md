@@ -17,11 +17,11 @@ unchanged.
   ambiguity before coding, opens a PR, then iterates with a separate review session until both
   agree, bringing disagreements to the user. Once they agree and CI has passed, it notifies the
   user with a per-file summary for the merge review, and keeps watching CI on the latest commit.
+  User-invoked only (`disable-model-invocation`).
 - **`review-work-item`**: the reviewer half. `implement-work-item` starts a session with it,
   passing the work item verbatim. It runs `/code-review --comment`, re-checks each round's
-  fixes, and replies to and resolves its own threads.
-
-Both are user-invoked only (`disable-model-invocation`).
+  fixes, and replies to and resolves its own threads. User-invoked only, as the session's
+  starting prompt.
 - **`rebase-branch-on-origin-main`**: rebases the current branch onto `origin/main`, checks
   that commits are still signed, then force-pushes with lease.
 - **`dev-cleanup`**: reaps what archived sessions leave behind, across the whole machine. It is

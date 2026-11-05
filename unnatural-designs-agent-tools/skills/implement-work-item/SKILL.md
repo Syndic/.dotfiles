@@ -11,6 +11,13 @@ You are the **implementer**. A separate **reviewer** session checks your PR. You
 and the reviewer iterate until you both agree the PR correctly addresses the work
 item; the user decides anything you two disagree on.
 
+Before step 2's PR, load the deferred tools this uses with one `ToolSearch`:
+`mcp__ccd_pr__set_monitor`, `mcp__ccd_pr__get_status`,
+`mcp__ccd_session__start_session`, `mcp__ccd_session_mgmt__list_events` and
+`PushNotification`. If session tools aren't available here (for example in the
+CLI), stop and tell the user before step 3, and ask whether to run the review in
+a subagent instead.
+
 ## 1. Understand the work before touching code
 
 1. If the argument names an issue or PR, read it in full with `gh` (body and
@@ -36,14 +43,11 @@ item; the user decides anything you two disagree on.
    work item and says how it was validated. Note the PR number and the head SHA:
    the **first full implementation**, which step 5's CI condition counts from.
 4. Turn on the app's CI monitor so failures wake you: `mcp__ccd_pr__set_monitor`
-   with `auto_fix: true` and the PR's URL.
+   with `auto_fix: true` and the PR's URL. If the call is denied, tell the user in
+   one line that CI failures won't wake you until they turn on Auto-fix in the PR
+   bar or allow the call, and carry on.
 
 ## 3. Start the reviewer
-
-Load `mcp__ccd_session__start_session` and `mcp__ccd_session_mgmt__list_events`
-with one `ToolSearch` if either is deferred. If session tools aren't available
-here (for example in the CLI), stop and tell the user, and ask whether to run the
-review in a subagent instead.
 
 Call `start_session` with `initiation: "user_asked"` (this command is the user's
 request for it), `context: "fresh"`, `use_worktree: false` (it only reads code),
@@ -77,8 +81,14 @@ Each time you're continued, handle what woke you, then check step 5's condition:
      commits, and the old and new head SHAs.
 - **CI failed** on the latest commit. Read the failing logs, fix (new commit),
   validate, push, and send the fix to the reviewer as a round.
+- **A merge conflict.** Bring the branch up to date with its base (in an app
+  worktree, `mcp__ccd_host__sync_with_base_branch`; otherwise merge it yourself),
+  resolve, validate, push, and send it to the reviewer as a round.
 - **A review comment the reviewer posted mid-round.** Ignore it and wait for its
   verdict.
+- **A message from the user.** Act on it, and relay any decision or new
+  requirement in it to the reviewer quoting their words, so the reviewer doesn't
+  flag it as a misreading.
 
 **Escalate to the user** — stop iterating, present both positions side by side
 with each session's reasoning, and wait — when:
@@ -88,14 +98,14 @@ with each session's reasoning, and wait — when:
 - you agree it needs addressing but disagree on *how*, or
 - three rounds pass without `VERDICT: AGREE` (the loop isn't converging).
 
-Relay the user's decision to the reviewer quoting their words, then continue.
+Relay the user's decision to the reviewer as above, then continue.
 
 ## 5. Notify the user
 
 Notify the user as soon as both of these hold:
 
-- the reviewer's latest verdict is `VERDICT: AGREE` and you have nothing
-  outstanding; and
+- the reviewer's latest verdict is `VERDICT: AGREE`, you have nothing
+  outstanding, and the branch is pushed with the PR head at your local head; and
 - CI has fully passed on at least one commit at or after the first full
   implementation: every check finished with none failing (`get_status` covers the
   latest commit; `gh pr checks` or the check-runs API covers earlier ones).
