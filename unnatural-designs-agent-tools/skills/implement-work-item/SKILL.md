@@ -54,8 +54,8 @@ request for it), `context: "fresh"`, `use_worktree: false` (it only reads code),
 `name: "review-pr-<number>"`, a `title`, and:
 
 - `prompt`: `/unnatural-designs-agent-tools:review-work-item <number> <work item>`.
-  The work item is the link the user gave, or their text verbatim, plus their
-  step-1 answers verbatim. Never your paraphrase, plan or summary: the reviewer
+  The work item is the link the user gave, or their text verbatim, plus every
+  answer or decision the user has given about the work so far, verbatim. Never your paraphrase, plan or summary: the reviewer
   exists to catch a misreading, and your words would carry it over.
 - `background` (80+ characters): the repo's conventions, and that the user
   decides disagreements. Leave out the work and your approach.
