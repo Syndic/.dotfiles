@@ -417,9 +417,9 @@ of the old startup time; the feature compiled both interpreters every build).
 uv is baked into the image in `.devcontainer/Dockerfile`
 (`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
 
-`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv`
+`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv-runtime`
 (the frozen 3.9.6 — the runtime pytest run + the default `python3` on PATH) and
-`~/.venv-ansible` (`tooling_python` — everything else: the Ansible dev stack,
+`~/.venv-tooling` (`tooling_python` — everything else: the Ansible dev stack,
 `ansible-core`, `ansible-lint`, `molecule`, the docker driver, all in one venv
 so they share a single ansible-core, since a second copy is what produced the
 duplicate-version warnings, #46/#48; plus pytest for the tooling run and
@@ -433,10 +433,10 @@ resolves to the frozen 3.9.6 through PATH. Their bin dirs are put on PATH via
 step.
 
 Package versions come from pinned `*-requirements.txt` files at the repo root
-(`test-` for `~/.venv`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
-for `~/.venv-ansible`), which the matching CI jobs in `tests.yml` install from
+(`test-` for `~/.venv-runtime`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
+for `~/.venv-tooling`), which the matching CI jobs in `tests.yml` install from
 too — one pinned source per tooling set, shared between devcontainer and CI
-(the `python-tooling` job installs all four `~/.venv-ansible` files; see "Two
+(the `python-tooling` job installs all four `~/.venv-tooling` files; see "Two
 pytest runs"). All are Renovate-managed — see "Dependency updates".
 
 CI installs them with uv too: each Python job in `tests.yml` runs one shared
@@ -452,7 +452,7 @@ Only the **runtime** pytest run is pinned: tests of code a user's Mac runs as
 tooling run on `tooling_python` instead; the split is under "Tests" ("Two pytest
 runs").
 
-`test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv` and the
+`test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv-runtime` and the
 `python` CI job), so a `packageRule` in `renovate.json` caps pytest at
 `allowedVersions: <9` — pytest 9 dropped 3.9 (needs >= 3.10) with no 8.x
 backport, so an un-capped bump PR fails `pip install` forever.
@@ -720,7 +720,7 @@ Homebrew…" lines arrive at the very end of the captured log.
   excluded.
 
 Run locally via `./tests/run lint` (devcontainer; both tools live in the
-`~/.venv-ansible` uv venv `post-create.sh` builds, alongside ansible-core and
+`~/.venv-tooling` uv venv `post-create.sh` builds, alongside ansible-core and
 the requirements-file collections — see "Galaxy collections come from
 requirements files, not a bundle"). The yamllint and ansible-lint
 pre-commit hooks are `repo: local` / `language: system`, running those same
@@ -883,7 +883,7 @@ executes as `python3`, so pytest runs twice, split by directory:
   `unnatural-designs-agent-tools/tests/` (the plugin's tests stay in its folder
   so it extracts unchanged). Tests of `phase2`, `_dotfiles_common`, `uninstall`,
   `dotfiles_manager`, `regenerate_devcontainer_lock`, and the plugin's
-  `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv`, the
+  `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-runtime`, the
   `python` CI job, and bare `pytest` (`pytest.ini`'s `testpaths`). Running the
   tests on 3.9 is what proves those modules still parse and run there.
   `regenerate_devcontainer_lock` is runtime even though its workflow uses the
@@ -891,13 +891,13 @@ executes as `python3`, so pytest runs twice, split by directory:
   in the devcontainer and on a Mac.
 - **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
   layout, role-file shape checks. Runs on `tooling_python` with uncapped pytest
-  (`tooling-test-requirements.txt`): `~/.venv-ansible`, the `python-tooling` CI
+  (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
   job, and `pytest tests/python/tooling`. The CI job installs every requirements
-  file `~/.venv-ansible` does (lint + molecule + tooling-test + pre-commit), so a
+  file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
   tooling test that imports, say, `yaml` sees it in both places;
   `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
   VS Code's Test Explorer shows only the runtime run (its interpreter is
-  `~/.venv`, which can't load `tests/run`); run the tooling tests via
+  `~/.venv-runtime`, which can't load `tests/run`); run the tooling tests via
   `./tests/run python`. `tests/python/tooling/conftest.py`
   loads `tests/run` (syntax too new for 3.9, no `.py` suffix) via
   `SourceFileLoader` and registers it as the module `tests_run`, so its tests
@@ -905,9 +905,9 @@ executes as `python3`, so pytest runs twice, split by directory:
   `tests/run` for the same reason — its pin guards import it from there.
 
 `./tests/run python` runs both as parallel suites: the runtime run via
-`pytest` on PATH (`~/.venv/bin` comes first in `remoteEnv`), the tooling run
+`pytest` on PATH (`~/.venv-runtime/bin` comes first in `remoteEnv`), the tooling run
 via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
-shebang's `python3.14` resolves to `~/.venv-ansible`'s, the one interpreter
+shebang's `python3.14` resolves to `~/.venv-tooling`'s, the one interpreter
 guaranteed able to load `tests/run`.
 
 `tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every

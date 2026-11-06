@@ -1,5 +1,5 @@
 # Test tooling for the pytest *tooling* run (tests/python/tooling/) — the
-# `~/.venv-ansible` devcontainer venv (post-create.sh) and the `python-tooling`
+# `~/.venv-tooling` devcontainer venv (post-create.sh) and the `python-tooling`
 # CI job (tests.yml). Runs on tooling_python, so no 3.9 cap; see CLAUDE.md
 # "Tests" and "Dependency updates".
 pytest==9.2.0

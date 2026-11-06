@@ -1,4 +1,4 @@
-# pre-commit for the `~/.venv-ansible` devcontainer venv (post-create.sh) and
+# pre-commit for the `~/.venv-tooling` devcontainer venv (post-create.sh) and
 # the `python-tooling` CI job (tests.yml). Pinned and Renovate-managed; why it
 # shares that venv is in CLAUDE.md "Python 3.9 pin".
 pre-commit==4.7.0

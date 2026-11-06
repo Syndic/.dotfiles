@@ -46,7 +46,7 @@
       "groupSlug": "all-minor-patch"
     },
     {
-      "description": "test-requirements.txt feeds the pytest runtime run on the frozen Python 3.9 (the `python` CI job and the devcontainer's ~/.venv). pytest 9 dropped 3.9 (needs >=3.10) with no 8.x backport, so cap it — otherwise Renovate proposes a pytest 9 bump that fails `pip install` on 3.9. `allowedVersions` (not `constraints`, which only filters when `constraintsFiltering: strict` is also set — it defaults to none). See CLAUDE.md's 'Python 3.9 pin' section.",
+      "description": "test-requirements.txt feeds the pytest runtime run on the frozen Python 3.9 (the `python` CI job and the devcontainer's ~/.venv-runtime). pytest 9 dropped 3.9 (needs >=3.10) with no 8.x backport, so cap it — otherwise Renovate proposes a pytest 9 bump that fails `pip install` on 3.9. `allowedVersions` (not `constraints`, which only filters when `constraintsFiltering: strict` is also set — it defaults to none). See CLAUDE.md's 'Python 3.9 pin' section.",
       "matchFileNames": ["test-requirements.txt"],
       "matchPackageNames": ["pytest"],
       "allowedVersions": "<9"

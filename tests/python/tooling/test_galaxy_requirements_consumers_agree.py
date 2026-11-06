@@ -139,14 +139,14 @@ def test_consumers_install_pip_tooling_from_requirements_files() -> None:
 
 
 def test_ci_tooling_run_installs_what_the_local_tooling_venv_has() -> None:
-    # Locally the tooling run executes in ~/.venv-ansible; the python-tooling
+    # Locally the tooling run executes in ~/.venv-tooling; the python-tooling
     # job must see the same packages, or a test passes locally and fails in CI.
     def files(line: str) -> set:
         return set(re.findall(r"[\w-]+-requirements\.txt", line))
 
-    venv = [line for line in _pip_install_lines(POST_CREATE) if ".venv-ansible" in line]
+    venv = [line for line in _pip_install_lines(POST_CREATE) if ".venv-tooling" in line]
     ci = [line for line in _pip_install_lines(TESTS_YML) if "tooling-test-requirements.txt" in line]
-    assert len(venv) == 1, "expected one pip install into ~/.venv-ansible in post-create.sh"
+    assert len(venv) == 1, "expected one pip install into ~/.venv-tooling in post-create.sh"
     assert len(ci) == 1, "expected one tooling-test-requirements.txt install in tests.yml"
     assert files(ci[0]) == files(venv[0])
 

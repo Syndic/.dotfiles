@@ -33,7 +33,7 @@ jobs:
 
   python-tooling:
     # Tests of dev tooling (tests/run, CI/Renovate config) — no 3.9 constraint.
-    # Installs the same files as ~/.venv-ansible; see CLAUDE.md "Two pytest runs".
+    # Installs the same files as ~/.venv-tooling; see CLAUDE.md "Two pytest runs".
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

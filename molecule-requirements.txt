@@ -1,4 +1,4 @@
-# Molecule + its docker driver for the `~/.venv-ansible` devcontainer venv
+# Molecule + its docker driver for the `~/.venv-tooling` devcontainer venv
 # (post-create.sh) and the `molecule` CI job (tests.yml). Pinned and
 # Renovate-managed — see CLAUDE.md "Dependency updates".
 #

@@ -42,7 +42,7 @@
   },
   // PATH for the two uv venvs post-create.sh builds. Keep in sync with that file.
   "remoteEnv": {
-    "PATH": "/home/vscode/.venv/bin:/home/vscode/.venv-ansible/bin:${containerEnv:PATH}"
+    "PATH": "/home/vscode/.venv-runtime/bin:/home/vscode/.venv-tooling/bin:${containerEnv:PATH}"
   },
   "customizations": {
     "vscode": {
@@ -59,13 +59,13 @@
         "ryanluker.vscode-coverage-gutters",
         "timonwong.shellcheck"
       ],
-      // Pin to ~/.venv (frozen 3.9.6 + pytest). useEnvironmentsExtension off
+      // Pin to ~/.venv-runtime (frozen 3.9.6 + pytest). useEnvironmentsExtension off
       // because that extension ignores defaultInterpreterPath here.
       "settings": {
         // Add "ansible" so role/play YAML (reclassified by redhat.ansible)
         // still gets yamllint diagnostics — .ansible-lint skips yaml rules.
         // See CLAUDE.md "Lint".
-        "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
+        "python.defaultInterpreterPath": "/home/vscode/.venv-runtime/bin/python",
         "python.useEnvironmentsExtension": false,
         "todo-tree.ripgrep.ripgrep": "/usr/bin/rg"
       }
