@@ -1,6 +1,6 @@
 ---
 name: implement-work-item
-description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once agreement and a green CI run are in hand.
+description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once they agree, still fixing any CI failure that follows.
 argument-hint: <issue number or URL, or a description of the work>
 disable-model-invocation: true
 ---
@@ -40,8 +40,7 @@ a subagent instead.
 2. Implement, including the docs and tests the change needs. Validate with the
    project's own checks (tests, linters) and fix what fails.
 3. Commit (signed, per the repo's rules), push, and open a PR whose body links the
-   work item and says how it was validated. Note the PR number and the head SHA:
-   the **first full implementation**, which step 5's CI condition counts from.
+   work item and says how it was validated. Note the PR number.
 4. Turn on the app's CI monitor so failures wake you: `mcp__ccd_pr__set_monitor`
    with `auto_fix: true` and the PR's URL. If the call is denied, tell the user in
    one line that CI failures won't wake you until they turn on Auto-fix in the PR
@@ -96,19 +95,21 @@ with each session's reasoning, and wait — when:
 - a finding you disputed is still held by the reviewer after its reply (you
   disagree on *whether* to address it), or
 - you agree it needs addressing but disagree on *how*, or
-- three rounds pass without `VERDICT: AGREE` (the loop isn't converging).
+- the reviewer returns `VERDICT: <n> OPEN` three rounds in a row (a round is
+  your dispositions going out and its verdict coming back) with no message from
+  the user in between (the loop isn't converging).
 
 Relay the user's decision to the reviewer as above, then continue.
 
 ## 5. Notify the user
 
-Notify the user as soon as both of these hold:
+Notify the user as soon as all of these hold:
 
-- the reviewer's latest verdict is `VERDICT: AGREE`, you have nothing
-  outstanding, and the branch is pushed with the PR head at your local head; and
-- CI has fully passed on at least one commit at or after the first full
-  implementation: every check finished with none failing (`get_status` covers the
-  latest commit; `gh pr checks` or the check-runs API covers earlier ones).
+- the reviewer's latest verdict is `VERDICT: AGREE` and you have nothing
+  outstanding;
+- the branch is pushed, with the PR head at your local head; and
+- no check on the PR head is failing (`get_status`). Pending checks are fine:
+  CI passing isn't something the app wakes you for, so don't wait on it.
 
 To notify, send a one-line `PushNotification`, then end your turn with this
 summary for the user's review before merging:
@@ -118,15 +119,15 @@ summary for the user's review before merging:
   most worth a careful look.
 - **Review outcome**: each finding, and whether it was fixed (commit) or dropped
   (why, and who decided). Name any unresolved thread that isn't the reviewer's.
-- **CI**: which commit passed, and whether the latest commit's run is still going.
+- **CI**: passed, or still running, on the PR head.
 - **Not verified**: anything no check covered.
 
-## 6. Watch CI to the end
+## 6. After notifying
 
-If the latest commit's CI was still running when you notified, stay with it. If
-it fails, send a brief `PushNotification` and message saying you have work left,
-with a concise summary of what failed. Then fix it as in step 4, and notify again
-with a short update once step 5's condition holds for the new head.
+A CI failure on the PR head still wakes you (step 2's monitor). Send a brief
+`PushNotification` and message saying you have work left, with a concise summary
+of what failed. Then fix it as in step 4, and notify again with a short update
+once step 5's conditions hold for the new head.
 
-Once the latest commit's CI has passed, offer to archive the reviewer session, and
-archive it only on the user's yes.
+Leave the reviewer session running, since a CI fix needs its review; the user
+archives it.
