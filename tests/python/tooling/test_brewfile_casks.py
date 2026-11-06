@@ -12,7 +12,7 @@ from typing import Dict, List, Set, Tuple
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[3]
 BREWFILES = REPO / "brewfiles"
 CASK_LINE = re.compile(r'^\s*cask\s+"(?P<name>[^"]+)"', re.MULTILINE)
 LINUX_BUILDS = ("x86_64_linux", "arm64_linux")

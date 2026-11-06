@@ -19,7 +19,7 @@ repos:
         pass_filenames: false
         files: ^\.devcontainer/devcontainer(-lock)?\.json$
 
-      # Lint hooks run the ~/.venv-ansible binaries, so lint-requirements.txt
+      # Lint hooks run the ~/.venv-tooling binaries, so lint-requirements.txt
       # is their only pin — see CLAUDE.md "Lint".
       - id: yamllint
         name: yamllint

@@ -31,6 +31,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# ── Ansible ───────────────────────────────────────────────────────────────────────────────────────
+# ansible-lint's project-local cache (it installs requirements.yml collections here)
+/.ansible/
+
 # ── Devcontainer git plumbing ───────────────────────────────────────────────────────────────────
 # Regenerated on every `devcontainer up` by .devcontainer/initialize.sh so git
 # resolves in-container at its real host-absolute path. Host-local, never

@@ -4,7 +4,7 @@
 #
 # These are intentionally shallow: the heavy lifting (symlink detection,
 # backup restore, confirmation gate, action planning) is covered in
-# tests/python/test_uninstall.py. Bats covers the things you can only
+# tests/python/runtime/test_uninstall.py. Bats covers the things you can only
 # observe through the binary: --help shape, exit codes, no-tty inertness.
 # ---------------------------------------------------------------------------
 

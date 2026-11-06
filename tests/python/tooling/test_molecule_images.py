@@ -1,7 +1,7 @@
-"""tests/lib/molecule_images.py: the `image:` parser tests/run and the pin guards share."""
+"""tests/run's `image:` parser, which the pin guards in test_config_layout.py share."""
 
 import pytest
-from molecule_images import image_lines
+from tests_run import image_lines
 
 REF = "repo/name:latest@sha256:0123abcd"
 

@@ -45,7 +45,7 @@ def test_install_galaxy_requirements_noops_without_file(monkeypatch, tmp_path):
 def test_repo_requirements_yml_declares_expected_collections() -> None:
     """Lock in the two collections the macos_defaults role depends on:
     community.general for osx_defaults, geerlingguy.mac for the dock role."""
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     text = (repo_root / "requirements.yml").read_text()
 
     assert "community.general" in text

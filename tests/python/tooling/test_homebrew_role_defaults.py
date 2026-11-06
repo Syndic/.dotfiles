@@ -11,7 +11,7 @@ also declare the variable, so there's one place to look."""
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_homebrew_role_defaults_upgrade_outdated_is_true() -> None:

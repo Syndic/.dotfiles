@@ -4,7 +4,7 @@
 
   ./tests/run                  # everything (python + bash + lint + molecule)
   ./tests/run fast             # python + bash + lint (skip molecule — no docker)
-  ./tests/run python           # just pytest
+  ./tests/run python           # both pytest runs (3.9 runtime + tooling), in parallel
   ./tests/run bash             # just bats
   ./tests/run lint             # yamllint + ansible-lint
   ./tests/run molecule         # every molecule scenario, in parallel (needs docker)
@@ -16,8 +16,8 @@ molecule job shards across roles via `./tests/run molecule <role>` so wall-
 clock is bounded by the slowest shard instead of the sum. Each molecule
 scenario is its own suite, so a role's scenarios also run concurrently.
 
-Multi-suite invocations (`all` / `fast` / `molecule`) run every suite in parallel,
-buffering each suite's output to a tempfile. On a tty, a live dashboard
+Multi-suite invocations (`all` / `fast` / `python` / `molecule`) run every
+suite in parallel, buffering each suite's output to a tempfile. On a tty, a live dashboard
 shows the tail of each currently-running suite's log — capped at
 MAX_LIVE_LINES_PER_SUITE (default 20) per suite, compressed equally
 across suites when the viewport can't fit that many for everyone.
@@ -34,7 +34,7 @@ terminated and their partial logs flushed under an INTERRUPTED banner.
 
 Tunable via env: TICK=<seconds>, MAX_LIVE_LINES_PER_SUITE=<n>.
 
-Single-suite invocations (`python` / `bash` / `lint`) preserve fail-fast
+Single-suite invocations (`bash` / `lint`) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
 Runs under `tooling_python` (3.14) — same interpreter as the
@@ -44,16 +44,17 @@ all three stay in step. The bootstrap's frozen 3.9.6 doesn't apply
 here; this is dev tooling.
 """
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from typing import NamedTuple, Self
 
 # Repo root is two levels up from this script. Add to sys.path so we can
 # import the shared output helpers that the bootstrap + uninstall also use,
@@ -71,9 +72,6 @@ from _dotfiles_common import (  # noqa: E402
     run,
     warn,
 )
-
-sys.path.insert(0, str(REPO_ROOT / "tests" / "lib"))
-from molecule_images import image_lines  # noqa: E402
 
 # Tunable via env. Cast at import so bad values surface immediately, not
 # partway through a parallel run.
@@ -176,8 +174,14 @@ def prepare_homebrew_image() -> None:
     )
 
 
-# Test paths come from pytest.ini, shared with CI.
-PYTHON_SUITE = Suite("python", ["pytest", "-v"])
+# See CLAUDE.md "Two pytest runs". Own cache dirs: they run at once from one rootdir.
+PYTHON_SUITES = [
+    Suite("python:runtime", ["pytest", "-v", "-o", "cache_dir=.pytest_cache/runtime"]),
+    Suite(
+        "python:tooling",
+        [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling", "tests/python/tooling"],
+    ),
+]
 BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
 # `&&` so a yamllint failure short-circuits ansible-lint.
 LINT_SUITE = Suite("lint", ["bash", "-c", "yamllint . && ansible-lint"])
@@ -202,6 +206,32 @@ def molecule_role_suites(role: str) -> list[Suite]:
         )
         for scenario in molecule_scenarios(role)
     ]
+
+
+# Block style only: `image: ref` / `- image: ref`, optionally quoted, optional trailing comment.
+_IMAGE_LINE = re.compile(r"""^\s*(?:-\s+)?image:\s*(["']?)([^"'\s#]+)\1\s*(?:#.*)?$""")
+_IMAGE_KEY = re.compile(r"\bimage\s*:")
+
+
+class ImageLine(NamedTuple):
+    lineno: int
+    prev: str
+    ref: str
+
+
+def image_lines(path: Path) -> Iterator[ImageLine]:
+    """Yield every `image:` in a molecule.yml — the one parser for the pre-pull
+    and the pytest pin guards. Raises ValueError on an `image:` key in any
+    other form (flow style, anchor/alias, value on the next line), so a new
+    form fails loudly instead of being skipped."""
+    lines = path.read_text().splitlines()
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#") or not _IMAGE_KEY.search(line):
+            continue
+        m = _IMAGE_LINE.match(line)
+        if not m or m.group(2)[0] in "*&":
+            raise ValueError(f"{path}:{i + 1}: unsupported `image:` form: {line.strip()}")
+        yield ImageLine(i + 1, lines[i - 1] if i else "", m.group(2))
 
 
 def molecule_role_images(role: str) -> list[str]:
@@ -490,7 +520,7 @@ def _sigterm_to_keyboard_interrupt(_signum: int, _frame: object) -> None:
 
 
 def run_multi(include_molecule: bool) -> int:
-    suites = [PYTHON_SUITE, BASH_SUITE, LINT_SUITE]
+    suites = [*PYTHON_SUITES, BASH_SUITE, LINT_SUITE]
     if include_molecule:
         suites.extend(s for role in MOLECULE_ROLES for s in molecule_role_suites(role))
     return run_parallel(suites)
@@ -576,7 +606,7 @@ def main(argv: list[str]) -> int:
         case []:
             return run_multi(include_molecule=True)
         case ["python", *_]:
-            return run_single_suite(PYTHON_SUITE)
+            return run_parallel(PYTHON_SUITES)
         case ["bash", *_]:
             return run_single_suite(BASH_SUITE)
         case ["lint", *_]:

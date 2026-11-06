@@ -334,8 +334,8 @@ plumbing), whereas `--dry-run` is a registry-only resolve. The reconcile is what
 keeps `--dry-run`'s full re-resolution from flapping unchanged digests — do
 **not** commit `upgrade`'s output directly. The pure functions
 (`parse_features`, `reconcile`, `serialize`) carry all the logic and are unit-
-tested in `tests/python/test_regenerate_devcontainer_lock.py`; the driver's
-subprocess wiring is exercised by the workflow on real Renovate PRs.
+tested in `tests/python/runtime/test_regenerate_devcontainer_lock.py`; the
+driver's subprocess wiring is exercised by the workflow on real Renovate PRs.
 
 `.github/workflows/renovate-devcontainer-lock.yml` runs it: on `pull_request`
 touching `.devcontainer/devcontainer.json`, gated to `github.actor ==
@@ -417,25 +417,27 @@ of the old startup time; the feature compiled both interpreters every build).
 uv is baked into the image in `.devcontainer/Dockerfile`
 (`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
 
-`post-create.sh` builds three venvs in parallel: `~/.venv` (the frozen 3.9.6 —
-pytest + the default `python3` on PATH), `~/.venv-ansible` (the Ansible dev
-stack — `ansible-core`, `ansible-lint`, `molecule`, the docker driver — all in
-one venv so they share a single ansible-core; a second copy is what produced the
-duplicate-version warnings, #46/#48), and a
-`uv tool` venv for `pre-commit`. The Ansible stack is a plain venv rather than
-`uv tool` because only a venv exposes every package's entry points
-(`ansible-playbook`, `ansible-galaxy`, `ansible-lint`, `molecule`); `uv tool`
-exposes the primary package's scripts only. Their bin dirs are put on PATH via
+`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv-runtime`
+(the frozen 3.9.6 — the runtime pytest run + the default `python3` on PATH) and
+`~/.venv-tooling` (`tooling_python` — everything else: the Ansible dev stack,
+`ansible-core`, `ansible-lint`, `molecule`, the docker driver, all in one venv
+so they share a single ansible-core, since a second copy is what produced the
+duplicate-version warnings, #46/#48; plus pytest for the tooling run and
+`pre-commit`). Both are plain venvs rather than `uv tool` installs because only
+a venv exposes every package's entry points (`ansible-playbook`,
+`ansible-galaxy`, `ansible-lint`, `molecule`) and installs from a requirements
+file. pre-commit can share the tooling venv because every hook is `language:
+system` — it builds no hook environments, and its hooks' `python3` still
+resolves to the frozen 3.9.6 through PATH. Their bin dirs are put on PATH via
 `remoteEnv` in `devcontainer.json` — keep that layout and `post-create.sh` in
 step.
 
 Package versions come from pinned `*-requirements.txt` files at the repo root
-(`test-` for `~/.venv`, `lint-` + `molecule-` for `~/.venv-ansible`), which the
-matching CI jobs in `tests.yml` install from too — one pinned source per
-tooling set, shared between devcontainer and CI. `pre-commit` is the exception:
-`uv tool install` reads no requirements file, so it's pinned inline
-(`pre_commit_version` in `post-create.sh`). All are Renovate-managed — see
-"Dependency updates".
+(`test-` for `~/.venv-runtime`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
+for `~/.venv-tooling`), which the matching CI jobs in `tests.yml` install from
+too — one pinned source per tooling set, shared between devcontainer and CI
+(the `python-tooling` job installs all four `~/.venv-tooling` files; see "Two
+pytest runs"). All are Renovate-managed — see "Dependency updates".
 
 CI installs them with uv too: each Python job in `tests.yml` runs one shared
 `astral-sh/setup-uv` step (a YAML anchor) and `uv pip install --system -r …`
@@ -445,13 +447,18 @@ is under "Dependency updates". setup-uv's cache is off (`enable-cache:
 false`), because an uncached install of these pinned files already takes
 only a few seconds.
 
-`test-requirements.txt` feeds the **frozen** 3.9 (both `~/.venv` and the
+Only the **runtime** pytest run is pinned: tests of code a user's Mac runs as
+`python3` — the repo-root modules and the plugin's host scripts. Tests of dev
+tooling run on `tooling_python` instead; the split is under "Tests" ("Two pytest
+runs").
+
+`test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv-runtime` and the
 `python` CI job), so a `packageRule` in `renovate.json` caps pytest at
 `allowedVersions: <9` — pytest 9 dropped 3.9 (needs >= 3.10) with no 8.x
 backport, so an un-capped bump PR fails `pip install` forever.
-`lint-`/`molecule-requirements.txt` run under `tooling_python` and carry no
-such cap. This mirrors the `python`-in-tests.yml disable rule: both keep
-Renovate off versions the frozen interpreter can't run.
+`lint-`/`molecule-`/`tooling-test-requirements.txt` run under `tooling_python`
+and carry no such cap. This mirrors the `python`-in-tests.yml disable rule: both
+keep Renovate off versions the frozen interpreter can't run.
 
 `allowedVersions` is deliberate over `constraints.python`. Two traps make
 `constraints` the wrong tool here: it only filters when `constraintsFiltering`
@@ -469,8 +476,8 @@ The Ansible-tooling interpreter is `tooling_python` in `post-create.sh` (it just
 needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 `3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
 `tooling_python`, matching only the annotated assignment so the frozen 3.9.6 in
-the same file is never touched; a second keeping the molecule CI job's
-`python-version` in tests.yml in step; and a third for `pre_commit_version`).
+the same file is never touched; a second keeping every annotated
+`python-version` in tests.yml — the tooling-Python jobs — in step).
 The frozen 3.9.6 lives in a plain `uv venv --python 3.9.6` line that no Renovate
 manager matches, so it stays put without a disable rule.
 
@@ -516,9 +523,10 @@ bundle. Two files, split by who consumes them:
   downloading a Docker collection it never uses. Don't "simplify" by folding
   it into `requirements.yml`.
 
-`tests/python/test_galaxy_requirements_consumers_agree.py` gates all of it: both
-consumers install every root `requirements*.yml`, phase 2 names only the runtime
-one, and no `pip install` line anywhere reintroduces the bare `ansible` bundle.
+`tests/python/tooling/test_galaxy_requirements_consumers_agree.py` gates all of
+it: both consumers install every root `requirements*.yml`, phase 2 names only the
+runtime one, and no `pip install` line anywhere reintroduces the bare `ansible`
+bundle.
 
 Production is the one place the bundle still appears — `phase2.setup_ansible()`
 runs `brew install ansible` (Homebrew has no `ansible-core` formula). It stays
@@ -712,7 +720,7 @@ Homebrew…" lines arrive at the very end of the captured log.
   excluded.
 
 Run locally via `./tests/run lint` (devcontainer; both tools live in the
-`~/.venv-ansible` uv venv `post-create.sh` builds, alongside ansible-core and
+`~/.venv-tooling` uv venv `post-create.sh` builds, alongside ansible-core and
 the requirements-file collections — see "Galaxy collections come from
 requirements files, not a bundle"). The yamllint and ansible-lint
 pre-commit hooks are `repo: local` / `language: system`, running those same
@@ -733,9 +741,9 @@ markers.
 
 ## Tests
 
-Required for behavior changes. Three suites: bats (bash), pytest (Python),
-and molecule (per-role Ansible scenarios). Lint runs as a fourth suite
-(`./tests/run lint`); see the section above.
+Required for behavior changes. Three suites: bats (bash), pytest (Python, as
+two runs — see "Two pytest runs"), and molecule (per-role Ansible scenarios).
+Lint runs as a fourth suite (`./tests/run lint`); see the section above.
 
 Run them from the devcontainer (`bats` comes from `.devcontainer/Dockerfile`;
 `.devcontainer/post-create.sh` builds the uv venvs holding pytest, pre-commit,
@@ -744,7 +752,7 @@ molecule, ansible-lint, and yamllint).
 ```sh
 ./tests/run                          # everything (python + bash + lint + molecule)
 ./tests/run fast                     # python + bash + lint (skip molecule — no docker)
-./tests/run python                   # pytest only
+./tests/run python                   # both pytest runs, in parallel
 ./tests/run bash                     # bats only
 ./tests/run lint                     # yamllint + ansible-lint
 ./tests/run molecule                 # every molecule scenario, in parallel (needs docker)
@@ -755,7 +763,7 @@ molecule, ansible-lint, and yamllint).
 `_dotfiles_common` so the bracket-style banners stay consistent with
 the bootstrap.
 
-**Multi-suite invocations (`all`, `fast`, `molecule`) run every suite in parallel**,
+**Multi-suite invocations (`all`, `fast`, `python`, `molecule`) run every suite in parallel**,
 buffering each suite's output to a tempfile. On a tty, a live dashboard
 shows the tail of each running suite's log — capped at
 `MAX_LIVE_LINES_PER_SUITE` (default 20) per suite, compressed equally
@@ -790,7 +798,7 @@ suites are terminated and their partial logs flushed under a red
 that, a hung scenario would leave nothing in the CI log, since every
 suite's output is buffered until it exits.
 
-Single-suite invocations (`python`, `bash`, `lint`) preserve fail-fast
+Single-suite invocations (`bash`, `lint`) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
 Two trade-offs the parallel mode pays:
@@ -807,7 +815,8 @@ Two trade-offs the parallel mode pays:
    prep. The summary's `molecule:homebrew/*` times then reflect test work
    only, not image prep.
 
-CI runs all three on Ubuntu as separate `pull_request` jobs. Molecule lives
+CI runs all three on Ubuntu as separate `pull_request` jobs (pytest as two:
+`python` and `python-tooling`). Molecule lives
 under `roles/<role>/molecule/<scenario>/` per role; today the dotfiles, apt,
 flatpak, homebrew, and claude_code roles are covered. apt and flatpak add an
 `empty_groups/` scenario beside `default/`; **homebrew has three** (`default`,
@@ -834,7 +843,7 @@ before.
 The roles list is duplicated
 in two places — `MOLECULE_ROLES` in `tests/run` for local runs, and
 `matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
-covered role requires updating both. **`tests/python/test_molecule_role_lists_agree.py`
+covered role requires updating both. **`tests/python/tooling/test_molecule_role_lists_agree.py`
 gates this**: it scans `roles/*/molecule/` on disk and asserts both lists
 match, so forgetting to update one (or only updating one) fails CI
 immediately rather than silently shipping mismatched local/CI coverage.
@@ -864,6 +873,49 @@ flatpak install (which would blow the per-scenario time budget). If
 either the role's resolve loop or its install task `name:` expression
 changes, update `roles/flatpak/molecule/default/converge.yml` in
 lockstep with `roles/flatpak/tasks/main.yml`.
+
+### Two pytest runs
+
+The 3.9 pin (see "Python 3.9 pin") only needs to cover code that a user's Mac
+executes as `python3`, so pytest runs twice, split by directory:
+
+- **Runtime run** — `tests/python/runtime/` plus
+  `unnatural-designs-agent-tools/tests/` (the plugin's tests stay in its folder
+  so it extracts unchanged). Tests of `phase2`, `_dotfiles_common`, `uninstall`,
+  `dotfiles_manager`, `regenerate_devcontainer_lock`, and the plugin's
+  `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-runtime`, the
+  `python` CI job, and bare `pytest` (`pytest.ini`'s `testpaths`). Running the
+  tests on 3.9 is what proves those modules still parse and run there.
+  `regenerate_devcontainer_lock` is runtime even though its workflow uses the
+  runner's `python3`: its pre-commit hook runs it as `python3`, which is 3.9.6
+  in the devcontainer and on a Mac.
+- **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
+  layout, role-file shape checks. Runs on `tooling_python` with uncapped pytest
+  (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
+  job, and `pytest tests/python/tooling`. The CI job installs every requirements
+  file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
+  tooling test that imports, say, `yaml` sees it in both places;
+  `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
+  VS Code's Test Explorer shows only the runtime run (its interpreter is
+  `~/.venv-runtime`, which can't load `tests/run`); run the tooling tests via
+  `./tests/run python`. `tests/python/tooling/conftest.py`
+  loads `tests/run` (syntax too new for 3.9, no `.py` suffix) via
+  `SourceFileLoader` and registers it as the module `tests_run`, so its tests
+  import the real thing rather than regex its source. The molecule `image:` parser lives in
+  `tests/run` for the same reason — its pin guards import it from there.
+
+`./tests/run python` runs both as parallel suites: the runtime run via
+`pytest` on PATH (`~/.venv-runtime/bin` comes first in `remoteEnv`), the tooling run
+via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
+shebang's `python3.14` resolves to `~/.venv-tooling`'s, the one interpreter
+guaranteed able to load `tests/run`.
+
+`tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
+test file under `tests/python/` (at any depth) sits under `runtime/` or
+`tooling/`, no tooling test imports a runtime module
+(repo-root `*.py` or the plugin's `scripts/`, discovered from disk), and every
+runtime test imports one. A test that imports `phase2` therefore can't land in
+the run that wouldn't catch a 3.9 regression.
 
 ### Homebrew molecule scenarios
 
@@ -1059,12 +1111,12 @@ with no clean way to pin a formula to an arbitrary version, so the Brewfiles
 carry no pins by tooling constraint, not by preference — don't generalize that
 to anything else.
 
-Pip tooling (`test-`/`lint-`/`molecule-requirements.txt`) is named
-`<purpose>-requirements.txt` so Renovate's built-in pip manager matches it with
-no extra config; the Galaxy files need the `ansible-galaxy` widening below
+Pip tooling (`test-`/`lint-`/`molecule-`/`tooling-test-`/
+`pre-commit-requirements.txt`) is named `<purpose>-requirements.txt` so
+Renovate's built-in pip manager matches it with no extra config; the Galaxy files need the `ansible-galaxy` widening below
 because their names don't match that manager's default. Both consumers —
 `post-create.sh` venvs and the `tests.yml` jobs — install from these files;
-`tests/python/test_galaxy_requirements_consumers_agree.py` guards that every
+`tests/python/tooling/test_galaxy_requirements_consumers_agree.py` guards that every
 collection and pip requirement is pinned and that no consumer installs bare
 packages or the full `ansible` bundle.
 
@@ -1260,8 +1312,8 @@ repo is their only home.
 `unnatural-designs-agent-tools/scripts/` runs on the **host**, not in the
 devcontainer, so it is standard-library Python kept 3.9-compatible (same
 constraint as `phase2.py`); its tests in `unnatural-designs-agent-tools/tests/`
-run in the devcontainer as part of the python suite (`pytest.ini`'s `testpaths`
-lists it for both `./tests/run python` and CI's `python` job).
+run in the devcontainer as part of the runtime pytest run (`pytest.ini`'s
+`testpaths` lists it for both `./tests/run python` and CI's `python` job).
 
 The `claude_code` role registers it as a **`directory` marketplace** (absolute
 `path`, from `playbook_dir`, so the `~/.dotfiles` checkout in real use).
