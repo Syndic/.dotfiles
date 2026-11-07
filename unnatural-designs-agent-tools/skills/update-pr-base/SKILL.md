@@ -2,7 +2,7 @@
 name: update-pr-base
 description: Bring the current branch up to date by rebasing it onto its PR's base branch (or the repo's default branch, or a base you name) and force-push with lease
 argument-hint: "[base branch]"
-allowed-tools: Bash(git fetch:*), Bash(git rebase:*), Bash(git push --force-with-lease:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git symbolic-ref:*), Bash(git status:*), Bash(git log:*), Bash(gh pr view:*), Bash(gh repo view:*)
+allowed-tools: Bash(git fetch:*), Bash(git rebase:*), Bash(git push --force-with-lease:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git rev-list:*), Bash(git merge-base:*), Bash(git symbolic-ref:*), Bash(git status:*), Bash(git log:*), Bash(gh pr view:*), Bash(gh repo view:*)
 ---
 
 Bring the current branch up to date by rebasing it onto the latest base branch,
