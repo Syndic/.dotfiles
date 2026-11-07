@@ -88,9 +88,11 @@ Each time you're continued, handle what woke you, then check step 5's condition:
     a brief `PushNotification` and message if you've already notified).
   - **Caused by the PR**: fix (new commit), validate, push, and send the fix to
     the reviewer as a round.
-- **A merge conflict.** Bring the branch up to date with its base (in an app
-  worktree, `mcp__ccd_host__sync_with_base_branch`; otherwise merge it yourself),
-  resolve, validate, push, and send it to the reviewer as a round.
+- **A merge conflict.** Bring the branch up to date only by rebasing, never by
+  merging (so not `mcp__ccd_host__sync_with_base_branch`, which merges): fetch,
+  `git rebase origin/<default>`, resolve, check every commit is still signed,
+  validate, and `git push --force-with-lease`. Send it to the reviewer as a
+  round, saying it was a rebase and giving the old and new base SHAs.
 - **A review comment the reviewer posted mid-round.** Ignore it and wait for its
   verdict.
 - **A message from the user.** Act on it, and relay any decision or new
