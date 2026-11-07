@@ -23,8 +23,9 @@ unchanged.
   passing the work item verbatim. It runs `/code-review --comment`, re-checks each round's
   fixes, and replies to and resolves its own threads. User-invoked only, as the session's
   starting prompt.
-- **`rebase-branch-on-origin-main`**: rebases the current branch onto `origin/main`, checks
-  that commits are still signed, then force-pushes with lease.
+- **`update-pr-base`**: rebases the current branch onto its PR's base branch (falling back to
+  the repo's default branch, or a base you pass), checks that commits are still signed, then
+  force-pushes with lease. It never merges, and stops for the user on any conflict.
 - **`dev-cleanup`**: reaps what archived sessions leave behind, across the whole machine. It is
   user-invoked only (`disable-model-invocation`), and has no hooks or schedules.
 

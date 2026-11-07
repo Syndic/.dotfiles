@@ -88,11 +88,12 @@ Each time you're continued, handle what woke you, then check step 5's condition:
     a brief `PushNotification` and message if you've already notified).
   - **Caused by the PR**: fix (new commit), validate, push, and send the fix to
     the reviewer as a round.
-- **A merge conflict.** Bring the branch up to date only by rebasing, never by
-  merging (so not `mcp__ccd_host__sync_with_base_branch`, which merges): fetch,
-  `git rebase origin/<default>`, resolve, check every commit is still signed,
-  validate, and `git push --force-with-lease`. Send it to the reviewer as a
-  round, saying it was a rebase and giving the old and new base SHAs.
+- **A merge conflict.** Bring the branch up to date only with the
+  `unnatural-designs-agent-tools:update-pr-base` skill, which rebases (never
+  `mcp__ccd_host__sync_with_base_branch`, which merges). It stops on conflicts:
+  report them to the user and wait, and once they're resolved finish the skill's
+  remaining steps. Then validate, and send it to the reviewer as a round, saying
+  it was a rebase and giving the old and new base SHAs.
 - **A review comment the reviewer posted mid-round.** Ignore it and wait for its
   verdict.
 - **A message from the user.** Act on it, and relay any decision or new
