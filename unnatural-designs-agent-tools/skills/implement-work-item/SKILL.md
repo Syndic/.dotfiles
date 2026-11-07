@@ -1,6 +1,6 @@
 ---
 name: implement-work-item
-description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once they agree, still fixing any CI failure that follows.
+description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once they agree, fixing CI failures the PR causes and surfacing unrelated ones. Never merges; the user does.
 argument-hint: <issue number or URL, or a description of the work>
 disable-model-invocation: true
 ---
@@ -11,9 +11,11 @@ You are the **implementer**. A separate **reviewer** session checks your PR. You
 and the reviewer iterate until you both agree the PR correctly addresses the work
 item; the user decides anything you two disagree on.
 
+Never merge the PR, enable auto-merge, or offer to merge it. The user does a
+final review and merges it themself.
+
 Before step 2's PR, load the deferred tools this uses with one `ToolSearch`:
-`mcp__ccd_pr__set_monitor`, `mcp__ccd_pr__get_status`,
-`mcp__ccd_session__start_session`, `mcp__ccd_session_mgmt__list_events` and
+`mcp__ccd_pr__set_monitor`, `mcp__ccd_session__start_session`, `mcp__ccd_session_mgmt__list_events` and
 `PushNotification`. If session tools aren't available here (for example in the
 CLI), stop and tell the user before step 3, and ask whether to run the review in
 a subagent instead.
@@ -78,8 +80,14 @@ Each time you're continued, handle what woke you, then check step 5's condition:
      or why it was dropped). The reviewer resolves threads, not you.
   4. `SendMessage` the reviewer (its `local_…` id) every disposition, the fix
      commits, and the old and new head SHAs.
-- **CI failed** on the latest commit. Read the failing logs, fix (new commit),
-  validate, push, and send the fix to the reviewer as a round.
+- **CI failed** on the latest commit. Read the failing logs and decide whether
+  this PR caused it.
+  - **Unrelated**: the same check also fails on the default branch's latest
+    commit, or the logs point at something the PR doesn't touch. Don't fix it in
+    this PR; surface it to the user with that evidence (in step 5's summary, or
+    a brief `PushNotification` and message if you've already notified).
+  - **Caused by the PR**: fix (new commit), validate, push, and send the fix to
+    the reviewer as a round.
 - **A merge conflict.** Bring the branch up to date with its base (in an app
   worktree, `mcp__ccd_host__sync_with_base_branch`; otherwise merge it yourself),
   resolve, validate, push, and send it to the reviewer as a round.
@@ -108,8 +116,10 @@ Notify the user as soon as all of these hold:
 - the reviewer's latest verdict is `VERDICT: AGREE` and you have nothing
   outstanding;
 - the branch is pushed, with the PR head at your local head; and
-- no check on the PR head is failing (`get_status`). Pending checks are fine:
-  CI passing isn't something the app wakes you for, so don't wait on it.
+- no required check on the PR head is failing because of this PR
+  (`gh pr checks <number> --required`). Don't wait on pending checks (the app
+  doesn't wake you when CI passes), non-required checks, or failures you judged
+  unrelated in step 4; name them in the summary.
 
 To notify, send a one-line `PushNotification`, then end your turn with this
 summary for the user's review before merging:
@@ -119,15 +129,18 @@ summary for the user's review before merging:
   most worth a careful look.
 - **Review outcome**: each finding, and whether it was fixed (commit) or dropped
   (why, and who decided). Name any unresolved thread that isn't the reviewer's.
-- **CI**: passed, or still running, on the PR head.
+- **CI** on the PR head: required checks passed or still running; any
+  non-required failure (and whether you're fixing it); any unrelated failure,
+  with the evidence.
 - **Not verified**: anything no check covered.
 
 ## 6. After notifying
 
-A CI failure on the PR head still wakes you (step 2's monitor). Send a brief
-`PushNotification` and message saying you have work left, with a concise summary
-of what failed. Then fix it as in step 4, and notify again with a short update
-once step 5's conditions hold for the new head.
+A CI failure on the PR head still wakes you (step 2's monitor). Decide as in
+step 4 whether the PR caused it. If it's unrelated, surface it as step 4 says.
+If the PR caused it, send a brief `PushNotification` and message saying you have
+work left, with a concise summary of what failed, fix it as in step 4, and
+notify again with a short update once step 5's conditions hold for the new head.
 
 Leave the reviewer session running, since a CI fix needs its review; the user
 archives it.

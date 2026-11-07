@@ -16,8 +16,9 @@ unchanged.
 - **`implement-work-item`**: implements a triaged work item. It stops to ask about any
   ambiguity before coding, opens a PR, then iterates with a separate review session until both
   agree, bringing disagreements to the user. Once they agree, it notifies the user with a
-  per-file summary for the merge review, and still fixes (and reports) any CI failure after that.
-  User-invoked only (`disable-model-invocation`).
+  per-file summary for the merge review. It fixes CI failures the PR causes and surfaces
+  unrelated ones to the user rather than fixing them in the PR. It never merges; the user does,
+  after their own review. User-invoked only (`disable-model-invocation`).
 - **`review-work-item`**: the reviewer half. `implement-work-item` starts a session with it,
   passing the work item verbatim. It runs `/code-review --comment`, re-checks each round's
   fixes, and replies to and resolves its own threads. User-invoked only, as the session's
