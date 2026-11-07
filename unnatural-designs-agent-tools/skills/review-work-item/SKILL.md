@@ -19,6 +19,7 @@ the implementer disagree on.
   description of itself.
 - Read only for code: no edits, commits, branch switches or pushes. Your only
   writes are on the PR: review comments, thread replies and thread resolutions.
+  Never merge it or enable auto-merge; the user merges after their own review.
 - Report only by ending your turn, never by `SendMessage`. The implementer reads
   your full final message, and each round should raise exactly one notice.
 - Begin each turn's final message (and any wrap-up recap) with one verdict line:
