@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Provision dev/test venvs with uv. Three parallel environments — full
-# rationale in CLAUDE.md "Python 3.9 pin":
-#   ~/.venv          frozen 3.9.6, pytest, default python3 on PATH
-#   ~/.venv-ansible  ansible-core, ansible-lint, yamllint, molecule (one venv
-#                    so they share ansible-core and avoid duplicate-collection
-#                    warnings #46/#48; plain venv exposes all entry points)
-#   pre-commit       uv tool venv
+# Provision dev/test venvs with uv, one per interpreter — full rationale in
+# CLAUDE.md "Python 3.9 pin":
+#   ~/.venv-runtime  frozen 3.9.6, pytest (runtime run), default python3 on PATH
+#   ~/.venv-tooling  tooling_python: ansible-core, ansible-lint, yamllint,
+#                    molecule (one venv so they share ansible-core and avoid
+#                    duplicate-collection warnings #46/#48), pytest for the
+#                    tooling run, and pre-commit
 # PATH wiring lives in devcontainer.json's remoteEnv — keep both in step.
 
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
@@ -20,42 +20,34 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 # ansible-core, not `ansible` — the bundle's collections would be a second
 # resolution root. See CLAUDE.md "Galaxy collections come from requirements
 # files, not a bundle" and "Dependency updates".
-setup_test_env() {
-  uv venv --python 3.9.6 "$HOME/.venv"
-  uv pip install --python "$HOME/.venv/bin/python" -r "$repo_root/test-requirements.txt"
+setup_runtime_env() {
+  uv venv --python 3.9.6 "$HOME/.venv-runtime"
+  uv pip install --python "$HOME/.venv-runtime/bin/python" -r "$repo_root/test-requirements.txt"
 }
 
-setup_ansible_env() {
-  uv venv --python "$tooling_python" "$HOME/.venv-ansible"
-  # One venv holds both the lint and molecule stacks, so install both files.
-  uv pip install --python "$HOME/.venv-ansible/bin/python" \
+setup_tooling_env() {
+  uv venv --python "$tooling_python" "$HOME/.venv-tooling"
+  uv pip install --python "$HOME/.venv-tooling/bin/python" \
     -r "$repo_root/lint-requirements.txt" \
-    -r "$repo_root/molecule-requirements.txt"
+    -r "$repo_root/molecule-requirements.txt" \
+    -r "$repo_root/tooling-test-requirements.txt" \
+    -r "$repo_root/pre-commit-requirements.txt"
 
   # Runtime collections (mirrors phase2.install_galaxy_requirements()) plus the
   # test-only ones molecule's docker driver needs.
-  "$HOME/.venv-ansible/bin/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
-  "$HOME/.venv-ansible/bin/ansible-galaxy" collection install -r "$repo_root/requirements-dev.yml"
-}
-
-setup_precommit() {
-  # renovate: datasource=pypi depName=pre-commit
-  pre_commit_version='4.7.0'
-  uv tool install --python "$tooling_python" "pre-commit==${pre_commit_version}"
+  "$HOME/.venv-tooling/bin/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
+  "$HOME/.venv-tooling/bin/ansible-galaxy" collection install -r "$repo_root/requirements-dev.yml"
 }
 
 # set -e doesn't propagate from backgrounded jobs — capture PIDs, OR exit codes.
-setup_test_env &
-test_pid=$!
-setup_ansible_env &
-ansible_pid=$!
-setup_precommit &
-precommit_pid=$!
+setup_runtime_env &
+runtime_pid=$!
+setup_tooling_env &
+tooling_pid=$!
 
 rc=0
-wait "$test_pid"      || rc=$?
-wait "$ansible_pid"   || rc=$?
-wait "$precommit_pid" || rc=$?
+wait "$runtime_pid" || rc=$?
+wait "$tooling_pid" || rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
 
 # pre-commit refuses to `install` when core.hooksPath is set. Clear it when
@@ -83,4 +75,4 @@ if [ -n "$hooks_path" ]; then
 fi
 
 # Full path: postCreate may not see remoteEnv's PATH yet.
-"$HOME/.local/bin/pre-commit" install
+"$HOME/.venv-tooling/bin/pre-commit" install

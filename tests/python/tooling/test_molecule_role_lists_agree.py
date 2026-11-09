@@ -7,19 +7,18 @@ molecule scenarios":
   2. `MOLECULE_ROLES` in `tests/run` — drives local runs.
   3. `matrix.role` in `.github/workflows/tests.yml` — drives CI shards.
 
-The two consumers read independently (one bash array, one workflow YAML)
+The two consumers read independently (a Python list, one workflow YAML)
 so a new role added to disk + one list but not the other would silently
 ship — local would run it, CI wouldn't (or vice versa). This test catches
-that the moment it happens.
-
-Plain string parsing — `~/.venv` carries pytest + pytest-cov only; no
-PyYAML. See test_uninstall_group_layer_init.py for the same precedent."""
+that the moment it happens."""
 
 import re
 from pathlib import Path
 
+import tests_run
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _roles_on_disk() -> set:
@@ -29,27 +28,11 @@ def _roles_on_disk() -> set:
 
 
 def _roles_in_tests_run() -> set:
-    """Set of role names declared in `MOLECULE_ROLES = [...]` in tests/run.
-
-    Matches the Python list literal — tolerates single or double quotes
-    and surrounding whitespace."""
-    text = (REPO_ROOT / "tests" / "run").read_text()
-    match = re.search(
-        r"^MOLECULE_ROLES\s*=\s*\[([^\]]+)\]", text, re.MULTILINE
-    )
-    assert match, "MOLECULE_ROLES = [...] declaration not found in tests/run"
-    return {
-        item.strip().strip("\"'")
-        for item in match.group(1).split(",")
-        if item.strip()
-    }
+    return set(tests_run.MOLECULE_ROLES)
 
 
 def _roles_in_ci_matrix() -> set:
-    """Set of role names in the `matrix.role: [...]` axis of tests.yml.
-
-    Parsed via regex rather than YAML so this test stays stdlib-only
-    (the pytest venv doesn't carry PyYAML)."""
+    """Set of role names in the `matrix.role: [...]` axis of tests.yml."""
     text = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
     # Match `role: [a, b, c]` under the matrix: block. The leading indent
     # disambiguates from any other `role:` key elsewhere in the file.

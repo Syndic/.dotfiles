@@ -159,7 +159,7 @@ molecule, yamllint, and ansible-lint, so no host-side setup is needed.
 ```bash
 ./tests/run                         # everything (python + bash + lint + molecule)
 ./tests/run fast                    # python + bash + lint (skip molecule — no docker)
-./tests/run python                  # pytest only (tests/python + unnatural-designs-agent-tools/tests)
+./tests/run python                  # pytest: the 3.9 runtime run + the tooling run, in parallel
 ./tests/run bash                    # bats only
 ./tests/run lint                    # yamllint + ansible-lint
 ./tests/run molecule                # molecule per-role scenarios (needs docker)
@@ -203,7 +203,7 @@ trigger them from the Actions tab.
 
 A Debian-based devcontainer is set up in [`.devcontainer/`](.devcontainer)
 with Python 3.9.6 (the pinned primary), the latest Python (for
-ansible/ansible-lint/molecule), bats, pytest, and pre-commit pre-installed.
+ansible/ansible-lint/molecule and the tooling tests), bats, pytest, and pre-commit pre-installed.
 Open in VS Code with "Reopen in Container", or drive it from the CLI:
 
 ```bash

@@ -362,12 +362,12 @@ def test_find_stale_managed_symlinks_resolves_relative_targets(tmp_path: Path) -
 
 
 def test_repo_home_source_tree_has_no_nested_dotfiles_dirs() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
 
     assert_no_nested_dotfiles_dirs(repo_root / "home_source")
 
 
 def test_repo_home_source_tree_has_no_symlinks() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
 
     assert_no_symlinks_in_source(repo_root / "home_source")

@@ -1,4 +1,4 @@
-# Lint tooling for the `~/.venv-ansible` devcontainer venv (post-create.sh)
+# Lint tooling for the `~/.venv-tooling` devcontainer venv (post-create.sh)
 # and the `lint` CI job (tests.yml). Pinned and Renovate-managed — see
 # CLAUDE.md "Dependency updates". ansible-lint pulls ansible-core as a
 # dependency; the pinned ansible-core lives in molecule-requirements.txt,

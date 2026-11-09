@@ -17,16 +17,13 @@ This file also guards the repo-wide pin stance (CLAUDE.md "Dependency
 updates") on the dependency surfaces it can see in plain text: every
 Galaxy collection and every pip requirement carries a version, and the
 two consumers install pip tooling from the pinned `*-requirements.txt`
-files rather than naming bare packages inline.
-
-Plain string parsing — `~/.venv` carries pytest + pytest-cov only; no
-PyYAML. See test_molecule_role_lists_agree.py for the same precedent."""
+files rather than naming bare packages inline."""
 
 import re
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 POST_CREATE = REPO_ROOT / ".devcontainer" / "post-create.sh"
 TESTS_YML = REPO_ROOT / ".github" / "workflows" / "tests.yml"
@@ -89,7 +86,7 @@ def _pip_pins(path: Path) -> list:
 def _collection_entries(path: Path) -> list:
     """(name, pinned) for every collection entry in a requirements file.
 
-    Plain parse — the pytest venv has no PyYAML. Splitting on each
+    Plain parse: splitting on each
     `- name:` list item scopes any following `version:` to that entry, so
     the one-collection-per-item layout is the only assumption."""
     blocks = re.split(r"\n\s*-\s+name:", path.read_text())
@@ -131,9 +128,7 @@ def test_every_pip_requirement_is_pinned() -> None:
 def test_consumers_install_pip_tooling_from_requirements_files() -> None:
     # Every pip install in the devcontainer and CI must go through a pinned
     # requirements file (`-r`), never bare package names — that's what keeps
-    # the pins authoritative. Inline `uv tool install pre-commit==X` is not a
-    # `pip install`, so it's out of scope here (pinned + Renovate-managed via
-    # the customManager in renovate.json).
+    # the pins authoritative.
     for path in (POST_CREATE, TESTS_YML):
         for line in _pip_install_lines(path):
             assert "-r " in line, (
@@ -141,6 +136,19 @@ def test_consumers_install_pip_tooling_from_requirements_files() -> None:
                 f"them into a pinned *-requirements.txt and use `-r`:\n  "
                 f"{line.strip()}"
             )
+
+
+def test_ci_tooling_run_installs_what_the_local_tooling_venv_has() -> None:
+    # Locally the tooling run executes in ~/.venv-tooling; the python-tooling
+    # job must see the same packages, or a test passes locally and fails in CI.
+    def files(line: str) -> set:
+        return set(re.findall(r"[\w-]+-requirements\.txt", line))
+
+    venv = [line for line in _pip_install_lines(POST_CREATE) if ".venv-tooling" in line]
+    ci = [line for line in _pip_install_lines(TESTS_YML) if "tooling-test-requirements.txt" in line]
+    assert len(venv) == 1, "expected one pip install into ~/.venv-tooling in post-create.sh"
+    assert len(ci) == 1, "expected one tooling-test-requirements.txt install in tests.yml"
+    assert files(ci[0]) == files(venv[0])
 
 
 def test_lint_installs_also_take_the_ansible_core_pin() -> None:

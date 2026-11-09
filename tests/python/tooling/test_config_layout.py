@@ -3,10 +3,10 @@ import re
 from pathlib import Path
 
 import pytest
-from molecule_images import image_lines
+from tests_run import image_lines
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_site_targets_all_hosts() -> None:
@@ -560,7 +560,7 @@ def test_renovate_carves_pre_1_0_minors_out_of_the_batch() -> None:
 
 
 def _precommit_hooks() -> dict:
-    """{hook id: (repo, hook body)} by plain parse — ~/.venv has no PyYAML."""
+    """{hook id: (repo, hook body)} by plain parse."""
     text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
     hooks = {}
     for repo_block in re.split(r"^  - repo: ", text, flags=re.MULTILINE)[1:]:
@@ -680,6 +680,22 @@ def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
         and (re.match(r"\s*(COPY|ADD)\b", line, re.IGNORECASE) or "--mount" in line)
     ]
     assert not reads, f"extend image-tag.sh to hash these inputs too: {reads}"
+
+
+def test_ci_runtime_python_matches_the_devcontainer() -> None:
+    """CI's runtime venv is built on the same frozen 3.9 patch as the
+    devcontainer's ~/.venv-runtime. See CLAUDE.md "Python 3.9 pin"."""
+    pattern = re.compile(r"uv venv --python (\S+) \S*venv-runtime")
+    tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
+    post_create = (REPO_ROOT / ".devcontainer" / "post-create.sh").read_text()
+
+    ci = pattern.findall(tests_yml)
+    devcontainer = pattern.findall(post_create)
+
+    assert len(ci) == 1, "expected one runtime `uv venv --python` in tests.yml"
+    assert len(devcontainer) == 1, "expected one runtime `uv venv --python` in post-create.sh"
+    assert re.fullmatch(r"3\.9\.\d+", devcontainer[0])
+    assert ci == devcontainer
 
 
 def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
