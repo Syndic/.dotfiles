@@ -419,39 +419,40 @@ of the old startup time; the feature compiled both interpreters every build).
 uv is baked into the image in `.devcontainer/Dockerfile`
 (`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
 
-`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv-runtime`
-(the frozen 3.9.6 — the runtime pytest run + the default `python3` on PATH) and
-`~/.venv-tooling` (`tooling_python` — everything else: the Ansible dev stack,
-`ansible-core`, `ansible-lint`, `molecule`, the docker driver, all in one venv
-so they share a single ansible-core, since a second copy is what produced the
-duplicate-version warnings, #46/#48; plus pytest for the tooling run and
-`pre-commit`). Both are plain venvs rather than `uv tool` installs because only
-a venv exposes every package's entry points (`ansible-playbook`,
-`ansible-galaxy`, `ansible-lint`, `molecule`) and installs from a requirements
-file. pre-commit can share the tooling venv because every hook is `language:
-system` — it builds no hook environments, and its hooks' `python3` still
-resolves to the frozen 3.9.6 through PATH. Their bin dirs are put on PATH via
-`remoteEnv` in `devcontainer.json` — keep that layout and `post-create.sh` in
-step.
+`post-create.sh` builds two venvs in parallel, one per interpreter:
+`~/.venv-runtime` (the frozen 3.9.6 — the runtime pytest run + the default
+`python3` on PATH) and `~/.venv-tooling` (`tooling_python` — everything else:
+the Ansible dev stack, `ansible-core`, `ansible-lint`, `molecule`, the docker
+driver, all in one venv so they share a single ansible-core, since a second copy
+is what produced the duplicate-version warnings, #46/#48; plus pytest for the
+tooling run and `pre-commit`). Both are plain venvs rather than `uv tool`
+installs because only a venv exposes every package's entry points
+(`ansible-playbook`, `ansible-galaxy`, `ansible-lint`, `molecule`) and installs
+from a requirements file. pre-commit can share the tooling venv because every
+hook is `language: system` — it builds no hook environments, and its hooks'
+`python3` still resolves to the frozen 3.9.6 through PATH. Their bin dirs are
+put on PATH via `remoteEnv` in `devcontainer.json` — keep that layout and
+`post-create.sh` in step.
 
 Package versions come from pinned `*-requirements.txt` files at the repo root
-(`test-` for `~/.venv-runtime`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
-for `~/.venv-tooling`), which the matching CI jobs in `tests.yml` install from
-too — one pinned source per tooling set, shared between devcontainer and CI
-(the `python-tooling` job installs all four `~/.venv-tooling` files; see "Two
-pytest runs"). All are Renovate-managed — see "Dependency updates".
+(`test-` for `~/.venv-runtime`, `lint-` + `molecule-` + `tooling-test-` +
+`pre-commit-` for `~/.venv-tooling`), which the matching CI jobs in `tests.yml`
+install from too — one pinned source per tooling set, shared between
+devcontainer and CI (the `python-tooling` job installs all four
+`~/.venv-tooling` files; see "Two pytest runs"). All are Renovate-managed — see
+"Dependency updates".
 
 CI installs them with uv too: each Python job in `tests.yml` runs one shared
 `astral-sh/setup-uv` step (a YAML anchor). The tooling-Python jobs then run
-`uv pip install --system -r …` into the setup-python interpreter. The `python`
-job uses no setup-python, because setup-python ships no 3.9 build for the
-current `ubuntu-latest`. It builds a 3.9.6 venv with uv, the CI copy of
+`uv pip install --system -r …` into the setup-python interpreter. The
+`python` job uses no setup-python, because setup-python ships no 3.9 build for
+the current `ubuntu-latest`. It builds a 3.9.6 venv with uv, the CI copy of
 `~/.venv-runtime`, and installs into that. The venv is needed because uv refuses
-`--system` installs into a Python it manages. setup-uv's `version:` must equal the devcontainer's
-`COPY --from=ghcr.io/astral-sh/uv:<tag>`; how Renovate keeps the two together
-is under "Dependency updates". setup-uv's cache is off (`enable-cache:
-false`), because an uncached install of these pinned files already takes
-only a few seconds.
+`--system` installs into a Python it manages. setup-uv's `version:` must equal
+the devcontainer's `COPY --from=ghcr.io/astral-sh/uv:<tag>`; how Renovate keeps
+the two together is under "Dependency updates". setup-uv's cache is off
+(`enable-cache: false`), because an uncached install of these pinned files
+already takes only a few seconds.
 
 Only the **runtime** pytest run is pinned: tests of code a user's Mac runs as
 `python3` — the repo-root modules and the plugin's host scripts. Tests of dev
@@ -770,14 +771,14 @@ molecule, ansible-lint, and yamllint).
 `_dotfiles_common` so the bracket-style banners stay consistent with
 the bootstrap.
 
-**Multi-suite invocations (`all`, `fast`, `python`, `molecule`) run every suite in parallel**,
-buffering each suite's output to a tempfile. On a tty, a live dashboard
-shows the tail of each running suite's log — capped at
-`MAX_LIVE_LINES_PER_SUITE` (default 20) per suite, compressed equally
-across suites when the viewport can't fit that many for everyone (down
-to zero, headers only, if the terminal is tight). Refreshed every
-`TICK` (default 2) seconds via cursor-up + erase. The dashboard uses
-a three-tier colored hierarchy mirroring `_dotfiles_common`'s palette:
+**Multi-suite invocations (`all`, `fast`, `python`, `molecule`) run every suite
+in parallel**, buffering each suite's output to a tempfile. On a tty, a live
+dashboard shows the tail of each running suite's log — capped at
+`MAX_LIVE_LINES_PER_SUITE` (default 20) per suite, compressed equally across
+suites when the viewport can't fit that many for everyone (down to zero, headers
+only, if the terminal is tight). Refreshed every `TICK` (default 2) seconds via
+cursor-up + erase. The dashboard uses a three-tier colored hierarchy mirroring
+`_dotfiles_common`'s palette:
 
 - **Dashboard header** — yellow background `announce`-style banner
   (`live · HH:MM:SS · X/N suites complete`), the top-level section
@@ -831,31 +832,29 @@ flatpak, homebrew, and claude_code roles are covered. apt and flatpak add an
 use `./tests/run fast` when you don't have Docker (or don't want to pay the
 ~5-min molecule cost) and just need the python/bash gates.
 
-**Molecule CI is sharded across roles** via a `strategy.matrix` in
-`tests.yml` — one runner per role, all in parallel. The previous single
-job was wall-clock-bound by the slowest role (homebrew, which builds a
-Linuxbrew base image inline); sharding lets the lighter roles return in
-1-2 min while homebrew runs in its own cell. **Within a shard, each scenario
-is its own `tests/run` suite** (`molecule:<role>/<scenario>`, one `molecule
-test -s` each), so a role's scenarios run concurrently and the shard costs its
-slowest scenario rather than the sum. This works because every scenario's
-platform `name:` is unique — keep it that way when adding one, or two
-scenarios' containers collide. Each shard's first step after setup-python
-backgrounds `./tests/run pull <role>`, which pulls every digest-pinned
-`image:` in the role's scenarios (plus homebrew's published base) so the
-pulls overlap the pip and Galaxy installs instead of landing inside
-molecule's `create`. Best-effort: its log is printed at the end of the
-job, and a failed or unfinished pull just leaves molecule to pull as
-before.
-The roles list is duplicated
-in two places — `MOLECULE_ROLES` in `tests/run` for local runs, and
-`matrix.role` in `tests.yml` for CI shard discovery — adding a new molecule-
-covered role requires updating both. **`tests/python/tooling/test_molecule_role_lists_agree.py`
-gates this**: it scans `roles/*/molecule/` on disk and asserts both lists
-match, so forgetting to update one (or only updating one) fails CI
-immediately rather than silently shipping mismatched local/CI coverage.
-`fail-fast: false` is set on the matrix so a failure in one shard doesn't
-cancel the siblings; we want every failing role surfaced in a single CI run.
+**Molecule CI is sharded across roles** via a `strategy.matrix` in `tests.yml` —
+one runner per role, all in parallel. The previous single job was
+wall-clock-bound by the slowest role (homebrew, which builds a Linuxbrew base
+image inline); sharding lets the lighter roles return in 1-2 min while homebrew
+runs in its own cell. **Within a shard, each scenario is its own `tests/run`
+suite** (`molecule:<role>/<scenario>`, one `molecule test -s` each), so a role's
+scenarios run concurrently and the shard costs its slowest scenario rather than
+the sum. This works because every scenario's platform `name:` is unique — keep
+it that way when adding one, or two scenarios' containers collide. Each shard's
+first step after setup-python backgrounds `./tests/run pull <role>`, which pulls
+every digest-pinned `image:` in the role's scenarios (plus homebrew's published
+base) so the pulls overlap the pip and Galaxy installs instead of landing inside
+molecule's `create`. Best-effort: its log is printed at the end of the job, and
+a failed or unfinished pull just leaves molecule to pull as before. The roles
+list is duplicated in two places — `MOLECULE_ROLES` in `tests/run` for local
+runs, and `matrix.role` in `tests.yml` for CI shard discovery — adding a new
+molecule-covered role requires updating both.
+**`tests/python/tooling/test_molecule_role_lists_agree.py` gates this**: it
+scans `roles/*/molecule/` on disk and asserts both lists match, so forgetting to
+update one (or only updating one) fails CI immediately rather than silently
+shipping mismatched local/CI coverage. `fail-fast: false` is set on the matrix
+so a failure in one shard doesn't cancel the siblings; we want every failing
+role surfaced in a single CI run.
 
 **Branch protection should require `molecule-all`, not the per-role
 checks.** The `molecule-all` job `needs: molecule` (so it runs after every
@@ -900,22 +899,22 @@ executes as `python3`, so pytest runs twice, split by directory:
   layout, role-file shape checks. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
   job, and `pytest tests/python/tooling`. The CI job installs every requirements
-  file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
-  tooling test that imports, say, `yaml` sees it in both places;
+  file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so
+  a tooling test that imports, say, `yaml` sees it in both places;
   `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
   VS Code's Test Explorer shows only the runtime run (its interpreter is
   `~/.venv-runtime`, which can't load `tests/run`); run the tooling tests via
-  `./tests/run python`. `tests/python/tooling/conftest.py`
-  loads `tests/run` (syntax too new for 3.9, no `.py` suffix) via
-  `SourceFileLoader` and registers it as the module `tests_run`, so its tests
-  import the real thing rather than regex its source. The molecule `image:` parser lives in
-  `tests/run` for the same reason — its pin guards import it from there.
+  `./tests/run python`. `tests/python/tooling/conftest.py` loads `tests/run`
+  (syntax too new for 3.9, no `.py` suffix) via `SourceFileLoader` and registers
+  it as the module `tests_run`, so its tests import the real thing rather than
+  regex its source. The molecule `image:` parser lives in `tests/run` for the
+  same reason — its pin guards import it from there.
 
-`./tests/run python` runs both as parallel suites: the runtime run via
-`pytest` on PATH (`~/.venv-runtime/bin` comes first in `remoteEnv`), the tooling run
-via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
-shebang's `python3.14` resolves to `~/.venv-tooling`'s, the one interpreter
-guaranteed able to load `tests/run`.
+`./tests/run python` runs both as parallel suites: the runtime run via `pytest`
+on PATH (`~/.venv-runtime/bin` comes first in `remoteEnv`), the tooling run via
+`tests/run`'s own interpreter (`sys.executable -m pytest`) — the shebang's
+`python3.14` resolves to `~/.venv-tooling`'s, the one interpreter guaranteed
+able to load `tests/run`.
 
 `tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
 test file under `tests/python/` (at any depth) sits under `runtime/` or
@@ -1120,12 +1119,13 @@ to anything else.
 
 Pip tooling (`test-`/`lint-`/`molecule-`/`tooling-test-`/
 `pre-commit-requirements.txt`) is named `<purpose>-requirements.txt` so
-Renovate's built-in pip manager matches it with no extra config; the Galaxy files need the `ansible-galaxy` widening below
-because their names don't match that manager's default. Both consumers —
-`post-create.sh` venvs and the `tests.yml` jobs — install from these files;
-`tests/python/tooling/test_galaxy_requirements_consumers_agree.py` guards that every
-collection and pip requirement is pinned and that no consumer installs bare
-packages or the full `ansible` bundle.
+Renovate's built-in pip manager matches it with no extra config; the Galaxy
+files need the `ansible-galaxy` widening below because their names don't match
+that manager's default. Both consumers — `post-create.sh` venvs and the
+`tests.yml` jobs — install from these files;
+`tests/python/tooling/test_galaxy_requirements_consumers_agree.py` guards that
+every collection and pip requirement is pinned and that no consumer installs
+bare packages or the full `ansible` bundle.
 
 `renovate.json` batches **every non-major update into one PR** via a
 catch-all `packageRule` (`matchUpdateTypes: [minor, patch]`, groupName
