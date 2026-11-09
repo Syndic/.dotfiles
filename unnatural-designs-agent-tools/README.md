@@ -13,8 +13,19 @@ unchanged.
 
 ## Skills
 
-- **`rebase-branch-on-origin-main`**: rebases the current branch onto `origin/main`, checks
-  that commits are still signed, then force-pushes with lease.
+- **`implement-work-item`**: implements a triaged work item. It stops to ask about any
+  ambiguity before coding, opens a PR, then iterates with a separate review session until both
+  agree, bringing disagreements to the user. Once they agree, it notifies the user with a
+  per-file summary for the merge review. It fixes CI failures the PR causes and surfaces
+  unrelated ones to the user rather than fixing them in the PR. It never merges; the user does,
+  after their own review. User-invoked only (`disable-model-invocation`).
+- **`review-work-item`**: the reviewer half. `implement-work-item` starts a session with it,
+  passing the work item verbatim. It runs `/code-review --comment`, re-checks each round's
+  fixes, and replies to and resolves its own threads. User-invoked only, as the session's
+  starting prompt.
+- **`update-pr-base`**: rebases the current branch onto its PR's base branch (falling back to
+  the repo's default branch, or a base you pass), checks that commits are still signed, then
+  force-pushes with lease. It never merges, and stops for the user on any conflict.
 - **`dev-cleanup`**: reaps what archived sessions leave behind, across the whole machine. It is
   user-invoked only (`disable-model-invocation`), and has no hooks or schedules.
 
