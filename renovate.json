@@ -16,7 +16,7 @@
   },
   "packageRules": [
     {
-      "description": "Disable Renovate's github-actions manager for python in tests.yml; the python/bash jobs' 3.9 pin is frozen. See CLAUDE.md's 'Python 3.9 pin' section.",
+      "description": "Disable the github-actions manager's built-in extraction of setup-python's `python-version` in tests.yml; the annotated customManager owns those pins. See CLAUDE.md's 'Python 3.9 pin' section.",
       "matchManagers": ["github-actions"],
       "matchDepNames": ["python"],
       "matchFileNames": [".github/workflows/tests.yml"],

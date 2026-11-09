@@ -406,9 +406,11 @@ Concrete consequences:
 
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.
 The pin is enforced in three places: the runtime (`/usr/bin/python3` in
-install.sh), CI (`python-version: '3.9'` in `.github/workflows/tests.yml`),
-and the devcontainer (`uv venv --python 3.9.6` in `.devcontainer/post-create.sh`,
-pinned to the exact CLT patch). Keep all three in step.
+install.sh), CI (`uv venv --python 3.9.6` in the `python` job of
+`.github/workflows/tests.yml`), and the devcontainer (`uv venv --python 3.9.6`
+in `.devcontainer/post-create.sh`), both pinned to the exact CLT patch. Keep all
+three in step; `test_ci_runtime_python_matches_the_devcontainer` guards the two
+`uv venv` lines.
 
 The devcontainer provisions Python with **uv**, not the devcontainers `python`
 feature. uv fetches prebuilt CPython from python-build-standalone — including
@@ -440,8 +442,12 @@ too — one pinned source per tooling set, shared between devcontainer and CI
 pytest runs"). All are Renovate-managed — see "Dependency updates".
 
 CI installs them with uv too: each Python job in `tests.yml` runs one shared
-`astral-sh/setup-uv` step (a YAML anchor) and `uv pip install --system -r …`
-into the setup-python interpreter. Its `version:` must equal the devcontainer's
+`astral-sh/setup-uv` step (a YAML anchor). The tooling-Python jobs then run
+`uv pip install --system -r …` into the setup-python interpreter. The `python`
+job uses no setup-python, because setup-python ships no 3.9 build for the
+current `ubuntu-latest`. It builds a 3.9.6 venv with uv, the CI copy of
+`~/.venv-runtime`, and installs into that. The venv is needed because uv refuses
+`--system` installs into a Python it manages. setup-uv's `version:` must equal the devcontainer's
 `COPY --from=ghcr.io/astral-sh/uv:<tag>`; how Renovate keeps the two together
 is under "Dependency updates". setup-uv's cache is off (`enable-cache:
 false`), because an uncached install of these pinned files already takes
@@ -457,8 +463,7 @@ runs").
 `allowedVersions: <9` — pytest 9 dropped 3.9 (needs >= 3.10) with no 8.x
 backport, so an un-capped bump PR fails `pip install` forever.
 `lint-`/`molecule-`/`tooling-test-requirements.txt` run under `tooling_python`
-and carry no such cap. This mirrors the `python`-in-tests.yml disable rule: both
-keep Renovate off versions the frozen interpreter can't run.
+and carry no such cap.
 
 `allowedVersions` is deliberate over `constraints.python`. Two traps make
 `constraints` the wrong tool here: it only filters when `constraintsFiltering`
@@ -477,9 +482,11 @@ needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 `3.9.6` frozen; the wiring is in `renovate.json` (a `customManager` for
 `tooling_python`, matching only the annotated assignment so the frozen 3.9.6 in
 the same file is never touched; a second keeping every annotated
-`python-version` in tests.yml — the tooling-Python jobs — in step).
-The frozen 3.9.6 lives in a plain `uv venv --python 3.9.6` line that no Renovate
-manager matches, so it stays put without a disable rule.
+`python-version` in tests.yml — the tooling-Python jobs — in step, with the
+github-actions manager's own extraction of them disabled so that customManager is
+their one owner). The frozen 3.9.6 lives in plain `uv venv --python 3.9.6` lines
+(post-create.sh and tests.yml) that no Renovate manager matches, so it stays put
+without a disable rule.
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.

@@ -682,6 +682,22 @@ def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
     assert not reads, f"extend image-tag.sh to hash these inputs too: {reads}"
 
 
+def test_ci_runtime_python_matches_the_devcontainer() -> None:
+    """CI's runtime venv is built on the same frozen 3.9 patch as the
+    devcontainer's ~/.venv-runtime. See CLAUDE.md "Python 3.9 pin"."""
+    pattern = re.compile(r"uv venv --python (\S+) \S*venv-runtime")
+    tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
+    post_create = (REPO_ROOT / ".devcontainer" / "post-create.sh").read_text()
+
+    ci = pattern.findall(tests_yml)
+    devcontainer = pattern.findall(post_create)
+
+    assert len(ci) == 1, "expected one runtime `uv venv --python` in tests.yml"
+    assert len(devcontainer) == 1, "expected one runtime `uv venv --python` in post-create.sh"
+    assert re.fullmatch(r"3\.9\.\d+", devcontainer[0])
+    assert ci == devcontainer
+
+
 def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
     """Every setup-uv `version:` in tests.yml equals the devcontainer's uv
     tag and has exactly one Renovate owner: a docker customManager, with the
