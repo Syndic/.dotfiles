@@ -38,10 +38,10 @@ Single-suite invocations (`bash` / `lint`) preserve fail-fast
 semantics — no parallelism, no summary, exit code propagates directly.
 
 Runs under `tooling_python` (3.14) — same interpreter as the
-lint/molecule CI jobs and the devcontainer's Ansible venv. Renovate
-tracks the shebang version alongside those two (see renovate.json) so
-all three stay in step. The bootstrap's frozen 3.9.6 doesn't apply
-here; this is dev tooling.
+lint/molecule/python-tooling CI jobs and the devcontainer's
+`~/.venv-tooling`. Renovate tracks the shebang version alongside those
+(see renovate.json) so they stay in step. The bootstrap's frozen 3.9.6
+doesn't apply here; this is dev tooling.
 """
 import os
 import re
