@@ -774,10 +774,13 @@ def test_renovate_file_patterns_reach_files_ignore_paths_keep() -> None:
 
     custom = config.get("customManagers", [])
     assert not [m for m in custom if "ignorePaths" in m], (
-        "a customManagers entry sets ignorePaths, which this test doesn't model; extend it"
+        "Renovate rejects ignorePaths on a customManagers entry; set it on the customType block"
     )
-    # A built-in manager block's ignorePaths replaces the repo's (not mergeable).
-    managers = [(m, ignore_paths) for m in custom]
+    # A manager block's ignorePaths replaces the repo's (not mergeable); a custom
+    # manager inherits the block named for its customType (e.g. `regex`).
+    managers = [
+        (m, config.get(m["customType"], {}).get("ignorePaths", ignore_paths)) for m in custom
+    ]
     managers += [
         (v, v.get("ignorePaths", ignore_paths))
         for v in config.values()
