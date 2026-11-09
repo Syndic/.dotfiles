@@ -1,6 +1,7 @@
 import json
 import re
-from pathlib import Path
+import subprocess
+from pathlib import Path, PurePosixPath
 
 import pytest
 from tests_run import image_lines
@@ -735,3 +736,55 @@ def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
         and rule.get("matchPackageNames") == ["astral-sh/uv"]
         for rule in config["packageRules"]
     ), "the github-actions manager must not also track setup-uv's version"
+
+
+def _renovate_ignores(path: str, ignore_paths: list) -> bool:
+    """Renovate's filterIgnoredFiles: substring or minimatch (dot: true)."""
+    return any(p in path or PurePosixPath(path).full_match(p) for p in ignore_paths)
+
+
+def _manager_pattern_matches(pattern: str, path: str) -> bool:
+    """A managerFilePatterns entry is a `/regex/` or a glob."""
+    if pattern.startswith("/") and pattern.endswith("/"):
+        return re.search(pattern[1:-1], path) is not None
+    return PurePosixPath(path).full_match(pattern)
+
+
+def test_renovate_file_patterns_reach_files_ignore_paths_keep() -> None:
+    """renovate.json overrides the preset ignorePaths, and every
+    managerFilePatterns entry reaches a tracked file the override leaves in.
+    See CLAUDE.md "Dependency updates"."""
+    config = _renovate_config()
+    ignore_paths = config.get("ignorePaths")
+    assert isinstance(ignore_paths, list), "renovate.json must set ignorePaths explicitly"
+
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    scanned = [f for f in tracked if not _renovate_ignores(f, ignore_paths)]
+
+    managers = list(config.get("customManagers", []))
+    managers += [v for v in config.values() if isinstance(v, dict) and "managerFilePatterns" in v]
+    patterns = [p for m in managers for p in m["managerFilePatterns"]]
+    assert patterns, "expected at least one managerFilePatterns entry"
+
+    unreachable = [p for p in patterns if not any(_manager_pattern_matches(p, f) for f in scanned)]
+    assert not unreachable, f"managerFilePatterns matching no file outside ignorePaths: {unreachable}"
+
+
+@pytest.mark.parametrize(
+    ("path", "ignored"),
+    [
+        ("tests/run", True),
+        ("roles/x/tests/y.yml", True),
+        ("node_modules/a/package.json", True),
+        ("a/.hidden/vendor/b.txt", True),
+        ("tests_run.py", False),
+        ("renovate.json", False),
+    ],
+)
+def test_renovate_ignores_mirrors_preset_globs(path: str, ignored: bool) -> None:
+    """Pins the glob semantics the reachability test relies on, against the
+    preset's own list (which still carries `**/tests/**`)."""
+    preset = ["**/node_modules/**", "**/vendor/**", "**/tests/**"]
+    assert _renovate_ignores(path, preset) is ignored

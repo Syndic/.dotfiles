@@ -5,6 +5,15 @@
     ":dependencyDashboard",
     "helpers:pinGitHubActionDigestsToSemver"
   ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/__fixtures__/**"
+  ],
   "gitIgnoredAuthors": [
     "294636956+unnatural-designs-renovate-helper[bot]@users.noreply.github.com"
   ],
