@@ -20,7 +20,7 @@ platforms:
   - name: dotfiles-instance
     # Preconfigured molecule image: debian12 + python3 + sudo + systemd init.
     # renovate: datasource=docker depName=geerlingguy/docker-debian12-ansible
-    image: geerlingguy/docker-debian12-ansible:latest@sha256:e365f7f43a95b8bd31b4ed25da1a4e3a5ae576151c4df67cf51776e696644e4e
+    image: geerlingguy/docker-debian12-ansible:latest@sha256:fc679fe5eb029c5ceeed3beb9c8a7ee116de371e7f62e3341d5a4dba79853004
     pre_build_image: true
     privileged: true
     cgroupns_mode: host
