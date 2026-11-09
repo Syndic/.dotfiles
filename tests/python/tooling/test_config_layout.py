@@ -1,6 +1,7 @@
 import json
 import re
-from pathlib import Path
+import subprocess
+from pathlib import Path, PurePosixPath
 
 import pytest
 from tests_run import image_lines
@@ -716,7 +717,7 @@ def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
 
     pins = []
     for manager in config["customManagers"]:
-        if not any(re.search(p.strip("/"), tests_yml_path) for p in manager["managerFilePatterns"]):
+        if not any(_manager_pattern_matches(p, tests_yml_path) for p in manager["managerFilePatterns"]):
             continue
         for match_string in manager["matchStrings"]:
             for m in re.finditer(match_string.replace("(?<", "(?P<"), tests_yml):
@@ -735,3 +736,96 @@ def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
         and rule.get("matchPackageNames") == ["astral-sh/uv"]
         for rule in config["packageRules"]
     ), "the github-actions manager must not also track setup-uv's version"
+
+
+def _renovate_ignores(path: str, ignore_paths: list) -> bool:
+    """Renovate's filterIgnoredFiles: substring or minimatch (dot: true)."""
+    return any(p in path or PurePosixPath(path).full_match(p) for p in ignore_paths)
+
+
+_RENOVATE_REGEX_RE = re.compile(r"^(?P<negate>!?)/(?P<body>.*)/(?P<flags>i?)$", re.DOTALL)
+
+
+def _manager_pattern_matches(pattern: str, path: str) -> bool:
+    """Renovate's getRegexOrGlobPredicate: `[!]/regex/[i]`, else a glob (dot, nocase)."""
+    m = _RENOVATE_REGEX_RE.match(pattern)
+    if m:
+        hit = re.search(m["body"], path, re.IGNORECASE if m["flags"] else 0) is not None
+        return hit != bool(m["negate"])
+    return PurePosixPath(path).full_match(pattern, case_sensitive=False)
+
+
+def test_renovate_file_patterns_reach_files_ignore_paths_keep() -> None:
+    """renovate.json overrides the preset ignorePaths, and every
+    managerFilePatterns entry reaches a tracked file that includePaths and the
+    manager's effective ignorePaths leave in. See CLAUDE.md "Dependency updates"."""
+    config = _renovate_config()
+    ignore_paths = config.get("ignorePaths")
+    assert isinstance(ignore_paths, list), "renovate.json must set ignorePaths explicitly"
+
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    include_paths = config.get("includePaths")
+    if include_paths:
+        tracked = [
+            f for f in tracked if any(f == p or PurePosixPath(f).full_match(p) for p in include_paths)
+        ]
+
+    custom = config.get("customManagers", [])
+    assert not [m for m in custom if "ignorePaths" in m], (
+        "Renovate rejects ignorePaths on a customManagers entry; set it on the customType block"
+    )
+    # A manager block's ignorePaths replaces the repo's (not mergeable); a custom
+    # manager inherits the block named for its customType (e.g. `regex`).
+    managers = [
+        (m, config.get(m["customType"], {}).get("ignorePaths", ignore_paths)) for m in custom
+    ]
+    managers += [
+        (v, v.get("ignorePaths", ignore_paths))
+        for v in config.values()
+        if isinstance(v, dict) and "managerFilePatterns" in v
+    ]
+    assert managers, "expected at least one managerFilePatterns entry"
+
+    unreachable = [
+        p
+        for m, ignores in managers
+        for p in m["managerFilePatterns"]
+        if not any(_manager_pattern_matches(p, f) and not _renovate_ignores(f, ignores) for f in tracked)
+    ]
+    assert not unreachable, f"managerFilePatterns matching no file Renovate scans: {unreachable}"
+
+
+@pytest.mark.parametrize(
+    ("path", "ignored"),
+    [
+        ("tests/run", True),
+        ("roles/x/tests/y.yml", True),
+        ("node_modules/a/package.json", True),
+        ("a/.hidden/vendor/b.txt", True),
+        ("tests_run.py", False),
+        ("renovate.json", False),
+    ],
+)
+def test_renovate_ignores_mirrors_preset_globs(path: str, ignored: bool) -> None:
+    """Pins the glob semantics the reachability test relies on, against the
+    preset's own list (which still carries `**/tests/**`)."""
+    preset = ["**/node_modules/**", "**/vendor/**", "**/tests/**"]
+    assert _renovate_ignores(path, preset) is ignored
+
+
+@pytest.mark.parametrize(
+    ("pattern", "path", "matches"),
+    [
+        ("/^tests/run$/", "tests/run", True),
+        ("/^x$/", "tests/run", False),
+        ("/DOCKERFILE$/i", "a/Dockerfile", True),
+        ("/DOCKERFILE$/", "a/Dockerfile", False),
+        ("!/^tests//", "renovate.json", True),
+        ("!/^tests//", "tests/run", False),
+        ("**/*.YML", "a/.b/c.yml", True),
+    ],
+)
+def test_manager_pattern_matches_mirrors_renovate(pattern: str, path: str, matches: bool) -> None:
+    assert _manager_pattern_matches(pattern, path) is matches

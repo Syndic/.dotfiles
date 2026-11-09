@@ -1203,6 +1203,14 @@ routine. The rule keys on `matchCurrentVersion: /^v?0\./`, so it covers every
 0.x dependency (uv, `devcontainers/ci`) and lets go on its own once one
 reaches 1.0. Patches stay in the batch.
 
+**`ignorePaths` is overridden** with `config:recommended`'s list minus
+`**/tests/**`. That preset (via `:ignoreModulesAndTests`) skips every file
+under `tests/`, which hides the `tests/run` shebang pin from its
+customManager. `ignorePaths` isn't mergeable, so the repo's list replaces the
+preset's rather than adding to it. `test_renovate_file_patterns_reach_files_ignore_paths_keep`
+asserts every `managerFilePatterns` entry reaches a tracked file outside
+`ignorePaths`, so a manager aimed at an ignored path fails the tooling run.
+
 Two Renovate-adjacent mechanisms have their own sections: the devcontainer
 feature pinning policy and lock regeneration under "Devcontainer lock
 regeneration", and the frozen-vs-tracked Python pins under "Python 3.9 pin".
