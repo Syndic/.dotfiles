@@ -6,7 +6,7 @@
 # requirements files, not a bundle". docker + requests are the Python libs
 # community.docker's container modules import; molecule doesn't pull them.
 ansible-core==2.22.0
-molecule==26.10.0
+molecule==26.11.0
 molecule-plugins[docker]==26.11.0
 docker==7.2.0
 requests==2.34.2

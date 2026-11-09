@@ -20,7 +20,7 @@ jobs:
         with:
           # Same uv as the devcontainer; see CLAUDE.md "Python 3.9 pin".
           # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
-          version: '0.13.6'
+          version: '0.13.7'
           enable-cache: false
       # CI's ~/.venv-runtime: the frozen CLT Python; see CLAUDE.md "Python 3.9 pin".
       - run: |
