@@ -5,6 +5,48 @@ set -euo pipefail
 # Presents host state in the shape the base image's plumbing consumes: reads into
 # .git-plumbing/, host-discovered paths as `.host-*` symlinks devcontainer.json binds.
 # See CLAUDE.md "Devcontainer host plumbing".
+#
+# The `initialize_*` decisions are functions so tests/bash can source this file.
+
+# /etc/localtime's symlink target -> IANA zone name, or empty if it isn't a zoneinfo link.
+initialize_zone_from_link() {
+  case "$1" in
+    *zoneinfo/*) printf '%s' "${1##*zoneinfo/}" ;;
+    *) printf '' ;;
+  esac
+}
+
+# Reject traversal / absolute paths: the container builds /usr/share/zoneinfo/$tz from this.
+initialize_sanitize_tz() {
+  case "$1" in
+    /* | *..*) printf '' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# First path of an `ssh -G` list value (the one ssh appends to), or empty unless absolute:
+# a literal `~` would dangle the bind with a Docker error nowhere near the cause.
+initialize_first_abs_path() {
+  local first=""
+  read -r first _ <<<"${1:-}" || true
+  case "$first" in
+    /*) printf '%s' "$first" ;;
+    *) printf '' ;;
+  esac
+}
+
+# The configured allowed-signers file if readable, else our empty fallback, so the bind
+# can't dangle.
+initialize_signers_target() {
+  if [ -n "$1" ] && [ -r "$1" ]; then
+    printf '%s' "$1"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+# Sourcing (the tests) stops here.
+[ "${BASH_SOURCE[0]}" = "${0}" ] || return 0
 
 here="$(cd "$(dirname "$0")" && pwd)"
 workspace="$(cd "$here/.." && pwd)"
@@ -29,18 +71,12 @@ printf '%s\n' "$common" >"$pathfile"
 # Discover host IANA zone; empty result → the container keeps its default.
 tz=""
 if target="$(readlink /etc/localtime 2>/dev/null)"; then
-  case "$target" in
-    *zoneinfo/*) tz="${target##*zoneinfo/}" ;;
-  esac
+  tz="$(initialize_zone_from_link "$target")"
 fi
 if [ -z "$tz" ] && [ -r /etc/timezone ]; then
   tz="$(tr -d '[:space:]' </etc/timezone)"
 fi
-# Reject traversal / absolute paths: the container builds /usr/share/zoneinfo/$tz from this.
-case "$tz" in
-  /* | *..*) tz="" ;;
-esac
-printf '%s\n' "$tz" >"$tzfile"
+printf '%s\n' "$(initialize_sanitize_tz "$tz")" >"$tzfile"
 
 # Snapshot host ~/.gitconfig for the base image to install at postStart when the Dev
 # Containers extension hasn't already done so. Empty file if absent.
@@ -50,29 +86,26 @@ else
   : >"$gitconfigfile"
 fi
 
-# known_hosts: link the first UserKnownHostsFile (the one ssh appends to), so a host
-# accepted in-container lands on the host. A non-absolute answer would dangle the bind.
-khfile=""
-read -r khfile _ <<<"$(ssh -G github.com 2>/dev/null | sed -n 's/^userknownhostsfile //p')" || true
-case "$khfile" in
-  /*) ;;
-  *) khfile="$HOME/.ssh/known_hosts" ;;
-esac
+# known_hosts: link the file ssh appends to, so a host accepted in-container lands on
+# the host.
+khfile="$(initialize_first_abs_path \
+  "$(ssh -G github.com 2>/dev/null | sed -n 's/^userknownhostsfile //p')")"
+[ -n "$khfile" ] || khfile="$HOME/.ssh/known_hosts"
+# Tighten the directory only if we create it; an existing one keeps the user's mode.
+khdir="$(dirname "$khfile")"
+if [ ! -d "$khdir" ]; then
+  mkdir -p "$khdir"
+  chmod 700 "$khdir"
+fi
 # The bind needs a real target; an empty one is what ssh would create on first use.
-mkdir -p "$(dirname "$khfile")"
-chmod 700 "$(dirname "$khfile")" 2>/dev/null || true
 : >>"$khfile"
 ln -sfn "$khfile" "$khlink"
 
-# allowed_signers: link whatever gpg.ssh.allowedSignersFile names. Unset or unreadable
-# falls back to an empty file we own, so the bind can't dangle.
+# allowed_signers: link whatever gpg.ssh.allowedSignersFile names.
 signers="$(git config --type=path --get gpg.ssh.allowedSignersFile 2>/dev/null || true)"
-if [ -n "$signers" ] && [ -r "$signers" ]; then
-  ln -sfn "$signers" "$signerslink"
-else
-  : >>"$signersfallback"
-  ln -sfn "$signersfallback" "$signerslink"
-fi
+signers_target="$(initialize_signers_target "$signers" "$signersfallback")"
+[ "$signers_target" != "$signersfallback" ] || : >>"$signersfallback"
+ln -sfn "$signers_target" "$signerslink"
 
 # TEND(migration): drop with their .gitignore entries once every checkout has had an
 # `up` since the bind mounts replaced these snapshots.

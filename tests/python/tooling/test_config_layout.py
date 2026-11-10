@@ -314,15 +314,35 @@ def test_devcontainer_from_shared_base_image_with_tag_and_digest() -> None:
     assert re.match(pattern, from_lines[0]), f"needs the shared image with tag and digest: {from_lines[0]}"
 
 
-def test_devcontainer_hooks_run_the_base_image_plumbing_fail_loud() -> None:
-    """Both lifecycle hooks call the base image's dispatcher, and set
-    PLUMBING_REQUIRE_GIT_CHECKOUT=1 — this repo's policy that a workspace with no git
-    common dir is a bootstrap failure. Without the flag the dispatcher carries on, and the
-    first symptom is `pre-commit install` failing further down post-create.sh."""
+def _shell_statements(text: str) -> list[str]:
+    """Statements of a shell script with backslash continuations joined, comments,
+    blank lines and `set` options dropped."""
+    joined = re.sub(r"\\\n\s*", " ", text)
+    return [
+        line.strip()
+        for line in joined.splitlines()
+        if line.strip() and not line.strip().startswith(("#", "set "))
+    ]
+
+
+def test_devcontainer_hooks_run_the_base_image_plumbing_first_and_fail_loud() -> None:
+    """Both lifecycle hooks call the base image's dispatcher before any other command —
+    everything after it runs git against the worktree, which resolves only once the
+    dispatcher has bridged the common dir — and pass PLUMBING_REQUIRE_GIT_CHECKOUT=1 on
+    that same command: this repo's policy that a workspace with no git common dir is a
+    bootstrap failure. Plain `name="..."` assignments may precede it."""
+    dispatcher = "/usr/local/bin/devcontainer-plumbing "
+    # A bare word, or a whole quoted command substitution like `here="$(cd … && pwd)"`.
+    assignment = re.compile(r'^[A-Za-z_]\w*=(?:\S+|"\$\(.*\)")$')
     for hook, verb in (("post-create.sh", "post-create"), ("post-start.sh", "post-start")):
-        text = (REPO_ROOT / ".devcontainer" / hook).read_text()
-        assert f"/usr/local/bin/devcontainer-plumbing {verb}" in text, f"{hook} doesn't call the dispatcher"
-        assert "PLUMBING_REQUIRE_GIT_CHECKOUT=1" in text, f"{hook} doesn't set the fail-loud flag"
+        statements = _shell_statements((REPO_ROOT / ".devcontainer" / hook).read_text())
+        first = next((st for st in statements if not assignment.match(st)), "")
+        prefix, found, args = first.partition(dispatcher)
+
+        assert found and args == verb, f"{hook}: first command isn't `devcontainer-plumbing {verb}`: {first!r}"
+        assert re.search(r"(?:^|\s)PLUMBING_REQUIRE_GIT_CHECKOUT=1(?:\s|$)", prefix), (
+            f"{hook}: the dispatcher call doesn't set PLUMBING_REQUIRE_GIT_CHECKOUT=1"
+        )
 
 
 def test_devcontainer_binds_ssh_files_with_the_intended_writability() -> None:

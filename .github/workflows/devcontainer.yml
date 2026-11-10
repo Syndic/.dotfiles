@@ -62,12 +62,10 @@ jobs:
           # runs)/`pre-commit`/`ansible`/`ansible-lint`/`molecule` confirm post-create.sh
           # built the uv venvs and that remoteEnv put their bin dirs on PATH.
           # `docker info` needs the docker-in-docker daemon, not just its client,
-          # and the loop waits out the daemon's startup. Nothing in this repo
-          # installs the dispatcher, its library, the stamps, the git config
-          # values or the ~/.ssh mode, so those prove the base image landed and
-          # both hooks ran it (see CLAUDE.md "Devcontainer host plumbing");
-          # `--file` skips repo discovery, which would trip git's
-          # dubious-ownership check (runner uid != container uid).
+          # and the loop waits out the daemon's startup. The plumbing assertions
+          # are explained in CLAUDE.md "Devcontainer host plumbing"; `--file`
+          # skips repo discovery, which would trip git's dubious-ownership check
+          # (runner uid != container uid).
           runCmd: |
             set -euo pipefail
             python3 --version | grep '^Python 3\.9\.'

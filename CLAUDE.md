@@ -102,7 +102,9 @@ there rather than a copy here. What is local to this repo:
   the git common dir, `known_hosts` (writable, found via `ssh -G`), and the
   file `gpg.ssh.allowedSignersFile` names (read-only).
   `test_devcontainer_binds_ssh_files_with_the_intended_writability` guards
-  the binds.
+  the binds; `tests/bash/test_devcontainer_initialize.bats` sources the script
+  for its host-side decisions (zone parsing, the `known_hosts` path, the
+  allowed-signers fallback).
 - **The agent-socket bind is Docker-Desktop-specific.** Elsewhere (CI runners,
   plain Docker) `initialize.sh` `sudo touch`es a placeholder at
   `/run/host-services/ssh-auth.sock` so the bind succeeds; agent forwarding
@@ -1085,8 +1087,10 @@ scenarios (the homebrew scenarios are exempt — they reference a locally-built
 `:local` image, not a registry pull).
 
 Three of these can't be pinned any other way: `geerlingguy/docker-debian12-
-ansible` and the shared devcontainer base publish **only** a `latest` tag, and
-the molecule Debian base floats by design as point releases ship. So the digest is the
+ansible` publishes **only** a `latest` tag; the shared devcontainer base's other
+tags are per-commit `sha-…` tags Renovate can't order, so `latest` is the only one
+it can track; and the molecule Debian base floats by design as point releases
+ship. So the digest is the
 sole stable handle — without it a rebuilt `latest` silently changes the test
 substrate, which is the failure mode already recorded under "Homebrew
 molecule scenarios" (a stale base turned the gates scenario red).
