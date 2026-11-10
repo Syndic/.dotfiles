@@ -7,6 +7,7 @@ from pathlib import Path
 
 import uninstall
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
 NAME = "unnatural-designs-agent-tools"
 KEY = f"{NAME}@{NAME}"
 RULE = "mcp__ccd_pr__set_monitor"
@@ -123,3 +124,18 @@ def test_malformed_permissions_are_left_alone(tmp_path: Path) -> None:
     for permissions in (["x"], {"allow": RULE}):
         settings = _seed(tmp_path / "settings.json", {"permissions": permissions})
         assert uninstall.build_claude_plugin_action(settings, root) == ([], None)
+
+
+def test_reads_the_roles_real_rules_file() -> None:
+    """Ties the hardcoded path to the file the role reads, so a move fails here."""
+    assert RULE in uninstall._role_allow_rules(REPO_ROOT)
+
+
+def test_leaves_an_unowned_empty_allow_list_alone(tmp_path: Path) -> None:
+    root = tmp_path / "dotfiles"
+    _role_rules(root, [RULE])
+    installed = _installed(root)
+    installed["permissions"] = {"allow": []}
+    settings = _seed(tmp_path / "settings.json", installed)
+    uninstall.build_claude_plugin_action(settings, root)[1]()
+    assert json.loads(settings.read_text())["permissions"] == {"allow": []}

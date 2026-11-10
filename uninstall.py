@@ -250,7 +250,7 @@ def build_claude_plugin_action(settings_path: Path, managed_root: Path):
             if not section:
                 del current[key]
         permissions = current.get("permissions")
-        if isinstance(permissions, dict) and isinstance(permissions.get("allow"), list):
+        if rules and isinstance(permissions, dict) and isinstance(permissions.get("allow"), list):
             permissions["allow"] = [r for r in permissions["allow"] if r not in rules]
             if not permissions["allow"]:
                 del permissions["allow"]

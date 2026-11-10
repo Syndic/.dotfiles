@@ -34,6 +34,7 @@
     - name: Unowned keys survive the merge untouched
       ansible.builtin.assert:
         that:
+          - _seeded.permissions.keys() | sort == ['allow', 'defaultMode']
           - _seeded.permissions.defaultMode == 'acceptEdits'
           - _seeded.outputStyle == 'Concise'
           - _seeded.enabledPlugins['other-plugin@other-market'] == false
