@@ -2,6 +2,7 @@
 name: implement-work-item
 description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once they agree, fixing CI failures the PR causes and surfacing unrelated ones. Never merges; the user does.
 argument-hint: <issue number or URL, or a description of the work>
+allowed-tools: mcp__ccd_pr__set_monitor
 disable-model-invocation: true
 ---
 
