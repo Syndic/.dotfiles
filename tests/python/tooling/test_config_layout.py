@@ -9,6 +9,9 @@ from tests_run import image_lines
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# Built and published by Syndic/unnatural_designs; this repo only consumes it.
+_SHARED_BASE_IMAGE = "ghcr.io/syndic/unnatural_designs-devcontainer-base"
+
 
 def test_site_targets_all_hosts() -> None:
     site_text = (REPO_ROOT / "site.yml").read_text()
@@ -294,9 +297,50 @@ def test_renovate_batches_floating_base_image_digests() -> None:
     assert digest_rules[0]["matchDatasources"] == ["docker"]
     assert set(digest_rules[0]["matchPackageNames"]) == {
         "geerlingguy/docker-debian12-ansible",
-        "mcr.microsoft.com/devcontainers/base",
+        _SHARED_BASE_IMAGE,
         "debian",
     }
+
+
+def test_devcontainer_from_shared_base_image_with_tag_and_digest() -> None:
+    """The base image is what brings the container-side plumbing, so the `FROM` is what
+    proves it lands. The digest makes the pull reproducible; the tag is what Renovate's
+    docker manager compares against — without it the digest is pinned forever."""
+    dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text()
+    from_lines = [line.strip() for line in dockerfile.splitlines() if line.startswith("FROM ")]
+
+    assert len(from_lines) == 1, f"expected one FROM, got {from_lines}"
+    pattern = rf"^FROM {re.escape(_SHARED_BASE_IMAGE)}:\S+@sha256:[0-9a-f]{{64}}$"
+    assert re.match(pattern, from_lines[0]), f"needs the shared image with tag and digest: {from_lines[0]}"
+
+
+def test_devcontainer_hooks_run_the_base_image_plumbing_fail_loud() -> None:
+    """Both lifecycle hooks call the base image's dispatcher, and set
+    PLUMBING_REQUIRE_GIT_CHECKOUT=1 — this repo's policy that a workspace with no git
+    common dir is a bootstrap failure. Without the flag the dispatcher carries on, and the
+    first symptom is `pre-commit install` failing further down post-create.sh."""
+    for hook, verb in (("post-create.sh", "post-create"), ("post-start.sh", "post-start")):
+        text = (REPO_ROOT / ".devcontainer" / hook).read_text()
+        assert f"/usr/local/bin/devcontainer-plumbing {verb}" in text, f"{hook} doesn't call the dispatcher"
+        assert "PLUMBING_REQUIRE_GIT_CHECKOUT=1" in text, f"{hook} doesn't set the fail-loud flag"
+
+
+def test_devcontainer_binds_ssh_files_with_the_intended_writability() -> None:
+    """known_hosts is writable so a host accepted in-container writes through to the host;
+    allowed_signers is read-only because nothing should write the trust set. Both bind from
+    the `.host-*` symlinks initialize.sh writes, so devcontainer.json names no host path."""
+    config = (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text()
+    mounts = re.findall(r'"(source=[^"]+)"', config)
+    by_target = {
+        dict(part.split("=", 1) for part in m.split(",") if "=" in part)["target"]: m for m in mounts
+    }
+
+    known_hosts = by_target["/home/vscode/.ssh/known_hosts"]
+    signers = by_target["/home/vscode/.ssh/allowed_signers"]
+    assert "/.devcontainer/.host-known-hosts," in known_hosts
+    assert "readonly" not in known_hosts.split(",")
+    assert "/.devcontainer/.host-allowed-signers," in signers
+    assert "readonly" in signers.split(",")
 
 
 def test_renovate_custom_manager_tracks_molecule_images() -> None:

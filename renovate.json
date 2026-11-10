@@ -47,7 +47,7 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "geerlingguy/docker-debian12-ansible",
-        "mcr.microsoft.com/devcontainers/base",
+        "ghcr.io/syndic/unnatural_designs-devcontainer-base",
         "debian"
       ],
       "matchUpdateTypes": ["digest"],

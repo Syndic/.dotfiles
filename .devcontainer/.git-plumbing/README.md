@@ -1,38 +1,24 @@
 # Devcontainer host-plumbing artifacts
 
-Holds host-generated artifacts that bridge host state into the devcontainer
-image. These files are gitignored and written on every `devcontainer up` by
-`../initialize.sh`:
+Host state that `../initialize.sh` writes on every `devcontainer up`, for the
+shared base image's plumbing to apply in-container. The files are gitignored;
+this README keeps the directory in git. See "Devcontainer host plumbing" in the
+repo's `CLAUDE.md`.
 
-- `host-git-common-path` — absolute path of the host's git common directory
-  (`git rev-parse --git-common-dir`). The Dockerfile reads it at build time
-  and recreates that same host-absolute path inside the image as a symlink
-  to `/host-git-common`, so a worktree's `.git` file resolves natively
-  in-container. See the "Worktree git resolution" section in the repo's
-  `CLAUDE.md` for the why.
-- `host-timezone` — IANA zone name (e.g. `America/Los_Angeles`) of the
-  host's timezone. The Dockerfile reads it and symlinks `/etc/localtime`,
-  so container timestamps match the host. See "Host timezone plumbing"
-  in `CLAUDE.md`.
-- `host-gitconfig` — snapshot of the host's `~/.gitconfig`. `post-start.sh`
-  installs it into the container only when `~/.gitconfig` is empty (i.e.
-  the `devcontainer` CLI path; VS Code's Dev Containers extension copies
-  it for itself). See "Signed commits under devcontainer CLI" in
-  `CLAUDE.md`.
-- `host-known-hosts` — snapshot of the host's `~/.ssh/known_hosts`.
-  `post-start.sh` installs it under the same missing-or-empty guard as the
-  gitconfig, so in-container `git push` over the SSH remote doesn't fail
-  "Host key verification failed". See "Signed commits under devcontainer
-  CLI" in `CLAUDE.md`.
-- `host-allowed-signers` — snapshot of the file named by the host's
-  `gpg.ssh.allowedSignersFile`. `post-start.sh` installs it and repoints
-  the config at the copy, so `git verify-commit` trusts our SSH-signed
-  commits in-container. See "Signed commits under devcontainer CLI" in
-  `CLAUDE.md`.
+- `host-git-common-path` — absolute path of the host's git common directory.
+  The plumbing recreates that path in-container as a symlink to the
+  `/host-git-common` bind, so a worktree's `.git` file resolves natively.
+- `host-timezone` — the host's IANA zone name (e.g. `America/Los_Angeles`).
+  The plumbing points `/etc/localtime` at it. Empty keeps the container's
+  default.
+- `host-gitconfig` — snapshot of the host's `~/.gitconfig`. The plumbing
+  installs it at `postStart`, only when `~/.gitconfig` is empty (the
+  `devcontainer` CLI path; VS Code's Dev Containers extension copies it for
+  itself).
+- `empty-allowed-signers` — written only when the host has no readable
+  `gpg.ssh.allowedSignersFile`, so the `.host-allowed-signers` bind has a
+  target.
 
-This directory exists in git (via this README) so the Dockerfile's
-`COPY .devcontainer/.git-plumbing/ …` step always finds a source — buildx
-errors on a COPY whose glob matches zero files, and CI's `devcontainer
-build` doesn't run `initializeCommand`, so the runtime-written files are
-absent there. The tracked README makes the COPY a guaranteed no-op in that
-case while keeping the runtime artifacts out of the index.
+The host's `known_hosts` and allowed-signers file are not copied here: they
+are bind-mounted through the `../.host-known-hosts` and
+`../.host-allowed-signers` symlinks.

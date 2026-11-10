@@ -166,13 +166,9 @@ molecule, yamllint, and ansible-lint, so no host-side setup is needed.
 pre-commit run --all-files          # run hooks manually (installed by post-create.sh)
 ```
 
-If the devcontainer was opened on a **git worktree** via the `devcontainer`
-CLI, git can't resolve inside the container (the worktree's `.git` points to a
-host path that isn't mounted), so `post-create.sh` skips `pre-commit install`
-and `pre-commit run` won't work either. Use `./tests/run lint` for the linters
-and `python3 dotfiles_manager.py check home_source` for the source guard; the
-hooks still gate every PR in CI. (Opening the worktree in VS Code, or using a
-full clone, sidesteps this — git resolves and pre-commit works normally.)
+All of it works the same on a **git worktree** as on a full clone: the
+devcontainer bridges the host's git common directory in, so `pre-commit` and
+anything else that shells out to git resolve normally.
 
 Molecule scenarios live under `roles/<role>/molecule/<scenario>/` and gate every
 PR alongside pytest/bats. They cover the dotfiles, apt, flatpak, homebrew, and
@@ -204,6 +200,9 @@ trigger them from the Actions tab.
 A Debian-based devcontainer is set up in [`.devcontainer/`](.devcontainer)
 with Python 3.9.6 (the pinned primary), the latest Python (for
 ansible/ansible-lint/molecule and the tooling tests), bats, pytest, and pre-commit pre-installed.
+It builds on a shared base image published by
+[Syndic/unnatural_designs](https://github.com/Syndic/unnatural_designs), which
+carries the host plumbing (worktree git resolution, host timezone, commit signing).
 Open in VS Code with "Reopen in Container", or drive it from the CLI:
 
 ```bash
