@@ -66,11 +66,3 @@ def test_skill_frontmatter_names_its_directory(skill_dir: Path) -> None:
     meta = _frontmatter(skill_dir / "SKILL.md")
     assert meta.get("name") == skill_dir.name
     assert meta.get("description")
-
-
-def test_implement_work_item_preapproves_its_autofix_call() -> None:
-    """Step 2 turns on Auto-fix for the PR it opens; without the grant, auto mode
-    can deny the call and CI failures stop waking the session."""
-    meta = _frontmatter(PLUGIN_ROOT / "skills" / "implement-work-item" / "SKILL.md")
-    tools = [t.strip() for t in meta.get("allowed-tools", "").split(",")]
-    assert "mcp__ccd_pr__set_monitor" in tools

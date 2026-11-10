@@ -1,4 +1,4 @@
-"""uninstall.build_claude_plugin_action: reverses the claude_code role's two entries."""
+"""uninstall.build_claude_plugin_action: reverses the claude_code role's settings entries."""
 from __future__ import annotations
 
 import json
@@ -9,12 +9,19 @@ import uninstall
 
 NAME = "unnatural-designs-agent-tools"
 KEY = f"{NAME}@{NAME}"
+RULE = "mcp__ccd_pr__set_monitor"
 
 
 def _seed(path: Path, settings: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings))
     return path
+
+
+def _role_rules(root: Path, rules: list) -> None:
+    path = root / "roles" / "claude_code" / "files" / "permissions-allow.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rules))
 
 
 def _installed(root: Path) -> dict:
@@ -84,3 +91,35 @@ def test_missing_symlinked_or_invalid_settings_are_left_alone(tmp_path: Path) ->
     preview, do = uninstall.build_claude_plugin_action(broken, root)
     assert do is None and "not valid JSON" in preview[0]
     assert broken.read_text() == "{not json"
+
+
+def test_removes_only_the_roles_allow_rules(tmp_path: Path) -> None:
+    root = tmp_path / "dotfiles"
+    _role_rules(root, [RULE])
+    installed = _installed(root)
+    installed["permissions"] = {"allow": ["Read", RULE], "defaultMode": "plan"}
+    settings = _seed(tmp_path / "settings.json", installed)
+
+    preview, do = uninstall.build_claude_plugin_action(settings, root)
+    assert preview[-1] == "  remove allow rule       " + RULE
+    do()
+    assert json.loads(settings.read_text())["permissions"] == {"allow": ["Read"], "defaultMode": "plan"}
+
+
+def test_allow_rule_alone_is_removed_and_empty_permissions_dropped(tmp_path: Path) -> None:
+    root = tmp_path / "dotfiles"
+    _role_rules(root, [RULE])
+    settings = _seed(tmp_path / "settings.json", {"model": "x", "permissions": {"allow": [RULE]}})
+
+    preview, do = uninstall.build_claude_plugin_action(settings, root)
+    assert preview == ["  remove allow rule       " + RULE]
+    do()
+    assert json.loads(settings.read_text()) == {"model": "x"}
+
+
+def test_malformed_permissions_are_left_alone(tmp_path: Path) -> None:
+    root = tmp_path / "dotfiles"
+    _role_rules(root, [RULE])
+    for permissions in (["x"], {"allow": RULE}):
+        settings = _seed(tmp_path / "settings.json", {"permissions": permissions})
+        assert uninstall.build_claude_plugin_action(settings, root) == ([], None)

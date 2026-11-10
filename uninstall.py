@@ -203,7 +203,8 @@ def build_claude_plugin_action(settings_path: Path, managed_root: Path):
     """Return (preview_lines, do_callable) unregistering the claude_code role's entries.
 
     Ours = every `directory` marketplace in extraKnownMarketplaces whose path is
-    inside managed_root, plus the enabledPlugins keys naming it. A missing,
+    inside managed_root, the enabledPlugins keys naming it, and the
+    permissions.allow rules the role's permissions-allow.json lists. A missing,
     symlinked, or unparseable settings.json yields no action."""
     if settings_path.is_symlink() or not settings_path.is_file():
         return [], None
@@ -227,10 +228,15 @@ def build_claude_plugin_action(settings_path: Path, managed_root: Path):
         key for key in settings.get("enabledPlugins") or {}
         if key.rpartition("@")[2] in owned
     )
-    if not owned:
+    permissions = settings.get("permissions")
+    allow = permissions.get("allow") if isinstance(permissions, dict) else None
+    owned_rules = _role_allow_rules(managed_root)
+    rules = [r for r in allow if r in owned_rules] if isinstance(allow, list) else []
+    if not owned and not rules:
         return [], None
     preview = [f"  unregister marketplace  {name}" for name in owned]
     preview += [f"  remove enabledPlugins   {key}" for key in plugins]
+    preview += [f"  remove allow rule       {rule}" for rule in rules]
 
     def do_claude_plugin():
         # Re-read: Claude Code may have written the file since the plan was printed.
@@ -243,13 +249,30 @@ def build_claude_plugin_action(settings_path: Path, managed_root: Path):
                 section.pop(name, None)
             if not section:
                 del current[key]
+        permissions = current.get("permissions")
+        if isinstance(permissions, dict) and isinstance(permissions.get("allow"), list):
+            permissions["allow"] = [r for r in permissions["allow"] if r not in rules]
+            if not permissions["allow"]:
+                del permissions["allow"]
+            if not permissions:
+                del current["permissions"]
         tmp = settings_path.with_name(settings_path.name + ".uninstall-tmp")
         tmp.write_text(json.dumps(current, indent=2) + "\n")
         os.chmod(tmp, 0o600)
         os.replace(tmp, settings_path)
-        info(f"unregistered {', '.join(owned)} from {settings_path}")
+        info(f"removed the claude_code role's entries from {settings_path}")
 
     return preview, do_claude_plugin
+
+
+def _role_allow_rules(managed_root: Path) -> list:
+    """The allow rules the claude_code role adds; none if the file is unreadable."""
+    path = managed_root / "roles" / "claude_code" / "files" / "permissions-allow.json"
+    try:
+        rules = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+    return [r for r in rules if isinstance(r, str)] if isinstance(rules, list) else []
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -504,7 +527,7 @@ def main(argv=None) -> None:
         Path.home() / ".claude" / "settings.json", DOTFILES_DIR
     )
     if do is not None or prev:
-        sections.append(("Unregister Claude Code plugin marketplace", prev, do or (lambda: None)))
+        sections.append(("Unregister Claude Code plugin settings", prev, do or (lambda: None)))
 
     # 4. Homebrew itself (after anything that needs brew)
     if args.homebrew:

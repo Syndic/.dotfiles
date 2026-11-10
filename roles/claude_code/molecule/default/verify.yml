@@ -17,6 +17,8 @@
         - disabled-home/.claude/settings.json
         - bad-json-home/.claude/settings.json
         - symlink-home/target.json
+        - allowed-home/.claude/settings.json
+        - bad-permissions-home/.claude/settings.json
       register: claude_code_verify_settings
 
     - name: Parse the settings files
@@ -26,11 +28,13 @@
         _disabled: "{{ claude_code_verify_settings.results[2].content | b64decode | from_json }}"
         _bad_json: "{{ claude_code_verify_settings.results[3].content | b64decode }}"
         _link_target: "{{ claude_code_verify_settings.results[4].content | b64decode }}"
+        _allowed: "{{ claude_code_verify_settings.results[5].content | b64decode | from_json }}"
+        _bad_permissions: "{{ claude_code_verify_settings.results[6].content | b64decode }}"
 
     - name: Unowned keys survive the merge untouched
       ansible.builtin.assert:
         that:
-          - "_seeded.permissions == {'allow': ['Bash(git status)'], 'defaultMode': 'acceptEdits'}"
+          - _seeded.permissions.defaultMode == 'acceptEdits'
           - _seeded.outputStyle == 'Concise'
           - _seeded.enabledPlugins['other-plugin@other-market'] == false
           - _seeded.extraKnownMarketplaces['other-market'].source.repo == 'example/other'
@@ -51,15 +55,24 @@
           - _fresh.enabledPlugins['unnatural-designs-agent-tools@unnatural-designs-agent-tools'] == true
           - _disabled.enabledPlugins['unnatural-designs-agent-tools@unnatural-designs-agent-tools'] == false
 
+    - name: The owned allow rule is appended once, after existing rules
+      ansible.builtin.assert:
+        that:
+          - "_seeded.permissions.allow == ['Bash(git status)', 'mcp__ccd_pr__set_monitor']"
+          - "_fresh.permissions == {'allow': ['mcp__ccd_pr__set_monitor']}"
+          - "_allowed.permissions.allow == ['mcp__ccd_pr__set_monitor', 'Read']"
+
     - name: The created file holds only the owned keys
       ansible.builtin.assert:
         that:
-          - _fresh.keys() | sort == ['enabledPlugins', 'extraKnownMarketplaces']
+          - _fresh.keys() | sort == ['enabledPlugins', 'extraKnownMarketplaces', 'permissions']
 
     - name: Refused files are left exactly as seeded
       ansible.builtin.assert:
         that:
           - _bad_json == "[]\n"
+          - >-
+            _bad_permissions == '{"permissions": {"allow": "Read"}}\n'
           - _link_target == "{}\n"
 
     - name: Stat the written files, the created directory, and the symlink
