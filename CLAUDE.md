@@ -1337,8 +1337,8 @@ session start or `/reload-plugins` with no push, reinstall, or version bump.
 
 `~/.claude/settings.json` is **merged, never symlinked**: Claude Code writes the
 file itself (permissions, `/config` choices) and keeps it mode 0600. The role
-owns exactly two kinds of entry, both derived from `marketplace.json` so the
-names have one home, and leaves every other key alone:
+owns exactly three kinds of entry and leaves every other key alone. The first
+two are derived from `marketplace.json` so the names have one home:
 
 - `extraKnownMarketplaces.<marketplace>` — replaced whole, never deep-merged, so
   a stale entry under the same name (say a `github` source left over from an
@@ -1346,18 +1346,27 @@ names have one home, and leaves every other key alone:
 - `enabledPlugins["<plugin>@<marketplace>"]` — set to `true` only when absent;
   an existing value wins, so a `/plugin disable` (which writes `false`) sticks
   across playbook runs.
+- `permissions.allow` rules listed in `roles/claude_code/files/permissions-allow.json`
+  — each appended only when absent, never reordering or removing other rules.
+  Today that's `mcp__ccd_pr__set_monitor`, which `implement-work-item` calls to
+  turn on Auto-fix for the PR it opens; auto mode can deny it otherwise. The rule
+  only pre-approves the call; Auto-fix stays off until a session makes it. A
+  skill's `allowed-tools` doesn't fit: its grant ends with the invoking turn,
+  and the skill often reaches that call in a later one. The list is JSON so
+  `uninstall.py` reads the same file.
 
 Idempotency compares parsed JSON rather than bytes, so Claude Code reformatting
 the file doesn't make the next run report CHANGED. The role fails closed on a
 settings file that is a symlink (writing would replace the link and strand its
-target) or isn't a JSON object. The molecule scenario covers each of these,
-plus unowned keys (including siblings under the two owned keys) surviving.
+target), isn't a JSON object, or has a `permissions.allow` that isn't a list.
+The molecule scenario covers each of these, plus unowned keys (including
+siblings under the owned keys) surviving.
 
 `uninstall.py` reverses it by default, in Python for the same
 survives-`--ansible` reason as symlink removal: it unregisters every `directory`
-marketplace whose path is inside the checkout and the `enabledPlugins` keys
-naming it. Without that, removing the checkout would leave every Claude Code
-session failing to load a marketplace that no longer exists.
+marketplace whose path is inside the checkout, the `enabledPlugins` keys
+naming it, and the role's allow rules. Without that, removing the checkout would
+leave every Claude Code session failing to load a marketplace that no longer exists.
 
 ## Conventions
 

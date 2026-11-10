@@ -18,6 +18,7 @@
               | map(attribute='name')
               | product(['@' ~ _manifest.name]) | map('join')
               | product([true])) }}
+    claude_code_permission_allow: "{{ lookup('ansible.builtin.file', 'permissions-allow.json') | from_json }}"
 
 - name: Stat Claude Code user settings
   ansible.builtin.stat:
@@ -47,11 +48,25 @@
     that: claude_code_settings_current is mapping
     fail_msg: "{{ claude_code_settings_path }} is not a JSON object; refusing to merge into it"
 
+- name: Assert existing permissions.allow is a list
+  vars:
+    _permissions: "{{ claude_code_settings_current.permissions | default({}) }}"
+  ansible.builtin.assert:
+    that:
+      - _permissions is mapping
+      - (_permissions.allow | default([])) is sequence
+      - (_permissions.allow | default([])) is not mapping
+      - (_permissions.allow | default([])) is not string
+    fail_msg: "{{ claude_code_settings_path }} has a malformed permissions.allow; refusing to merge into it"
+
 # The marketplace entry replaces whatever is under its name; an existing
-# enabledPlugins value wins, so `/plugin disable` sticks.
+# enabledPlugins value wins, so `/plugin disable` sticks; allow rules are
+# appended only when absent.
 - name: Compute merged Claude Code user settings
   vars:
     _current: "{{ claude_code_settings_current }}"
+    _permissions: "{{ _current.permissions | default({}) }}"
+    _allow: "{{ _permissions.allow | default([]) }}"
   ansible.builtin.set_fact:
     claude_code_settings_merged: >-
       {{ _current | combine({
@@ -59,6 +74,9 @@
                                      | combine(claude_code_marketplace_entry),
            'enabledPlugins': claude_code_plugin_defaults
                              | combine(_current.enabledPlugins | default({})),
+           'permissions': _permissions | combine({
+             'allow': _allow + (claude_code_permission_allow | reject('in', _allow) | list),
+           }),
          }) }}
 
 - name: Write merged Claude Code user settings

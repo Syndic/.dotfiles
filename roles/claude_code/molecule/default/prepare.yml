@@ -5,7 +5,7 @@
   vars:
     _repo_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/../.."
     _marketplace_dir: /opt/claude-code-molecule/unnatural-designs-agent-tools
-    _homes: [seeded, fresh, disabled, bad-json, symlink]
+    _homes: [seeded, fresh, disabled, allowed, bad-json, bad-permissions, symlink]
   tasks:
     - name: Create the staged marketplace manifest directory
       ansible.builtin.file:
@@ -57,6 +57,20 @@
         mode: "0600"
         content: |
           {"enabledPlugins": {"unnatural-designs-agent-tools@unnatural-designs-agent-tools": false}}
+
+    - name: Seed a settings.json that already allows the owned rule
+      ansible.builtin.copy:
+        dest: /root/allowed-home/.claude/settings.json
+        mode: "0600"
+        content: |
+          {"permissions": {"allow": ["mcp__ccd_pr__set_monitor", "Read"]}}
+
+    - name: Seed a settings.json whose permissions.allow is not a list
+      ansible.builtin.copy:
+        dest: /root/bad-permissions-home/.claude/settings.json
+        mode: "0600"
+        content: |
+          {"permissions": {"allow": "Read"}}
 
     - name: Seed a settings.json that is not a JSON object
       ansible.builtin.copy:
