@@ -62,12 +62,10 @@ jobs:
           # runs)/`pre-commit`/`ansible`/`ansible-lint`/`molecule` confirm post-create.sh
           # built the uv venvs and that remoteEnv put their bin dirs on PATH.
           # `docker info` needs the docker-in-docker daemon, not just its client,
-          # and the loop waits out the daemon's startup. The
-          # git config assertions confirm initializeCommand ran and wrote the
-          # shared-common-dir settings (see "Shared git index across stat
-          # domains" and "In-container gc and sibling worktrees" in CLAUDE.md);
-          # `--file` skips repo discovery, which would trip git's
-          # dubious-ownership check (runner uid != container uid).
+          # and the loop waits out the daemon's startup. The plumbing assertions
+          # are explained in CLAUDE.md "Devcontainer host plumbing"; `--file`
+          # skips repo discovery, which would trip git's dubious-ownership check
+          # (runner uid != container uid).
           runCmd: |
             set -euo pipefail
             python3 --version | grep '^Python 3\.9\.'
@@ -80,8 +78,16 @@ jobs:
             molecule --version
             for _ in $(seq 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
             docker info --format '{{.ServerVersion}}'
+            test -x /usr/local/bin/devcontainer-plumbing
+            test -r /usr/local/share/devcontainer-plumbing/host-state-bridge.sh
+            test -f /run/devcontainer-plumbing/post-create.stamp
+            test -f /run/devcontainer-plumbing/post-start.stamp
             test "$(git config --file .git/config --get core.checkstat)" = minimal
+            test "$(git config --file .git/config --get core.trustctime)" = false
             test "$(git config --file .git/config --get gc.worktreePruneExpire)" = never
+            test "$(stat -c '%a %u' "$HOME/.ssh")" = "700 $(id -u)"
+            test -w "$HOME/.ssh/known_hosts"
+            test ! -w "$HOME/.ssh/allowed_signers"
 
       - if: steps.changes.outputs.changed != 'true'
         run: echo "No devcontainer changes in this PR; skipping build."

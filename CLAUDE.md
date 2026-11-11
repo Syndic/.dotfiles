@@ -72,229 +72,58 @@ need a separate task. Leave the load-bearing facts; cut the prose around
 them. (If you're unsure whether a comment is load-bearing, surface the
 proposed cut before applying it.)
 
-**Worktree git resolution.** When the devcontainer is brought up on a git
-*worktree* via the `devcontainer` CLI (how this project's containers are
-typically launched), git would not resolve inside the container by default:
-the worktree's `.git` is a file pointing at `<main-repo>/.git/worktrees/<name>`,
-a host path that isn't mounted, and the CLI — unlike VS Code's Dev Containers
-extension — doesn't special-case worktrees. The devcontainer closes that gap
-so the git common dir is reachable in-container **at the same absolute path it
-has on the host**, which lets the `.git` file resolve *natively* (no `GIT_*`
-overrides). It works for any checkout layout — full clone, main worktree, or a
-linked worktree anywhere on disk:
+## Devcontainer host plumbing
 
-- `.devcontainer/initialize.sh` (wired as `initializeCommand`) runs on the host
-  before the build and drops two gitignored artifacts: a symlink
-  `.devcontainer/.host-git-common` → the real git common dir, and
-  `.devcontainer/.git-plumbing/host-git-common-path` holding that dir's
-  absolute path. Both regenerate every `up`, so they never go stale and the
-  host tracks nothing. The `.git-plumbing/` directory itself IS tracked
-  (anchored by its README) so the Dockerfile's COPY of the directory
-  succeeds even when the runtime-written file inside is absent — buildx
-  errors on a COPY whose glob matches zero files, so the classic optional-
-  COPY trick is not portable, and the tracked directory is the buildx-safe
-  workaround. In CI the Dockerfile *build* runs before `initializeCommand`
-  populates the path file (which is gitignored, so uncommitted), so it's
-  absent from the build context there; the Dockerfile's `[ -s … ]` shell
-  test keeps that case a clean no-op.
-- `devcontainer.json` binds the symlink (a static, `${localWorkspaceFolder}`-
-  relative source — Docker follows it host-side) to a static `/host-git-common`.
-- The `Dockerfile` reads `.git-plumbing/host-git-common-path` (it rides in the
-  build context) and recreates that exact host-absolute path inside the image
-  as a symlink to `/host-git-common`. So the worktree's `.git` file — which
-  names the host-absolute path — follows that symlink to the bind-mounted real
-  common dir and git resolves with its real contents, no env overrides.
-- `workspaceFolder`/`workspaceMount` mount the workspace at its real host path
-  so the worktree's own files and the `.git` back-pointer line up verbatim.
+The container-side plumbing — worktree git resolution, the host timezone, the
+shared git index across two stat domains, `gc.worktreePruneExpire`, and signed
+commits under the `devcontainer` CLI — ships in a shared base image built and
+published by [Syndic/unnatural_designs](https://github.com/Syndic/unnatural_designs).
+Its canonical home is that repo's `meta/devcontainer-base/README.md`; read it
+there rather than a copy here. What is local to this repo:
 
-The constraint that forces this shape: devcontainer.json `mounts`/`runArgs`/
-`build.args` only interpolate `${localEnv}`/`${localWorkspaceFolder}` at parse
-time — never a value an `initializeCommand` computes (a child can't set the
-CLI's env). A literal bind whose `target=` is the dynamically-discovered
-host-absolute path would therefore need a system-wide env var; instead the path
-is reproduced *inside the image* as a symlink to a statically-named mount, with
-no env var of any kind. Multiple worktrees run concurrently: each carries its
-own symlink/path file, bakes its own host-absolute symlink into its own image,
-and binds its own `/host-git-common`.
+- **`.devcontainer/Dockerfile` `FROM`s the image at a pinned tag + digest**
+  and layers uv, bats and ripgrep on top. This repo doesn't build the image,
+  so the pin is an ordinary dependency: Renovate's docker manager bumps it in
+  the floating-tag digest batch (see "Base image pins"), and
+  `devcontainer.yml` gates the bump. A plain `FROM`, not the base README's
+  `ARG BASE_IMAGE` override shape — nothing here would set the override.
+  `test_devcontainer_from_shared_base_image_with_tag_and_digest` guards the
+  reference.
+- **Both hooks call `/usr/local/bin/devcontainer-plumbing` first**, passing
+  `PLUMBING_WORKSPACE` / `PLUMBING_DIR` and **`PLUMBING_REQUIRE_GIT_CHECKOUT=1`**:
+  a workspace with no git common dir is a bootstrap failure here, so
+  `initialize.sh` and the container side both fail loud on it.
+  `post-start.sh` is only that call; the signing bridge runs from the image at
+  the `post-start` verb. `test_devcontainer_hooks_run_the_base_image_plumbing_fail_loud`
+  guards both hooks.
+- **`.devcontainer/initialize.sh` is the host stub**, per-consumer by design
+  (shared code shouldn't run on a developer's host). It writes
+  `.git-plumbing/` and the `.host-*` symlinks `devcontainer.json` binds:
+  the git common dir, `known_hosts` (writable, found via `ssh -G`), and the
+  file `gpg.ssh.allowedSignersFile` names (read-only).
+  `test_devcontainer_binds_ssh_files_with_the_intended_writability` guards
+  the binds; `tests/bash/test_devcontainer_initialize.bats` sources the script
+  for its host-side decisions (zone parsing, the `known_hosts` path, the
+  allowed-signers fallback).
+- **The agent-socket bind is Docker-Desktop-specific.** Elsewhere (CI runners,
+  plain Docker) `initialize.sh` `sudo touch`es a placeholder at
+  `/run/host-services/ssh-auth.sock` so the bind succeeds; agent forwarding
+  doesn't work there, which the smoke job doesn't need.
 
-With the above in place git *does* resolve, so `pre-commit install`/`run` work
-in a worktree container, as do `./tests/run lint` and `python3 dotfiles_manager.py
-check home_source`. `initialize.sh` and `post-create.sh` no longer guard for the
-absent-git case — `set -e` plus a real git call fails loudly if a dev shell
-can't reach git, which is the correct outcome for a dev-environment bootstrap.
-The hooks also still gate every PR in CI.
-
-### Host timezone plumbing
-
-A sibling artifact rides in the same `.devcontainer/.git-plumbing/` directory:
-`host-timezone`, holding the host's IANA zone name (e.g. `America/Los_Angeles`).
-Without it the container defaults to `Etc/UTC` and timestamps in molecule and
-playbook output drift hours off the host's wall clock.
-
-The wiring reuses the host-git-common plumbing's lifecycle one-for-one — same
-`initializeCommand` write, same build-context COPY, same `[ -s … ]` shell-guard
-absence-tolerance. Only the per-artifact bits differ:
-
-- `initialize.sh` reads `readlink /etc/localtime` (works on macOS and most
-  modern Linux distros — both ship `/etc/localtime` as a symlink into a
-  zoneinfo db) and strips everything up to and including `zoneinfo/` to get
-  the zone name. Falls back to `/etc/timezone` (Debian/Ubuntu) when the
-  symlink isn't there. Rejects absolute paths and `..` segments before
-  writing, defense-in-depth on a hostile or broken host symlink target.
-- The Dockerfile, when the file is non-empty AND the named zoneinfo file
-  exists in the image, symlinks `/etc/localtime` to it, writes
-  `/etc/timezone`, and appends `TZ=<zone>` to `/etc/environment`. The
-  zoneinfo existence check guards against a partial `tzdata` install or an
-  unknown zone name; the container falls back to UTC quietly in that case.
-- No env vars in `devcontainer.json` — the `/etc/localtime` symlink is what
-  libc reads, so Python `datetime`, `date(1)`, Ansible's date facts, and
-  anything else that defers to libc local time all pick it up automatically.
-  `TZ` in `/etc/environment` covers PAM-managed login shells (the `su -
-  testuser` boundary the e2e harnesses cross); non-login `docker exec`
-  shells still resolve local time correctly via `/etc/localtime`.
-
-`tzdata` and the zoneinfo db are already in `mcr.microsoft.com/devcontainers/
-base:debian`, so no package install. In CI the Dockerfile *build* runs before
-`initializeCommand`, so `host-timezone` is absent from the build context —
-the `[ -s … ]` guard makes that path a clean no-op and CI keeps its default UTC.
-
-### Shared git index across stat domains
-
-A consequence of the shared-common-dir design in "Worktree git resolution":
-host git and in-container git read and write the **same index file** (it lives
-in the common dir both resolve to), but they sit in different stat domains —
-the bind mount reports different uid/gid, inode, ctime, and sub-second mtime
-for the same files. Under git's default `core.checkStat`, an index written on
-one side reads as "everything modified" on the other *without any content
-comparison* (`diff-index` flags every tracked file), so checkout-type
-operations — rebase, merge, branch switch — refuse with "your local changes
-would be overwritten" on a clean tree. Plain commits never hit this (no
-checkout involved), which is why the breakage only surfaces on an in-container
-rebase/switch, not on signing.
-
-`initialize.sh` therefore sets `core.checkstat = minimal` and
-`core.trustctime = false` in the **repo-local** config. That config lives in
-the common dir, so one write covers both sides and every worktree. `minimal`
-reduces the stat check to whole-second mtime + file size — the two fields the
-bind mount preserves — making the index portable in both directions;
-`trustctime = false` guards against ctime-only divergence from metadata
-changes (chmod/chown) one side doesn't observe. Known trade-off: a same-size
-edit landing in the same whole second as the last index refresh can evade stat
-detection; git's racy-index protection (entries at least as new as the index
-get content-checked) covers the realistic window.
-
-`devcontainer.yml`'s smoke job asserts the setting landed via `git config
---file .git/config` (the `--file` skips repo discovery, which would trip git's
-dubious-ownership check since the runner uid differs from the container uid).
-That assertion doubles as proof that `devcontainers/ci` **does** run
-`initializeCommand` during `up` — distinct from the Dockerfile *build* phase,
-which precedes it and therefore can't see the gitignored `.git-plumbing/`
-runtime files (why those consumers guard with `[ -s … ]`).
-
-### In-container gc and sibling worktrees
-
-The other half of sharing the common dir: `.git/worktrees/` (every worktree's
-registration) is shared too, but the container mounts only its own worktree, so
-from inside it every *sibling* worktree's folder looks missing. A routine
-`git commit` can trigger `git gc --auto`, which runs `git worktree prune
---expire <gc.worktreePruneExpire>` (default 3 months) — so an in-container commit
-silently unregisters every sibling worktree, Codex's included, whose index
-hasn't been touched in that long (`.git/worktrees/<id>/index` mtime, i.e. idle
-time). Files survive; the link from the main repo doesn't.
-
-`initialize.sh` therefore sets `gc.worktreePruneExpire = never` in the
-repo-local config (common dir, so one write covers host and container, same as
-`core.checkstat`). `never` stops the automatic prune on the host too, so stale
-entries now persist until something removes them, each still counting its
-branch as checked out. Clear them with `/dev-cleanup` on the host
+`gc.worktreePruneExpire = never` stops the automatic prune on the host too, so
+stale worktree entries persist. Clear them with `/dev-cleanup` on the host
 (`unnatural-designs-agent-tools`), which unregisters missing worktrees one entry
-at a time and refuses to run in a container. Don't run `git worktree prune`: it
-drops every entry whose folder is missing *right now*, including a worktree on
-an unmounted volume, and inside the container that's every sibling.
-`devcontainer.yml`'s smoke job asserts the setting.
+at a time and refuses to run in a container. Don't run `git worktree prune`:
+inside the container every sibling looks missing, and it drops them all.
 
-### Signed commits under devcontainer CLI
+`devcontainer.yml`'s smoke job asserts the dispatcher and library exist, that
+both hooks stamped, the three git config values, `~/.ssh` at mode 700, and the
+two binds' writability. Nothing in this repo produces any of those, so together
+they prove the `FROM` took effect and both hooks ran it. The `git config --file`
+form skips repo discovery, which would trip git's dubious-ownership check (the
+runner uid differs from the container uid).
 
-The repo's branch protection requires signed commits, and the host signs with
-**SSH** (`gpg.format = ssh`, `commit.gpgsign = true`, no explicit
-`user.signingkey` — `gpg.ssh.defaultKeyCommand` shells out to `ssh-add -L`).
-That makes two things load-bearing inside the container: a usable ssh-agent
-socket the in-container `git` can reach, and the host's `~/.gitconfig`.
-VS Code's Dev Containers extension supplies both automatically — it forwards
-the host ssh-agent through the VS Code Server's own SSH tunnel (a per-user
-socket published by the server process, *not* Docker Desktop's magic socket
-— that mount isn't even present in extension-launched containers) and
-copies the host gitconfig between `postCreate` and `postStart`. The
-`devcontainer` CLI does neither. The fix is five additive pieces — the first
-three for signing itself, the last two for the adjacent SSH operations
-(host-key trust on push, allowed-signers trust on verify):
-
-- **SSH agent** — `devcontainer.json` binds Docker Desktop's magic socket
-  `/run/host-services/ssh-auth.sock` (Desktop's documented mechanism for
-  exposing the host's `ssh-agent` to any container on macOS) and sets
-  `SSH_AUTH_SOCK` via `containerEnv`. The macOS launchd path
-  (`/var/run/com.apple.launchd.*/Listeners`) is *not* used: it's
-  unreachable inside the container and rotates across reboots. Trade-off:
-  the mount is Docker-Desktop-specific and would dangle under colima /
-  OrbStack / podman. A socat-based engine-agnostic relay is the known
-  alternative; not worth the setup until a non-DD engine is on the table.
-  Docker Desktop intercepts that path even though it isn't physically on
-  the host; on other engines it isn't intercepted *and* doesn't exist, so
-  the bind would fail at container start. `initialize.sh` checks
-  `docker info` for "Docker Desktop"; if absent it `sudo touch`es a
-  placeholder at the magic path so the bind succeeds (agent forwarding
-  won't be functional there, which is fine — CI's smoke job just needs
-  the container to start).
-- **SSH agent socket ownership** — Docker Desktop bind-mounts the magic
-  socket root-owned mode 660. The remoteUser is `vscode` (uid 1000), so
-  it can't connect to a root-owned socket. `post-start.sh` `chown`s it to
-  the current user (vscode has passwordless sudo in the
-  `devcontainers/base:debian` image). Has to happen on every container
-  start, because the bind-mounted socket is re-created root-owned each
-  time. Harmless under VS Code, which uses its own tunneled socket and
-  ignores the magic one entirely.
-- **`~/.gitconfig`** — `initialize.sh` writes a snapshot to
-  `.git-plumbing/host-gitconfig`. `post-start.sh` copies it to
-  `$HOME/.gitconfig` *only if that file is missing or empty*.
-  `postStartCommand` runs after the Dev Containers extension's own
-  gitconfig copy, so the empty-check naturally lets VS Code win when
-  it's involved. Under `devcontainers/ci` postStart *does* run (an
-  `up`-time hook, not the build phase), so the copy executes there if
-  the fresh container has no gitconfig — harmless, as the smoke job
-  doesn't read it. Same
-  lifecycle/buildx-safety story as `host-git-common-path` and
-  `host-timezone` — gitignored, regenerated every `up`, anchored by the
-  tracked `.git-plumbing/README.md`.
-- **`~/.ssh/known_hosts`** — `initialize.sh` snapshots it to
-  `.git-plumbing/host-known-hosts`; `post-start.sh` installs it to
-  `$HOME/.ssh/known_hosts` under the same missing-or-empty guard. Without
-  it, in-container `git push`/`fetch` over the SSH `origin`
-  (`git@github.com:…`) fails "Host key verification failed" — the base
-  image's `$HOME/.ssh` is empty and SSH refuses unknown fingerprints. The
-  ssh-agent forwarding above proves *who* you are; `known_hosts` proves the
-  server *is* GitHub, the separate second half SSH needs.
-- **`~/.ssh/allowed_signers`** — `initialize.sh` snapshots the file *named
-  by* `gpg.ssh.allowedSignersFile` (the setting is authoritative, not a
-  hardcoded `~/.ssh` path); `post-start.sh` installs it to
-  `$HOME/.ssh/allowed_signers` and repoints the config there. Without it
-  `git verify-commit` / `--show-signature` reports `U` ("Unable to open
-  allowed keys file…" / "No principal matched") — a good-but-untrusted
-  signature — because the copied gitconfig's `allowedSignersFile` names a
-  host path not mounted in the container. Signing itself never reads the
-  file, which is why commits still sign fine and only verification broke.
-  The repoint is keyed on the installed file (not "did we just copy it") so
-  it also fixes the VS Code path, which bridges the gitconfig but never the
-  file it names.
-
-The two `~/.ssh` installs share an `install_ssh_snapshot` helper in
-`post-start.sh` (the missing-or-empty guard + `mkdir`/`chmod 700 ~/.ssh` +
-`chmod 644` trio, otherwise duplicated verbatim). Neither snapshot carries
-secret material — `known_hosts` is public server fingerprints,
-`allowed_signers` is one line of public key plus principal email — so the
-gitignored build context (the Dockerfile COPYs the whole `.git-plumbing/`
-directory) is an appropriate home, same as `host-gitconfig`.
-
-### Devcontainer lock regeneration
+## Devcontainer lock regeneration
 
 `.devcontainer/devcontainer-lock.json` pins each devcontainer *feature*
 (`version` + `resolved` digest + `integrity`), keyed by the **exact reference
@@ -1247,8 +1076,9 @@ allowlists it.
 ### Base image pins
 
 Every registry-pulled container base is pinned to a **digest**, not a bare
-tag: `.devcontainer/Dockerfile` (`mcr.microsoft.com/devcontainers/base:debian`
-and the `COPY --from` uv image), `roles/homebrew/molecule/Dockerfile`
+tag: `.devcontainer/Dockerfile` (the shared
+`ghcr.io/syndic/unnatural_designs-devcontainer-base:latest` and the `COPY --from`
+uv image), `roles/homebrew/molecule/Dockerfile`
 (`debian:trixie-slim`), and the six non-homebrew molecule scenarios
 (`geerlingguy/docker-debian12-ansible:latest`). The tag stays for
 readability; the `@sha256:…` is what actually makes the pull reproducible.
@@ -1256,9 +1086,11 @@ readability; the `@sha256:…` is what actually makes the pull reproducible.
 scenarios (the homebrew scenarios are exempt — they reference a locally-built
 `:local` image, not a registry pull).
 
-Two of these can't be pinned any other way: `geerlingguy/docker-debian12-
-ansible` publishes **only** a `latest` tag, and the devcontainer/molecule
-Debian bases float by design as point releases ship. So the digest is the
+Three of these can't be pinned any other way: `geerlingguy/docker-debian12-
+ansible` publishes **only** a `latest` tag; the shared devcontainer base's other
+tags are per-commit `sha-…` tags Renovate can't order, so `latest` is the only one
+it can track; and the molecule Debian base floats by design as point releases
+ship. So the digest is the
 sole stable handle — without it a rebuilt `latest` silently changes the test
 substrate, which is the failure mode already recorded under "Homebrew
 molecule scenarios" (a stale base turned the gates scenario red).

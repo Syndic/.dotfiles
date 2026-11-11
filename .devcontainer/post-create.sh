@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+here="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$here/.." && pwd)"
+
+# First: everything below runs git against the worktree, which resolves only once the
+# base image's plumbing has bridged the common dir. See CLAUDE.md "Devcontainer host
+# plumbing".
+PLUMBING_WORKSPACE="$repo_root" \
+  PLUMBING_DIR="$here/.git-plumbing" \
+  PLUMBING_REQUIRE_GIT_CHECKOUT=1 \
+  /usr/local/bin/devcontainer-plumbing post-create
+
 # Provision dev/test venvs with uv, one per interpreter — full rationale in
 # CLAUDE.md "Python 3.9 pin":
 #   ~/.venv-runtime  frozen 3.9.6, pytest (runtime run), default python3 on PATH
@@ -13,8 +24,6 @@ set -euo pipefail
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
 # renovate: datasource=python-version depName=python
 tooling_python='3.14'
-
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 # All pip installs come from pinned requirements files (Renovate-managed).
 # ansible-core, not `ansible` — the bundle's collections would be a second
@@ -59,7 +68,7 @@ if [ -n "$hooks_path" ]; then
   default_hooks_path="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
 
   # `-ef` (same-inode) not string-equality: the worktree-fix symlink layer
-  # (initialize.sh + Dockerfile) makes the two paths name the same dir via a
+  # (initialize.sh + devcontainer-plumbing) makes the two paths name the same dir via a
   # symlink, so they compare unequal as text but resolve to the same inode.
   if [ "$hooks_path" -ef "$default_hooks_path" ]; then
     if [ "$(git config --get extensions.worktreeConfig || true)" = "true" ]; then

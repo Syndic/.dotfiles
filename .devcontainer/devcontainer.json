@@ -21,15 +21,21 @@
       "moby": false
     }
   },
-  // Worktree-aware git resolution — full rationale in CLAUDE.md
-  // "Worktree git resolution".
+  // Presents host state in the shape the base image's plumbing consumes — see
+  // CLAUDE.md "Devcontainer host plumbing".
   "initializeCommand": ".devcontainer/initialize.sh",
   "mounts": [
     // Docker follows the symlink host-side, so this static source resolves
     // to wherever the real git common dir lives without env vars.
     "source=${localWorkspaceFolder}/.devcontainer/.host-git-common,target=/host-git-common,type=bind",
-    // Forward host ssh-agent for signed commits — see CLAUDE.md "Signed commits under devcontainer CLI".
-    "source=/run/host-services/ssh-auth.sock,target=/run/host-services/ssh-auth.sock,type=bind"
+    // Forward host ssh-agent for signed commits.
+    "source=/run/host-services/ssh-auth.sock,target=/run/host-services/ssh-auth.sock,type=bind",
+    // Same symlink-source trick: initialize.sh points these at the host's real files.
+    // known_hosts is writable so a host accepted in-container lands on the host. Appends
+    // only: a temp+rename rewrite (`ssh-keygen -R`) fails EBUSY on a single-file bind.
+    "source=${localWorkspaceFolder}/.devcontainer/.host-known-hosts,target=/home/vscode/.ssh/known_hosts,type=bind",
+    // allowed_signers is read-only: nothing should write the trust set.
+    "source=${localWorkspaceFolder}/.devcontainer/.host-allowed-signers,target=/home/vscode/.ssh/allowed_signers,type=bind,readonly"
   ],
   // Workspace at its real host path so the .git back-pointer lines up verbatim.
   "workspaceFolder": "${localWorkspaceFolder}",
