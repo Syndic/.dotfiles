@@ -107,10 +107,6 @@ signers_target="$(initialize_signers_target "$signers" "$signersfallback")"
 [ "$signers_target" != "$signersfallback" ] || : >>"$signersfallback"
 ln -sfn "$signers_target" "$signerslink"
 
-# TEND(migration): drop with their .gitignore entries once every checkout has had an
-# `up` since the bind mounts replaced these snapshots.
-rm -f "$here/.git-plumbing/host-known-hosts" "$here/.git-plumbing/host-allowed-signers"
-
 # Pre-create the magic ssh-agent socket placeholder on hosts where Docker
 # Desktop isn't intercepting it (CI runners, plain Docker on Linux). Docker
 # Desktop auto-forwards the host ssh-agent at /run/host-services/ssh-auth.sock

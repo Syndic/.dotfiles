@@ -45,9 +45,6 @@ __pycache__/
 /.devcontainer/.git-plumbing/host-timezone
 /.devcontainer/.git-plumbing/host-gitconfig
 /.devcontainer/.git-plumbing/empty-allowed-signers
-# TEND(migration): no longer written; ignored until initialize.sh's cleanup has run everywhere.
-/.devcontainer/.git-plumbing/host-known-hosts
-/.devcontainer/.git-plumbing/host-allowed-signers
 
 # ── Runtime state ─────────────────────────────────────────────────────────────────────────────────
 # phase2.py writes this after a successful install so uninstall.py can default
