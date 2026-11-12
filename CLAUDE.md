@@ -534,8 +534,15 @@ Homebrew…" lines arrive at the very end of the captured log.
 `tests.yml` and run locally as pre-commit hooks. Configs:
 
 - `ansible.cfg` (repo root) — shared pins: `inventory`, `roles_path`,
-  `stdout_callback`. All invocations of `ansible*` / `ansible-lint` pick
-  this up automatically, so devcontainer, CI, and bare-host runs agree.
+  and YAML task output (`stdout_callback = default` +
+  `callback_result_format = yaml`). Invocations of `ansible*` /
+  `ansible-lint` pick this up automatically, so devcontainer, CI, and
+  bare-host runs agree. **Molecule is the exception:** it points
+  `ANSIBLE_CONFIG` at an `ansible.cfg` it generates per scenario, so each
+  `roles/*/molecule/*/molecule.yml` repeats `callback_result_format` under
+  `provisioner.config_options.defaults`.
+  `test_ansible_cfg_stdout_callback_is_builtin` and
+  `test_molecule_scenarios_mirror_the_root_result_format` guard both.
 - `.yamllint` — deliberately strict: `extends: default` and *tightens* it.
   Booleans must be `true`/`false` (no `yes`/`no`/`on`/`off`); octal scalars
   are forbidden outright; line-length is a hard error at 120 (no warning
