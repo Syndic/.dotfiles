@@ -493,7 +493,9 @@ warning naming the stale value and the marker file) if the profile is gone.
 Output helpers (`announce` / `centered_announce` / `info` / `warn` / `die` /
 `run`) and host-profile resolution (`is_profile_entry`, `resolve_host_profile`,
 `list_host_profiles`) live in `_dotfiles_common.py` so install and uninstall
-print identically and prompt identically. Safe because both scripts run *after*
+print identically and prompt identically. So does `ansible_playbook_env`, the
+env both hand `ansible-playbook`: `ANSIBLE_CONFIG` (why: see "Lint") plus the
+subprocess-scoped `ANSIBLE_BECOME_PASS` (see "Sudo / become on Linux"). Safe because both scripts run *after*
 the repo is on disk — the constraint that keeps phase 1 self-contained (no
 `source`-ing repo files) doesn't apply here. The `install.sh` ↔ `phase2.py`
 split is still the load-bearing one; `_dotfiles_common.py` only spans Python.
