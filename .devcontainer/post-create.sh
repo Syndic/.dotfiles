@@ -23,7 +23,7 @@ PLUMBING_WORKSPACE="$repo_root" \
 
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
 # renovate: datasource=python-version depName=python
-tooling_python='3.14'
+tooling_python='3.15'
 
 # All pip installs come from pinned requirements files (Renovate-managed).
 # ansible-core, not `ansible` — the bundle's collections would be a second
