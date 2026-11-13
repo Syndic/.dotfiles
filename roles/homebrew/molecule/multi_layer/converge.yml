@@ -5,8 +5,8 @@
 # scenario base image, so every layer exercises a real
 # `brew bundle install`. All four have no Linux dependencies, so each
 # install is a single small bottle rather than a dependency tree. The common
-# layer also carries a cask from a local tap, so the cask path runs on
-# Linuxbrew offline.
+# layer also carries a formula and a cask from a local third-party tap, so the
+# tap-trust and cask paths run on Linuxbrew offline.
 - name: Converge — homebrew role (multi-layer)
   hosts: all
   gather_facts: true
@@ -40,7 +40,7 @@
       changed_when: false
 
     # A directory under Taps/ is a tap; `brew tap-new` would turn on developer mode.
-    - name: Create the fixture cask's payload directory and local tap
+    - name: Create the fixture payload directory and local tap
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -48,6 +48,7 @@
       loop:
         - /tmp/molecule-homebrew/payload/bin
         - "{{ homebrew_fixture_tap }}/Casks"
+        - "{{ homebrew_fixture_tap }}/Formula"
 
     - name: Write the fixture cask's binary
       ansible.builtin.copy:
@@ -83,13 +84,33 @@
             binary "bin/molecule-fixture"
           end
 
-    # Homebrew 7 refuses casks from an untrusted non-official tap.
-    - name: Trust the fixture tap
+    # Built from source (no bottle); renamed so it doesn't collide with the cask's link.
+    - name: Write the fixture formula
+      ansible.builtin.copy:
+        dest: "{{ homebrew_fixture_tap }}/Formula/molecule-fixture-formula.rb"
+        mode: '0644'
+        content: |
+          class MoleculeFixtureFormula < Formula
+            desc "Offline formula for the homebrew role's molecule scenario"
+            homepage "https://example.invalid"
+            url "file:///tmp/molecule-homebrew/fixture.tar.gz"
+            version "1.0"
+            sha256 "{{ homebrew_fixture_archive.stat.checksum }}"
+
+            def install
+              bin.install Dir["**/molecule-fixture"].first => "molecule-fixture-formula"
+            end
+          end
+
+    # Cask only: Linuxbrew's bundle skipper loads casks before applying Brewfile
+    # trust (CLAUDE.md "Third-party taps are trusted in the Brewfile").
+    - name: Trust the fixture cask
       ansible.builtin.command:
-        cmd: brew trust --tap dotfiles/fixtures
+        cmd: brew trust --cask dotfiles/fixtures/molecule-fixture
       register: homebrew_fixture_trust
       changed_when: homebrew_fixture_trust.stdout is search('^Trusted')
 
+    # The tap line's `trusted: true` is the only thing trusting the fixture tap.
     - name: Write per-layer Brewfile fixtures
       ansible.builtin.copy:
         content: "{{ item.content }}"
@@ -97,7 +118,11 @@
         mode: '0644'
       loop:
         - dest: "{{ common_brewfile }}"
-          content: "tap \"dotfiles/fixtures\"\nbrew \"jo\"\ncask \"molecule-fixture\"\n"
+          content: |
+            tap "dotfiles/fixtures", trusted: true
+            brew "jo"
+            brew "dotfiles/fixtures/molecule-fixture-formula"
+            cask "molecule-fixture"
         - {dest: "{{ group_purpose_brewfile }}", content: "brew \"pwgen\"\n"}
         - {dest: "{{ group_os_brewfile }}", content: "brew \"tree\"\n"}
         - {dest: "{{ host_brewfile }}", content: "brew \"entr\"\n"}

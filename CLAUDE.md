@@ -792,11 +792,14 @@ What each scenario covers:
   up installed. Regression cover for `0861663`: the install task's
   `loop_var` indirection must resolve `item.item` to the path string;
   if that breaks, the assertions in `verify.yml` fail. The common layer also
-  installs a cask from a local tap whose archive is a `file://` URL, so the
-  cask path (install, `brew bundle check`, idempotent re-run) is covered on
-  Linuxbrew with no network. It runs with `HOMEBREW_NO_AUTO_UPDATE` (production
-  updates in `phase2.py` first), so it needs the image's Homebrew to have
-  `brew trust`.
+  installs a formula and a cask from a local third-party tap whose archive is
+  a `file://` URL, so tap trust and the cask path (install, `brew bundle
+  check`, idempotent re-run) are covered on Linuxbrew with no network. The
+  tap's only trust comes from its Brewfile line's `trusted: true` (see
+  Conventions; the cask alone is pre-trusted by name, for the Linuxbrew gap
+  noted there), and `verify.yml` checks Homebrew's trust store for it. It runs
+  with `HOMEBREW_NO_AUTO_UPDATE` (production updates in `phase2.py` first), so
+  it needs the image's Homebrew to support Brewfile `trusted:` (6.0.3+).
 - **`gates/`** — two converges in one play file against a single
   container. First play (`homebrew_upgrade_outdated: true`, default)
   asserts the install task is gated off (image satisfies the Brewfile)
@@ -1250,6 +1253,26 @@ leave every Claude Code session failing to load a marketplace that no longer exi
   is a transient runtime choice, not a stable property of the host.
   There's no `brew bundle cleanup --force` step — removing anything not in
   a Brewfile would nuke ad-hoc `brew install` packages outside this repo.
+- **Third-party taps are trusted in the Brewfile.** Homebrew refuses to load
+  formulae and casks from a non-official tap until it's trusted, so every
+  `tap "<user>/<repo>"` line outside `homebrew/` carries `, trusted: true`;
+  `brew bundle install` writes that to the trust store before loading
+  anything. The trust decision sits on the line that adds the tap, so there's
+  no second list of tap names to drift, and adding a tap without opting in
+  fails instead of being trusted implicitly. Trust is per tap, not per
+  formula, because a tap formula's dependencies can come from the same tap
+  (`siderolabs/tap/sidero-tools` pulls in `omnictl` and `talosctl`) and would
+  otherwise each need listing. Existing hosts pick it up too: `brew bundle
+  check` reports an installed formula from an untrusted tap as outdated, so
+  the install runs. `tests/python/tooling/test_brewfile_tap_trust.py` enforces
+  it, including that a qualified `brew "<user>/<repo>/<name>"` has its `tap`
+  line in the same Brewfile (each layer installs on its own). Uninstall
+  leaves trust entries in place, as it leaves taps. One Homebrew gap: on
+  Linuxbrew, `brew bundle`'s skipper loads each cask (to check
+  `supports_linux?`) *before* it applies Brewfile trust, so a third-party
+  cask in a Linux-reachable Brewfile is refused on its first install. No
+  Brewfile has one today; the `multi_layer` fixture cask works around it with
+  a `brew trust --cask` pre-task.
 - **macOS defaults role.** Hybrid approach: bulk settings go through
   `community.general.osx_defaults` (one list entry per key, layered via
   `common_macos_defaults` + `group_<set>_macos_defaults` for each set +
