@@ -796,7 +796,8 @@ What each scenario covers:
   a `file://` URL, so tap trust and the cask path (install, `brew bundle
   check`, idempotent re-run) are covered on Linuxbrew with no network. The
   tap's only trust comes from its Brewfile line's `trusted: true` (see
-  Conventions), and `verify.yml` checks Homebrew's trust store for it. It runs
+  Conventions; the cask alone is pre-trusted by name, for the Linuxbrew gap
+  noted there), and `verify.yml` checks Homebrew's trust store for it. It runs
   with `HOMEBREW_NO_AUTO_UPDATE` (production updates in `phase2.py` first), so
   it needs the image's Homebrew to support Brewfile `trusted:` (6.0.3+).
 - **`gates/`** — two converges in one play file against a single
@@ -1266,7 +1267,12 @@ leave every Claude Code session failing to load a marketplace that no longer exi
   the install runs. `tests/python/tooling/test_brewfile_tap_trust.py` enforces
   it, including that a qualified `brew "<user>/<repo>/<name>"` has its `tap`
   line in the same Brewfile (each layer installs on its own). Uninstall
-  leaves trust entries in place, as it leaves taps.
+  leaves trust entries in place, as it leaves taps. One Homebrew gap: on
+  Linuxbrew, `brew bundle`'s skipper loads each cask (to check
+  `supports_linux?`) *before* it applies Brewfile trust, so a third-party
+  cask in a Linux-reachable Brewfile is refused on its first install. No
+  Brewfile has one today; the `multi_layer` fixture cask works around it with
+  a `brew trust --cask` pre-task.
 - **macOS defaults role.** Hybrid approach: bulk settings go through
   `community.general.osx_defaults` (one list entry per key, layered via
   `common_macos_defaults` + `group_<set>_macos_defaults` for each set +
