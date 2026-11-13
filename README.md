@@ -113,6 +113,10 @@ it with a symlink into the repo.
 | Linux-only system package | `common_apt` in `group_vars/all.yml`, `group_<set>_apt` in any `group_vars/<group>.yml`, or `host_apt` in `host_vars/<host>.yml` |
 | Linux GUI app via Flatpak | `common_flatpak` / `group_<set>_flatpak` / `host_flatpak` — same three-layer shape as apt |
 
+A package from a third-party tap needs that tap in the same Brewfile, marked
+trusted (`tap "<user>/<repo>", trusted: true`); Homebrew won't load it
+otherwise.
+
 Full variable-naming convention is in [`group_vars/all.yml`](group_vars/all.yml).
 
 ### Skip the `brew upgrade` pass on a run
