@@ -535,22 +535,27 @@ Homebrew…" lines arrive at the very end of the captured log.
 `yamllint` and `ansible-lint` gate every PR via the `lint` job in
 `tests.yml` and run locally as pre-commit hooks. Configs:
 
-- `ansible.cfg` (repo root) — shared pins: `inventory`, `roles_path`,
-  and YAML task output (`stdout_callback = default` +
-  `callback_result_format = yaml`). Ansible finds `ansible.cfg` by **cwd**,
-  not by playbook location, so `ansible*` / `ansible-lint` run from the repo
-  root pick it up, and the bootstrap's playbook calls (`phase2.run_playbook`,
-  `uninstall.py`'s package teardown), which run from wherever the user
-  invoked them, set `ANSIBLE_CONFIG` to it via
-  `_dotfiles_common.ansible_playbook_env`. **Molecule is the exception:** it
-  points `ANSIBLE_CONFIG` at an `ansible.cfg` it generates per scenario, so
-  each `roles/*/molecule/*/molecule.yml` repeats `callback_result_format`
-  under `provisioner.config_options.defaults`.
-  `test_ansible_playbook_runs_under_the_root_config` loads the root config
-  both ways with the real ansible-core;
-  `test_ansible_cfg_stdout_callback_is_builtin` and
-  `test_molecule_scenarios_mirror_the_root_result_format` guard the
-  callback and the molecule copies.
+- `ansible.cfg` (repo root) — sets `inventory`, `roles_path`, and
+  YAML-formatted task output (`stdout_callback = default` with
+  `callback_result_format = yaml`). Ansible looks for `ansible.cfg` in the
+  **current directory**, not next to the playbook, so whether a run uses this
+  file depends on where it starts:
+  - **Runs started in the repo root** (`ansible-lint`, a hand-typed
+    `ansible-playbook`) find it on their own.
+  - **The bootstrap's playbook runs** (`phase2.run_playbook` and
+    `uninstall.py`'s package removal) start wherever the user ran
+    `install.sh` or `uninstall.py`, so they name it explicitly in
+    `ANSIBLE_CONFIG`, via `_dotfiles_common.ansible_playbook_env`.
+  - **Molecule never uses it.** Molecule sets `ANSIBLE_CONFIG` to an
+    `ansible.cfg` it writes for each scenario, so every
+    `roles/*/molecule/*/molecule.yml` sets `callback_result_format: yaml`
+    itself, under `provisioner.config_options.defaults`.
+
+  `test_ansible_playbook_runs_under_the_root_config` runs the real
+  `ansible-playbook` under this file the first two ways.
+  `test_ansible_cfg_stdout_callback_is_builtin` checks that the callback ships
+  with ansible-core, and `test_molecule_scenarios_mirror_the_root_result_format`
+  checks each scenario's copy of the result format.
 - `.yamllint` — deliberately strict: `extends: default` and *tightens* it.
   Booleans must be `true`/`false` (no `yes`/`no`/`on`/`off`); octal scalars
   are forbidden outright; line-length is a hard error at 120 (no warning
