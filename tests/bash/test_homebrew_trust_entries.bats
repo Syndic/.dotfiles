@@ -102,3 +102,20 @@ EOF
   [ "$status" -eq 0 ]
   [ ! -s "$BREW_LOG" ]
 }
+
+@test "a formula and a cask sharing a token are both trusted" {
+  mkdir -p "$TAPS_DIR/acme/tap"
+  printf 'brew "acme/tap/foo"\ncask "acme/tap/foo"\n' > "$WORK/Brewfile"
+  run "$SCRIPT" "$WORK/Brewfile"
+  [ "$status" -eq 0 ]
+  [ "$(grep '^trust' "$BREW_LOG")" = "$(printf 'trust --formula acme/tap/foo\ntrust --cask acme/tap/foo')" ]
+}
+
+@test "each tap is looked up once per run" {
+  mkdir -p "$TAPS_DIR/acme/tap"
+  printf 'tap "acme/tap"\nbrew "acme/tap/a"\nbrew "acme/tap/b"\n' > "$WORK/Brewfile"
+  deps acme/tap/a acme/tap/c
+  run "$SCRIPT" "$WORK/Brewfile"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^--repository acme/tap$' "$BREW_LOG")" -eq 1 ]
+}

@@ -2,7 +2,7 @@
 # Trust a Brewfile's third-party formulae and casks, plus their third-party
 # dependencies, before `brew bundle` loads them. One Brewfile per call.
 # See CLAUDE.md "Third-party Brewfile entries are trusted by the role".
-# Runs on macOS's bash 3.2: no associative arrays, mapfile, or ${x,,}.
+# Runs on macOS's bash 3.2: no mapfile or ${x,,}.
 set -euo pipefail
 
 brewfile="$1"
@@ -13,11 +13,17 @@ qualified_re='^[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+$'
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 tap_of() { printf '%s' "$1" | cut -d/ -f1-2; }
 official() { case "$(lower "$1")" in homebrew/*) return 0 ;; *) return 1 ;; esac; }
+# Membership in a newline-delimited set (bash 3.2 has no associative arrays).
+in_set() { case "$1" in *$'\n'"$2"$'\n'*) return 0 ;; *) return 1 ;; esac; }
 
 # `brew trust` and `brew deps` both need the tap on disk.
+taps_checked=$'\n'
 ensure_tapped() {
-  local tap="$1" url="${2:-}"
+  local tap="$1" url="${2:-}" key
+  key="$(lower "$tap")"
   official "$tap" && return 0
+  in_set "$taps_checked" "$key" && return 0
+  taps_checked="$taps_checked$key"$'\n'
   [ -d "$(brew --repository "$tap")" ] && return 0
   if [ -n "$url" ]; then
     brew tap "$tap" "$url" >&2
@@ -45,8 +51,9 @@ while [ "$i" -lt "${#queue[@]}" ]; do
   kind="${queue[$i]%% *}"
   name="${queue[$i]#* }"
   i=$((i + 1))
-  key="$(lower "$name")"
-  case "$seen" in *$'\n'"$key"$'\n'*) continue ;; esac
+  # Keyed by kind too: a formula and a cask can share a token in one tap.
+  key="$kind $(lower "$name")"
+  in_set "$seen" "$key" && continue
   seen="$seen$key"$'\n'
 
   ensure_tapped "$(tap_of "$name")"

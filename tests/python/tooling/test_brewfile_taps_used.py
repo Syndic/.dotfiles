@@ -1,9 +1,9 @@
 """Every third-party tap in a Brewfile has a fully qualified entry from it.
 
 The homebrew role trusts only qualified `brew`/`cask` entries and their
-dependencies, so an unqualified name from a third-party tap (`brew "talosctl"`)
-stays untrusted, and a tap nothing installs from is dead weight. See CLAUDE.md
-▸ Conventions ("Third-party Brewfile entries are trusted by the role").
+dependencies, so a tap with none is either unused or used only through
+unqualified names the role won't trust. See CLAUDE.md ▸ Conventions
+("Third-party Brewfile entries are trusted by the role").
 """
 import re
 from pathlib import Path

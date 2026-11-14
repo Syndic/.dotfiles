@@ -1304,15 +1304,23 @@ leave every Claude Code session failing to load a marketplace that no longer exi
   tap line is the trust decision, so Brewfiles carry no annotation.
   Consequences:
   - Third-party entries must be fully qualified (`brew "<user>/<repo>/<name>"`);
-    an unqualified one isn't seen.
-    `tests/python/tooling/test_brewfile_taps_used.py` requires every
-    third-party tap to have a qualified entry, which catches that and catches
-    unused taps.
+    the script skips an unqualified one, and `brew bundle` then refuses it,
+    naming the formula. `tests/python/tooling/test_brewfile_taps_used.py`
+    requires every third-party tap to have at least one qualified entry. That
+    catches unused taps, but not an unqualified entry beside a qualified one
+    from the same tap: telling a third-party name from a core one needs
+    Homebrew's index.
+  - The walk likewise only sees dependencies that `brew deps` prints with a
+    tap prefix. A tap formula that names a same-tap dependency unqualified
+    isn't followed, and `brew bundle` refuses that dependency by name. The
+    siderolabs formulae qualify theirs.
   - Don't add `--full-name` to the `brew deps` call: it loads every
     dependency, and an untrusted one is refused.
   - The script runs on macOS's bash 3.2. `tests/bash/test_homebrew_trust_entries.bats`
     covers it against a stub `brew`.
-  - Uninstall leaves trust entries in place, as it leaves taps.
+  - Uninstall leaves the trust entries in Homebrew's trust store
+    (`~/.homebrew/trust.json`, or under `$XDG_CONFIG_HOME/homebrew/`), even
+    with `--homebrew`, whose uninstaller doesn't remove that file.
 - **macOS defaults role.** Hybrid approach: bulk settings go through
   `community.general.osx_defaults` (one list entry per key, layered via
   `common_macos_defaults` + `group_<set>_macos_defaults` for each set +
