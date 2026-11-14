@@ -35,27 +35,37 @@
       register: homebrew_trust_store
       changed_when: false
 
-    - name: The Brewfile's `trusted:` option must have trusted the fixture tap
+    # Exactly the entries and their dependency: nothing tap-wide.
+    - name: The role must have trusted only what the fixture Brewfile installs
       ansible.builtin.assert:
         that:
-          - "'dotfiles/fixtures' in (homebrew_trust_store.stdout | from_json).taps"
-        fail_msg: "dotfiles/fixtures not trusted: {{ homebrew_trust_store.stdout }}"
+          - trust.taps == []
+          - trust.formulae | sort == [fixture ~ '-dep', fixture ~ '-formula']
+          - trust.casks == [fixture]
+        fail_msg: "unexpected trust store: {{ homebrew_trust_store.stdout }}"
+      vars:
+        trust: "{{ homebrew_trust_store.stdout | from_json }}"
+        fixture: dotfiles/fixtures/molecule-fixture
 
-    - name: Run the common layer's fixture formula binary
+    - name: Run the fixture formula and its dependency
       ansible.builtin.command:
-        cmd: molecule-fixture-formula
-      register: homebrew_fixture_formula_run
+        cmd: "{{ item }}"
+      register: homebrew_fixture_formula_runs
       changed_when: false
       failed_when: false
+      loop:
+        - molecule-fixture-formula
+        - molecule-fixture-dep
 
-    - name: The fixture formula from the trusted tap must be installed and linked
+    - name: The fixture formula and its dependency must be installed and linked
       ansible.builtin.assert:
         that:
-          - homebrew_fixture_formula_run.rc == 0
-          - homebrew_fixture_formula_run.stdout == 'molecule fixture cask'
-        fail_msg: >-
-          molecule-fixture-formula not runnable
-          (rc={{ homebrew_fixture_formula_run.rc }}, stderr={{ homebrew_fixture_formula_run.stderr }})
+          - item.rc == 0
+          - item.stdout == 'molecule fixture cask'
+        fail_msg: "{{ item.item }} not runnable (rc={{ item.rc }}, stderr={{ item.stderr }})"
+      loop: "{{ homebrew_fixture_formula_runs.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
     - name: Run the common layer's fixture cask binary
       ansible.builtin.command:

@@ -1,4 +1,4 @@
-tap "siderolabs/tap", trusted: true
+tap "siderolabs/tap"
 
 # User-friendly launcher for Bazel
 brew "bazelisk"
