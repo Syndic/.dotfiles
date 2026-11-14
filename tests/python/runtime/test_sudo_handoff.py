@@ -9,6 +9,8 @@ The contract:
 """
 from __future__ import annotations
 
+import pytest
+
 import phase2
 
 
@@ -68,16 +70,27 @@ def test_run_playbook_with_password_sets_ansible_become_pass(monkeypatch):
     assert kwargs["env"]["ANSIBLE_BECOME_PASS"] == "hunter2"
 
 
-def test_run_playbook_without_password_passes_no_env_override(monkeypatch):
+def test_run_playbook_without_password_sets_no_become_pass(monkeypatch):
     spy = _SubprocessCallSpy()
     monkeypatch.setattr(phase2, "run", spy)
+    monkeypatch.delenv("ANSIBLE_BECOME_PASS", raising=False)
     phase2.run_playbook("laptop24", sudo_password=None)
 
     assert len(spy.calls) == 1
-    args, kwargs = spy.calls[0]
-    # No env= kwarg means inherit parent env (and ANSIBLE_BECOME_PASS is
-    # not set by phase 2 in os.environ).
-    assert "env" not in kwargs
+    _, kwargs = spy.calls[0]
+    assert "ANSIBLE_BECOME_PASS" not in kwargs["env"]
+
+
+@pytest.mark.parametrize("sudo_password", [None, "hunter2"])
+def test_run_playbook_points_ansible_config_at_the_repo(monkeypatch, sudo_password):
+    """The bootstrap runs from wherever install.sh was invoked, and ansible
+    finds ansible.cfg by cwd — so the repo's config must be named explicitly."""
+    spy = _SubprocessCallSpy()
+    monkeypatch.setattr(phase2, "run", spy)
+    phase2.run_playbook("laptop24", sudo_password=sudo_password)
+
+    _, kwargs = spy.calls[0]
+    assert kwargs["env"]["ANSIBLE_CONFIG"] == str(phase2.DOTFILES_DIR / "ansible.cfg")
 
 
 def test_run_playbook_does_not_set_ansible_become_pass_in_parent_environ(monkeypatch):

@@ -1,9 +1,14 @@
+import configparser
 import json
+import os
+import pkgutil
 import re
 import subprocess
+import sysconfig
 from pathlib import Path, PurePosixPath
 
 import pytest
+import yaml
 from tests_run import image_lines
 
 
@@ -400,10 +405,14 @@ def test_renovate_custom_manager_tracks_molecule_images() -> None:
     )
 
 
+def _molecule_scenario_files() -> list:
+    return sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml"))
+
+
 def _molecule_image_lines():
     """Yield (relpath, lineno, prev_line, image_ref) for every `image:` line in
     the molecule scenarios, via the parser tests/run's pre-pull also uses."""
-    for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
+    for scenario in _molecule_scenario_files():
         for line in image_lines(scenario):
             yield scenario.relative_to(REPO_ROOT), line.lineno, line.prev, line.ref
 
@@ -434,7 +443,7 @@ def test_molecule_platform_names_are_unique_across_scenarios() -> None:
     docker container name — two scenarios sharing one would collide. See
     CLAUDE.md "Tests"."""
     owners: dict = {}
-    for scenario in sorted((REPO_ROOT / "roles").glob("*/molecule/*/molecule.yml")):
+    for scenario in _molecule_scenario_files():
         text = scenario.read_text()
         block = re.search(r"^platforms:\n((?:[ #].*\n|\n)*)", text, re.MULTILINE)
         rel = scenario.relative_to(REPO_ROOT)
@@ -448,6 +457,110 @@ def test_molecule_platform_names_are_unique_across_scenarios() -> None:
             owners.setdefault(name, []).append(str(rel))
     dupes = {n: paths for n, paths in owners.items() if len(paths) > 1}
     assert not dupes, f"platform names shared across scenarios: {dupes}"
+
+
+def _is_builtin_callback(name: str) -> bool:
+    # Collections can drop plugins (community.general 12 removed `yaml`);
+    # ansible-core's own callbacks are the only ones a bare host always has.
+    short = name.removeprefix("ansible.builtin.")
+    return "." not in short and short in _ansible_core_callbacks()
+
+
+def _ansible_core_callbacks() -> set:
+    import ansible.plugins.callback as callbacks
+
+    return {m.name for m in pkgutil.iter_modules(callbacks.__path__)}
+
+
+def _root_ansible_defaults() -> configparser.SectionProxy:
+    cfg = configparser.ConfigParser()
+    cfg.read(REPO_ROOT / "ansible.cfg")
+    return cfg["defaults"]
+
+
+def _molecule_ansible_defaults():
+    for scenario in _molecule_scenario_files():
+        data = yaml.safe_load(scenario.read_text())
+        options = data.get("provisioner", {}).get("config_options", {})
+        yield scenario.relative_to(REPO_ROOT), options.get("defaults", {})
+
+
+@pytest.mark.parametrize(
+    "name, builtin",
+    [
+        ("default", True),
+        ("minimal", True),
+        ("ansible.builtin.default", True),
+        ("ansible.builtin.minimal", True),
+        ("yaml", False),
+        ("ansible.builtin.yaml", False),
+        ("community.general.yaml", False),
+    ],
+)
+def test_is_builtin_callback(name: str, builtin: bool) -> None:
+    assert _is_builtin_callback(name) is builtin
+
+
+def test_ansible_cfg_stdout_callback_is_builtin() -> None:
+    """A collection callback can be removed under a bare host's playbook run,
+    which then fails before the first task. See CLAUDE.md "Lint"."""
+    defaults = _root_ansible_defaults()
+    callback = defaults.get("stdout_callback", "default")
+
+    assert _is_builtin_callback(callback), callback
+    assert defaults.get("callback_result_format") == "yaml"
+
+
+_SMOKE_PLAYBOOK = """\
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - ansible.builtin.debug:
+        msg: {smoke: [1, 2]}
+"""
+
+
+@pytest.mark.parametrize("bootstrap", [False, True], ids=["repo-cwd", "bootstrap"])
+def test_ansible_playbook_runs_under_the_root_config(tmp_path: Path, bootstrap: bool) -> None:
+    """Load ansible.cfg the two ways real runs do: by cwd from the repo root,
+    and via ANSIBLE_CONFIG from elsewhere (phase2/uninstall). A config that
+    ansible-core rejects fails before the first task. See CLAUDE.md "Lint"."""
+    playbook = tmp_path / "smoke.yml"
+    playbook.write_text(_SMOKE_PLAYBOOK)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    if bootstrap:
+        env["ANSIBLE_CONFIG"] = str(REPO_ROOT / "ansible.cfg")
+    binary = Path(sysconfig.get_path("scripts")) / "ansible-playbook"
+
+    result = subprocess.run(
+        [str(binary), "-i", "localhost,", "-c", "local", str(playbook)],
+        cwd=tmp_path if bootstrap else REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    # callback_result_format=yaml took effect (JSON would print `"msg": {`).
+    assert re.search(r"^\s+smoke:$", result.stdout, re.MULTILINE), result.stdout
+
+
+def test_molecule_scenarios_mirror_the_root_result_format() -> None:
+    """Molecule generates its own ansible.cfg, so the root one never reaches a
+    scenario; each repeats the result format. See CLAUDE.md "Lint"."""
+    want = _root_ansible_defaults().get("callback_result_format")
+    rows = list(_molecule_ansible_defaults())
+    assert rows, "no molecule scenarios found — did the layout move?"
+
+    problems = []
+    for rel, defaults in rows:
+        if defaults.get("callback_result_format") != want:
+            problems.append(f"{rel}: callback_result_format is not {want!r}")
+        callback = defaults.get("stdout_callback", "default")
+        if not _is_builtin_callback(callback):
+            problems.append(f"{rel}: stdout_callback {callback!r} is not built in")
+
+    assert not problems, "\n".join(problems)
 
 
 def test_ci_pulls_the_homebrew_image_tag_the_publish_workflow_pushes() -> None:

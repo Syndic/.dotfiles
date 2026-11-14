@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 
 from _dotfiles_common import (
+    ansible_playbook_env,
     announce_warning,
     die,
     info,
@@ -316,12 +317,7 @@ def build_playbook_actions(
             "--limit", host,
             "--tags", ",".join(tags),
         ]
-        if sudo_password:
-            env = os.environ.copy()
-            env["ANSIBLE_BECOME_PASS"] = sudo_password
-            run(cmd, env=env)
-        else:
-            run(cmd)
+        run(cmd, env=ansible_playbook_env(DOTFILES_DIR, sudo_password))
 
     return preview, do_playbook
 

@@ -35,6 +35,7 @@ provisioner:
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
   config_options:
     defaults:
+      # Molecule doesn't read the root ansible.cfg; see CLAUDE.md "Lint".
       callback_result_format: yaml
 
 verifier:

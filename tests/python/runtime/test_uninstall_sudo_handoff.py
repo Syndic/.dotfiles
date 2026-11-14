@@ -150,10 +150,11 @@ def test_do_playbook_with_password_sets_ansible_become_pass(monkeypatch):
     assert kwargs["env"]["ANSIBLE_BECOME_PASS"] == "hunter2"
 
 
-def test_do_playbook_without_password_passes_no_env_kwarg(monkeypatch):
+def test_do_playbook_without_password_sets_no_become_pass(monkeypatch):
     spy = _RunSpy()
     monkeypatch.setattr(uninstall, "run", spy)
     monkeypatch.setattr(uninstall.shutil, "which", lambda _: "/usr/bin/ansible-playbook")
+    monkeypatch.delenv("ANSIBLE_BECOME_PASS", raising=False)
 
     _, do = uninstall.build_playbook_actions(
         "devbox", brew=True, apt=False, flatpak=False, sudo_password=None
@@ -162,7 +163,22 @@ def test_do_playbook_without_password_passes_no_env_kwarg(monkeypatch):
 
     assert len(spy.calls) == 1
     _, kwargs = spy.calls[0]
-    assert "env" not in kwargs
+    assert "ANSIBLE_BECOME_PASS" not in kwargs["env"]
+
+
+@pytest.mark.parametrize("sudo_password", [None, "hunter2"])
+def test_do_playbook_points_ansible_config_at_the_repo(monkeypatch, sudo_password):
+    spy = _RunSpy()
+    monkeypatch.setattr(uninstall, "run", spy)
+    monkeypatch.setattr(uninstall.shutil, "which", lambda _: "/usr/bin/ansible-playbook")
+
+    _, do = uninstall.build_playbook_actions(
+        "devbox", brew=True, apt=False, flatpak=False, sudo_password=sudo_password
+    )
+    do()
+
+    _, kwargs = spy.calls[0]
+    assert kwargs["env"]["ANSIBLE_CONFIG"] == str(uninstall.DOTFILES_DIR / "ansible.cfg")
 
 
 def test_do_playbook_does_not_leak_become_pass_to_parent_environ(monkeypatch):
