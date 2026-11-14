@@ -4,6 +4,7 @@ See CLAUDE.md "Shared module: `_dotfiles_common.py`" for the rationale.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,17 @@ def die(msg: str) -> None:
 def run(args: list, **kwargs) -> subprocess.CompletedProcess:
     """Run a command, raising CalledProcessError on non-zero exit."""
     return subprocess.run(args, check=True, **kwargs)
+
+
+def ansible_playbook_env(dotfiles_dir: Path, sudo_password: str | None = None) -> dict:
+    """Environment for an ansible-playbook subprocess: a copy of ours plus
+    ANSIBLE_CONFIG (ansible finds ansible.cfg by cwd, not playbook dir) and,
+    if given, ANSIBLE_BECOME_PASS. Our own os.environ is left untouched."""
+    env = os.environ.copy()
+    env["ANSIBLE_CONFIG"] = str(dotfiles_dir / "ansible.cfg")
+    if sudo_password:
+        env["ANSIBLE_BECOME_PASS"] = sudo_password
+    return env
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from _dotfiles_common import (
+    ansible_playbook_env,
     announce_warning,
     centered_announce_warning,
     die,
@@ -265,14 +266,7 @@ def run_playbook(
         cmd += ["--extra-vars", "homebrew_upgrade_outdated=false"]
     if not dock:
         cmd += ["--extra-vars", "macos_defaults_configure_dock=false"]
-    if sudo_password:
-        # Pass the captured sudo password as ANSIBLE_BECOME_PASS, scoped to
-        # this subprocess only — not set in our own os.environ.
-        env = os.environ.copy()
-        env["ANSIBLE_BECOME_PASS"] = sudo_password
-        run(cmd, env=env)
-    else:
-        run(cmd)
+    run(cmd, env=ansible_playbook_env(DOTFILES_DIR, sudo_password))
 
 
 def capture_sudo_password() -> str | None:
