@@ -760,7 +760,10 @@ executes as `python3`, so pytest runs twice, split by directory:
   runner's `python3`: its pre-commit hook runs it as `python3`, which is 3.9.6
   in the devcontainer and on a Mac.
 - **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
-  layout, role-file shape checks. Runs on `tooling_python` with uncapped pytest
+  layout, role-file shape checks, and role `library/` modules. Those modules
+  run under Ansible's interpreter (on a host, the Python of Homebrew's
+  `ansible`, as `group_vars/all.yml` sets it), never `/usr/bin/python3`, so
+  the 3.9 pin doesn't cover them. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
   job, and `pytest tests/python/tooling`. The CI job installs every requirements
   file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
@@ -1289,8 +1292,8 @@ leave every Claude Code session failing to load a marketplace that no longer exi
   a Brewfile would nuke ad-hoc `brew install` packages outside this repo.
 - **Third-party Brewfile entries are trusted by the role.** Homebrew refuses
   to load formulae and casks from a non-official tap until they're trusted.
-  Before the `brew bundle check` gate, the role runs
-  `roles/homebrew/files/trust-brewfile-entries.sh` on each layer. It taps each
+  Before the `brew bundle check` gate, the role runs its
+  `trust_brewfile_entries` module (`roles/homebrew/library/`) on each layer. It taps each
   third-party tap the Brewfile declares (with its remote, if given), then runs
   `brew trust` on every fully qualified third-party `brew`/`cask` entry and,
   via `brew deps --direct`, on each of their third-party dependencies, until
@@ -1304,7 +1307,7 @@ leave every Claude Code session failing to load a marketplace that no longer exi
   tap line is the trust decision, so Brewfiles carry no annotation.
   Consequences:
   - Third-party entries must be fully qualified (`brew "<user>/<repo>/<name>"`);
-    the script skips an unqualified one, and `brew bundle` then refuses it,
+    the module skips an unqualified one, and `brew bundle` then refuses it,
     naming the formula. `tests/python/tooling/test_brewfile_taps_used.py`
     requires every third-party tap to have at least one qualified entry. That
     catches unused taps, but not an unqualified entry beside a qualified one
@@ -1316,8 +1319,10 @@ leave every Claude Code session failing to load a marketplace that no longer exi
     siderolabs formulae qualify theirs.
   - Don't add `--full-name` to the `brew deps` call: it loads every
     dependency, and an untrusted one is refused.
-  - The script runs on macOS's bash 3.2. `tests/bash/test_homebrew_trust_entries.bats`
-    covers it against a stub `brew`.
+  - The module runs under Ansible's interpreter on the target (see "Two pytest
+    runs" for why its tests are in the tooling run).
+    `tests/python/tooling/test_homebrew_trust_brewfile_entries.py` covers it
+    against a fake `brew`.
   - Uninstall leaves the trust entries in Homebrew's trust store
     (`~/.homebrew/trust.json`, or under `$XDG_CONFIG_HOME/homebrew/`), even
     with `--homebrew`, whose uninstaller doesn't remove that file.

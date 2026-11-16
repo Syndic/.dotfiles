@@ -42,11 +42,9 @@
 # Before the check, which counts an untrusted entry as outdated. See CLAUDE.md
 # "Third-party Brewfile entries are trusted by the role".
 - name: Trust each layer's third-party entries and their dependencies
-  ansible.builtin.script:
-    cmd: "trust-brewfile-entries.sh {{ item | quote }}"
+  trust_brewfile_entries:
+    brewfile: "{{ item }}"
   loop: "{{ homebrew_present_brewfiles }}"
-  register: homebrew_trust_results
-  changed_when: homebrew_trust_results.stdout is search('^(Tapped|Trusted) ', multiline=True)
 
 # Idempotency gate — see CLAUDE.md "Homebrew role idempotency gate".
 - name: Check whether each Brewfile layer is already satisfied
