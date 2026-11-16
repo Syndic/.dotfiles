@@ -3,10 +3,13 @@
 See CLAUDE.md "Third-party Brewfile entries are trusted by the role".
 """
 import importlib.util
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import pytest
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.testing import patch_module_args
 
 MODULE = Path(__file__).resolve().parents[3] / "roles/homebrew/library/trust_brewfile_entries.py"
 _spec = importlib.util.spec_from_file_location("trust_brewfile_entries", MODULE)
@@ -135,3 +138,48 @@ def test_each_tap_is_looked_up_once_per_run(tmp_path):
     brew = FakeBrew(tmp_path, tapped=["acme/tap"], deps={"acme/tap/a": ["acme/tap/c"]})
     trust.trust_brewfile('tap "acme/tap"\nbrew "acme/tap/a"\nbrew "acme/tap/b"\n', brew)
     assert brew.calls.count(["--repository", "acme/tap"]) == 1
+
+
+def run_main(monkeypatch, capsys, tmp_path, text: str, brew: FakeBrew):
+    """Run the module's real main() with `brew` behind AnsibleModule.run_command."""
+    def run_command(self, args, **kwargs):
+        assert args[0] == "brew"
+        try:
+            return 0, brew(args[1:]), ""
+        except BrewFailed:
+            return 1, "", "boom"
+
+    brewfile = tmp_path / "Brewfile"
+    brewfile.write_text(text)
+    monkeypatch.setattr(AnsibleModule, "run_command", run_command)
+    with patch_module_args({"brewfile": str(brewfile)}), pytest.raises(SystemExit) as exited:
+        trust.main()
+    return exited.value.code, json.loads(capsys.readouterr().out)
+
+
+def test_main_fails_naming_the_brew_command_that_failed(monkeypatch, capsys, tmp_path):
+    brew = FakeBrew(tmp_path / "taps", tapped=["acme/tap"], fail_deps_for="acme/tap/tool")
+    code, out = run_main(monkeypatch, capsys, tmp_path, 'brew "acme/tap/tool"\n', brew)
+    assert code == 1
+    assert out["failed"] is True
+    assert "brew deps --direct --include-build --formula acme/tap/tool" in out["msg"]
+    assert out["stderr"] == "boom"
+
+
+def test_main_reports_what_it_tapped_and_trusted_as_changed(monkeypatch, capsys, tmp_path):
+    brew = FakeBrew(tmp_path / "taps")
+    code, out = run_main(monkeypatch, capsys, tmp_path, 'tap "acme/tap"\ncask "acme/tap/app"\n', brew)
+    assert code == 0
+    assert out["changed"] is True
+    assert out["tapped"] == ["acme/tap"]
+    assert out["trusted"] == [{"kind": "cask", "name": "acme/tap/app"}]
+
+
+def test_main_is_unchanged_when_everything_is_already_tapped_and_trusted(
+        monkeypatch, capsys, tmp_path):
+    brew = FakeBrew(tmp_path / "taps", tapped=["acme/tap"])
+    brew.trust_store.add(("--formula", "acme/tap/tool"))
+    code, out = run_main(monkeypatch, capsys, tmp_path, 'brew "acme/tap/tool"\n', brew)
+    assert code == 0
+    assert out["changed"] is False
+    assert out["tapped"] == [] and out["trusted"] == []
