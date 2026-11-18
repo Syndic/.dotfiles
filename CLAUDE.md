@@ -40,7 +40,10 @@ prereqs they install themselves. Those get exercised end-to-end by
 `tests/e2e-linux.sh` (also containerized).
 
 **`gh` is a host command, and the image deliberately doesn't carry it.**
-None of the reasons above reach it: it talks to the GitHub API and never
+The container exists so tools that read, build, test or commit the tree run
+at pinned versions, with pre-commit hooks resolving them from PATH and commits
+signed through the bridged agent (see "Lint" and "Devcontainer host
+plumbing"). None of that reaches `gh`: it talks to the GitHub API and never
 reads, builds or tests the tree, no pre-commit hook calls it, and it signs
 nothing, so its version can't move a build or check result. Running it
 in-container would mean forwarding a GitHub credential there (`GH_TOKEN` or
