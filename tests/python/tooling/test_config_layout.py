@@ -3,8 +3,10 @@ import json
 import os
 import pkgutil
 import re
+import shutil
 import subprocess
 import sysconfig
+import textwrap
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -366,6 +368,37 @@ def test_devcontainer_binds_ssh_files_with_the_intended_writability() -> None:
     assert "readonly" not in known_hosts.split(",")
     assert "/.devcontainer/.host-allowed-signers," in signers
     assert "readonly" in signers.split(",")
+
+
+_SMOKE_REFUSES_GH = re.compile(r"^( *)if command -v gh >/dev/null; then$.*?^\1fi$", re.MULTILINE | re.DOTALL)
+
+
+@pytest.mark.parametrize("with_gh", [False, True])
+def test_devcontainer_smoke_test_refuses_gh(tmp_path: Path, with_gh: bool) -> None:
+    """The smoke test fails when `gh` is on the image's PATH (CLAUDE.md "Use the devcontainer
+    for dev tooling"). Run against a PATH this test controls, so the runner's own `gh`
+    decides nothing, and found by its code rather than its comment."""
+    if with_gh:
+        gh = tmp_path / "gh"
+        gh.write_text("#!/bin/sh\n")
+        gh.chmod(0o755)
+
+    block = _SMOKE_REFUSES_GH.search((REPO_ROOT / ".github" / "workflows" / "devcontainer.yml").read_text())
+    assert block is not None, "devcontainer.yml's smoke test no longer refuses gh"
+    bash = shutil.which("bash")  # resolved up front: the PATH below doesn't carry it
+    assert bash is not None
+    done = subprocess.run(
+        [bash, "-euo", "pipefail", "-c", textwrap.dedent(block.group(0))],
+        capture_output=True,
+        text=True,
+        env={"PATH": str(tmp_path)},
+    )
+
+    if with_gh:
+        assert done.returncode != 0
+        assert "belongs on the host" in done.stderr
+    else:
+        assert done.returncode == 0, done.stderr
 
 
 def test_renovate_custom_manager_tracks_molecule_images() -> None:

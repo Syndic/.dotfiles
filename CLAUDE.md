@@ -39,6 +39,19 @@ The exceptions are the bootstrap surfaces themselves — `install.sh` and
 prereqs they install themselves. Those get exercised end-to-end by
 `tests/e2e-linux.sh` (also containerized).
 
+**`gh` is a host command, and the image deliberately doesn't carry it.**
+The container exists so tools that read, build, test or commit the tree run
+at pinned versions, with pre-commit hooks resolving them from PATH and commits
+signed through the bridged agent (see "Lint" and "Devcontainer host
+plumbing"). None of that reaches `gh`: it talks to the GitHub API and never
+reads, builds or tests the tree, no pre-commit hook calls it, and it signs
+nothing, so its version can't move a build or check result. Running it
+in-container would mean forwarding a GitHub credential there (`GH_TOKEN` or
+a `~/.config/gh` mount) for no reproducibility gain. Leaving it out makes an
+in-container call fail as "not found" rather than run logged out.
+`devcontainer.yml`'s smoke job fails if `gh` reaches the image's PATH;
+`test_devcontainer_smoke_test_refuses_gh` runs that check.
+
 ## Comment style — lean terse, and feel free to tighten what's already here
 
 Default to short, single-line comments that name the non-obvious WHY at
@@ -119,7 +132,8 @@ inside the container every sibling looks missing, and it drops them all.
 `devcontainer.yml`'s smoke job asserts the dispatcher and library exist, that
 both hooks stamped, the three git config values, `~/.ssh` at mode 700, and the
 two binds' writability. Nothing in this repo produces any of those, so together
-they prove the `FROM` took effect and both hooks ran it. The `git config --file`
+they prove the `FROM` took effect and both hooks ran it. It also asserts `gh` is
+*not* on PATH (see "Use the devcontainer for dev tooling"). The `git config --file`
 form skips repo discovery, which would trip git's dubious-ownership check (the
 runner uid differs from the container uid).
 
