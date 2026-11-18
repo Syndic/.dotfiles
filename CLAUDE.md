@@ -1339,3 +1339,19 @@ leave every Claude Code session failing to load a marketplace that no longer exi
 - `DOTFILES_REPO` env override on `install.sh` lets the e2e harness clone
   from a local source instead of GitHub. Generally useful for forks and
   offline tests.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `Syndic/.dotfiles`, driven via the `gh` CLI. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one root `CONTEXT.md` glossary and `docs/adr/`. See `docs/agents/domain.md`.
