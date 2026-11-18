@@ -370,25 +370,6 @@ def test_devcontainer_binds_ssh_files_with_the_intended_writability() -> None:
     assert "readonly" in signers.split(",")
 
 
-def _run_smoke_block(pattern: re.Pattern[str], what: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Run the devcontainer.yml smoke-test block `pattern` matches, as written, under strict
-    bash. bash is resolved up front, so `env` may carry a PATH without it."""
-    workflow = (REPO_ROOT / ".github" / "workflows" / "devcontainer.yml").read_text()
-    block = pattern.search(workflow)
-    assert block is not None, f"devcontainer.yml's smoke test no longer {what}"
-    bash = shutil.which("bash")
-    assert bash is not None, "bash is needed to run a smoke-test block"
-    return subprocess.run(
-        [bash, "-euo", "pipefail", "-c", textwrap.dedent(block.group(0))],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-
-_SMOKE_REFUSES_GH = re.compile(r"^( *)if command -v gh >/dev/null; then$.*?^\1fi$", re.MULTILINE | re.DOTALL)
-
-
 @pytest.mark.parametrize("with_gh", [False, True])
 def test_devcontainer_smoke_test_refuses_gh(tmp_path: Path, with_gh: bool) -> None:
     """The smoke test fails when `gh` is on the image's PATH (CLAUDE.md "Use the devcontainer
@@ -399,7 +380,16 @@ def test_devcontainer_smoke_test_refuses_gh(tmp_path: Path, with_gh: bool) -> No
         gh.write_text("#!/bin/sh\n")
         gh.chmod(0o755)
 
-    done = _run_smoke_block(_SMOKE_REFUSES_GH, "refuses gh", env={"PATH": str(tmp_path)})
+    block = _SMOKE_REFUSES_GH.search((REPO_ROOT / ".github" / "workflows" / "devcontainer.yml").read_text())
+    assert block is not None, "devcontainer.yml's smoke test no longer refuses gh"
+    bash = shutil.which("bash")  # resolved up front: the PATH below doesn't carry it
+    assert bash is not None
+    done = subprocess.run(
+        [bash, "-euo", "pipefail", "-c", textwrap.dedent(block.group(0))],
+        capture_output=True,
+        text=True,
+        env={"PATH": str(tmp_path)},
+    )
 
     if with_gh:
         assert done.returncode != 0
