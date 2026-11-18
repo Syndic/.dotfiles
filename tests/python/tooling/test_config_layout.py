@@ -370,6 +370,9 @@ def test_devcontainer_binds_ssh_files_with_the_intended_writability() -> None:
     assert "readonly" in signers.split(",")
 
 
+_SMOKE_REFUSES_GH = re.compile(r"^( *)if command -v gh >/dev/null; then$.*?^\1fi$", re.MULTILINE | re.DOTALL)
+
+
 @pytest.mark.parametrize("with_gh", [False, True])
 def test_devcontainer_smoke_test_refuses_gh(tmp_path: Path, with_gh: bool) -> None:
     """The smoke test fails when `gh` is on the image's PATH (CLAUDE.md "Use the devcontainer
