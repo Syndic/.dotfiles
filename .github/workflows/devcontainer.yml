@@ -78,6 +78,12 @@ jobs:
             molecule --version
             for _ in $(seq 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
             docker info --format '{{.ServerVersion}}'
+            # gh runs on the host: CLAUDE.md "Use the devcontainer for dev tooling".
+            # An explicit `if`, since `! command -v` would not trip `set -e`.
+            if command -v gh >/dev/null; then
+              echo "gh is on PATH in the image; it belongs on the host" >&2
+              exit 1
+            fi
             test -x /usr/local/bin/devcontainer-plumbing
             test -r /usr/local/share/devcontainer-plumbing/host-state-bridge.sh
             test -f /run/devcontainer-plumbing/post-create.stamp
