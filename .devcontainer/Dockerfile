@@ -1,10 +1,10 @@
 # Shared base image carrying the container-side host plumbing — see CLAUDE.md
 # "Devcontainer host plumbing". Tag for Renovate to compare against, digest for the
 # reproducible pull.
-FROM ghcr.io/syndic/unnatural_designs-devcontainer-base:latest@sha256:565888d5556d6d0d54a8864361adbfb8561937b47422d9bef5c1b00525e907e1
+FROM ghcr.io/syndic/unnatural_designs-devcontainer-base:latest@sha256:2e7d2f810614a8e1111fe1a9279c9d6601e6e636d317b4e0534c04a3050108c9
 
 # Pinned tag bumped by Renovate's docker manager. post-create.sh drives uv.
-COPY --from=ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /uvx /usr/local/bin/
 
 # bats for tests/bash (keep in sync with tests.yml); ripgrep for interactive use.
 # Everything Python lives in uv venvs (post-create.sh), not apt.
