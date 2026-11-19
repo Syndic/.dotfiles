@@ -26,7 +26,7 @@ collections:
   # Hosts that opt in must install `dockutil` (via their Brewfile) for
   # the role to succeed.
   - name: geerlingguy.mac
-    version: "5.0.0"
+    version: "5.1.0"
 
   # Not used directly: community.general and community.docker depend on it
   # unpinned (>=1.0.0), so it's declared here to pin it like the rest.
