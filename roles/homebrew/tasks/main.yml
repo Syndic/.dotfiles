@@ -39,6 +39,13 @@
          | map(attribute='stat.path')
          | list }}
 
+# Before the check, which counts an untrusted entry as outdated. See CLAUDE.md
+# "Third-party Brewfile entries are trusted by the role".
+- name: Trust each layer's third-party entries and their dependencies
+  trust_brewfile_entries:
+    brewfile: "{{ item }}"
+  loop: "{{ homebrew_present_brewfiles }}"
+
 # Idempotency gate — see CLAUDE.md "Homebrew role idempotency gate".
 - name: Check whether each Brewfile layer is already satisfied
   ansible.builtin.command:

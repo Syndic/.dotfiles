@@ -29,6 +29,44 @@
       loop_control:
         label: "{{ item.item }}"
 
+    - name: Read Homebrew's trust store
+      ansible.builtin.command:
+        cmd: brew trust --json=v1
+      register: homebrew_trust_store
+      changed_when: false
+
+    # Exactly the entries and their dependency: nothing tap-wide.
+    - name: The role must have trusted only what the fixture Brewfile installs
+      ansible.builtin.assert:
+        that:
+          - trust.taps == []
+          - trust.formulae | sort == [fixture ~ '-dep', fixture ~ '-formula']
+          - trust.casks == [fixture]
+        fail_msg: "unexpected trust store: {{ homebrew_trust_store.stdout }}"
+      vars:
+        trust: "{{ homebrew_trust_store.stdout | from_json }}"
+        fixture: dotfiles/fixtures/molecule-fixture
+
+    - name: Run the fixture formula and its dependency
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+      register: homebrew_fixture_formula_runs
+      changed_when: false
+      failed_when: false
+      loop:
+        - molecule-fixture-formula
+        - molecule-fixture-dep
+
+    - name: The fixture formula and its dependency must be installed and linked
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - item.stdout == 'molecule fixture cask'
+        fail_msg: "{{ item.item }} not runnable (rc={{ item.rc }}, stderr={{ item.stderr }})"
+      loop: "{{ homebrew_fixture_formula_runs.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
     - name: Run the common layer's fixture cask binary
       ansible.builtin.command:
         cmd: molecule-fixture

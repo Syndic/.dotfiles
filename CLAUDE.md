@@ -760,7 +760,10 @@ executes as `python3`, so pytest runs twice, split by directory:
   runner's `python3`: its pre-commit hook runs it as `python3`, which is 3.9.6
   in the devcontainer and on a Mac.
 - **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
-  layout, role-file shape checks. Runs on `tooling_python` with uncapped pytest
+  layout, role-file shape checks, and role `library/` modules. Those modules
+  run under Ansible's interpreter (on a host, the Python of Homebrew's
+  `ansible`, as `group_vars/all.yml` sets it), never `/usr/bin/python3`, so
+  the 3.9 pin doesn't cover them. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
   job, and `pytest tests/python/tooling`. The CI job installs every requirements
   file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
@@ -826,11 +829,14 @@ What each scenario covers:
   up installed. Regression cover for `0861663`: the install task's
   `loop_var` indirection must resolve `item.item` to the path string;
   if that breaks, the assertions in `verify.yml` fail. The common layer also
-  installs a cask from a local tap whose archive is a `file://` URL, so the
-  cask path (install, `brew bundle check`, idempotent re-run) is covered on
-  Linuxbrew with no network. It runs with `HOMEBREW_NO_AUTO_UPDATE` (production
-  updates in `phase2.py` first), so it needs the image's Homebrew to have
-  `brew trust`.
+  installs a formula, which depends on a second formula from the same tap,
+  and a cask, all from a local third-party tap whose archive is a `file://`
+  URL. That covers entry trust and the dependency walk (see Conventions) and
+  the cask path (install, `brew bundle check`, idempotent re-run) on
+  Linuxbrew with no network. `verify.yml` asserts the trust store holds
+  exactly those three entries and no tap. It runs with
+  `HOMEBREW_NO_AUTO_UPDATE` (production updates in `phase2.py` first), so it
+  needs the image's Homebrew to have `brew trust`.
 - **`gates/`** — two converges in one play file against a single
   container. First play (`homebrew_upgrade_outdated: true`, default)
   asserts the install task is gated off (image satisfies the Brewfile)
@@ -1284,6 +1290,42 @@ leave every Claude Code session failing to load a marketplace that no longer exi
   is a transient runtime choice, not a stable property of the host.
   There's no `brew bundle cleanup --force` step — removing anything not in
   a Brewfile would nuke ad-hoc `brew install` packages outside this repo.
+- **Third-party Brewfile entries are trusted by the role.** Homebrew refuses
+  to load formulae and casks from a non-official tap until they're trusted.
+  Before the `brew bundle check` gate, the role runs its
+  `trust_brewfile_entries` module (`roles/homebrew/library/`) on each layer. It taps each
+  third-party tap the Brewfile declares (with its remote, if given), then runs
+  `brew trust` on every fully qualified third-party `brew`/`cask` entry and,
+  via `brew deps --direct`, on each of their third-party dependencies, until
+  none are left. Trust is per entry, never tap-wide, so a tap's other formulae
+  stay untrusted. The dependency walk is needed because trusting a formula
+  doesn't cover its dependencies (`siderolabs/tap/sidero-tools` needs
+  `omnictl`, which no Brewfile names). Running it every time means a
+  dependency an upstream update adds is trusted on the next run. It runs
+  before `brew bundle` rather than through Brewfile `trusted:` options because
+  on Linuxbrew `brew bundle` loads casks before it applies those options. A
+  tap line is the trust decision, so Brewfiles carry no annotation.
+  Consequences:
+  - Third-party entries must be fully qualified (`brew "<user>/<repo>/<name>"`);
+    the module skips an unqualified one, and `brew bundle` then refuses it,
+    naming the formula. `tests/python/tooling/test_brewfile_taps_used.py`
+    requires every third-party tap to have at least one qualified entry. That
+    catches unused taps, but not an unqualified entry beside a qualified one
+    from the same tap: telling a third-party name from a core one needs
+    Homebrew's index.
+  - The walk likewise only sees dependencies that `brew deps` prints with a
+    tap prefix. A tap formula that names a same-tap dependency unqualified
+    isn't followed, and `brew bundle` refuses that dependency by name. The
+    siderolabs formulae qualify theirs.
+  - Don't add `--full-name` to the `brew deps` call: it loads every
+    dependency, and an untrusted one is refused.
+  - The module runs under Ansible's interpreter on the target (see "Two pytest
+    runs" for why its tests are in the tooling run).
+    `tests/python/tooling/test_homebrew_trust_brewfile_entries.py` covers it
+    against a fake `brew`.
+  - Uninstall leaves the trust entries in Homebrew's trust store
+    (`~/.homebrew/trust.json`, or under `$XDG_CONFIG_HOME/homebrew/`), even
+    with `--homebrew`, whose uninstaller doesn't remove that file.
 - **macOS defaults role.** Hybrid approach: bulk settings go through
   `community.general.osx_defaults` (one list entry per key, layered via
   `common_macos_defaults` + `group_<set>_macos_defaults` for each set +
