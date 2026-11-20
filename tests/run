@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.14
+#!/usr/bin/env python3.15
 # renovate: datasource=python-version depName=python
 """Run the test suites.
 
