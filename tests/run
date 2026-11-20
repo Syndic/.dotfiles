@@ -4,7 +4,7 @@
 
   ./tests/run                  # everything (python + bash + lint + molecule)
   ./tests/run fast             # python + bash + lint (skip molecule — no docker)
-  ./tests/run python           # both pytest runs (3.9 runtime + tooling), in parallel
+  ./tests/run python           # both pytest runs (3.9 baseline + tooling), in parallel
   ./tests/run bash             # just bats
   ./tests/run lint             # yamllint + ansible-lint
   ./tests/run molecule         # every molecule scenario, in parallel (needs docker)
@@ -176,7 +176,7 @@ def prepare_homebrew_image() -> None:
 
 # See CLAUDE.md "Two pytest runs". Own cache dirs: they run at once from one rootdir.
 PYTHON_SUITES = [
-    Suite("python:runtime", ["pytest", "-v", "-o", "cache_dir=.pytest_cache/runtime"]),
+    Suite("python:baseline", ["pytest", "-v", "-o", "cache_dir=.pytest_cache/baseline"]),
     Suite(
         "python:tooling",
         [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling", "tests/python/tooling"],
