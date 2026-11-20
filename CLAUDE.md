@@ -756,6 +756,8 @@ executes as `python3`, so pytest runs twice, split by directory:
   `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-baseline`, the
   `python` CI job, and bare `pytest` (`pytest.ini`'s `testpaths`). Running the
   tests on 3.9 is what proves those modules still parse and run there.
+  `tests/python/baseline/conftest.py` fails the run on any other interpreter,
+  so a PATH that misses `~/.venv-baseline` can't pass it on `tooling_python`.
   `regenerate_devcontainer_lock` is in the baseline run even though its workflow uses the
   runner's `python3`: its pre-commit hook runs it as `python3`, which is 3.9.6
   in the devcontainer and on a Mac.
