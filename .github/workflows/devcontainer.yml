@@ -57,7 +57,7 @@ jobs:
         with:
           push: never
           # Asserts the default interpreter is still the pinned 3.9.x (this is
-          # ~/.venv-runtime on PATH via remoteEnv; a bump of the frozen pin would fail
+          # ~/.venv-baseline on PATH via remoteEnv; a bump of the frozen pin would fail
           # here). `bats` confirms the Dockerfile apt install; `pytest` (both
           # runs)/`pre-commit`/`ansible`/`ansible-lint`/`molecule` confirm post-create.sh
           # built the uv venvs and that remoteEnv put their bin dirs on PATH.
