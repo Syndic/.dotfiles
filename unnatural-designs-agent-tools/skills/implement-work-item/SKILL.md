@@ -17,8 +17,8 @@ final review and merges it themself.
 Before step 2's PR, load the deferred tools this uses with one `ToolSearch`:
 `mcp__ccd_pr__set_monitor`, `mcp__ccd_session__start_session`, `mcp__ccd_session_mgmt__list_events` and
 `PushNotification`. If session tools aren't available here (for example in the
-CLI), stop and tell the user before step 3, and ask whether to run the review in
-a subagent instead.
+CLI), skip step 3.1: do step 3.2, then stop, tell the user, and ask whether to
+run the review in a subagent instead.
 
 ## 1. Understand the work before touching code
 
@@ -43,23 +43,32 @@ a subagent instead.
    project's own checks (tests, linters) and fix what fails.
 3. Commit (signed, per the repo's rules), push, and open a PR whose body links the
    work item and says how it was validated. Note the PR number.
-4. Turn on the app's CI monitor so failures wake you: `mcp__ccd_pr__set_monitor`
+
+## 3. Start the reviewer, then the CI monitor
+
+Start the reviewer before the monitor: turning on Auto-fix sends an automated
+notice into the turn, after which the app has refused `user_asked` starts.
+
+1. Call `start_session` with `initiation: "user_asked"` (this command is the
+   user's request for it), `context: "fresh"`, `use_worktree: false` (it only
+   reads code), `name: "review-pr-<number>"`, a `title`, and:
+
+   - `prompt`: `/unnatural-designs-agent-tools:review-work-item <number> <work item>`.
+     The work item is the link the user gave, or their text verbatim, plus every
+     answer or decision the user has given about the work so far, verbatim. Never
+     your paraphrase, plan or summary: the reviewer exists to catch a misreading,
+     and your words would carry it over.
+   - `background` (80+ characters): the repo's conventions, and that the user
+     decides disagreements. Leave out the work and your approach.
+
+   If the app refuses it, propose the same session with
+   `initiation: "own_initiative"` and the same `prompt` and `background`, and
+   tell the user in one line the app's reason and that they need to start it
+   from the card.
+2. Turn on the app's CI monitor so failures wake you: `mcp__ccd_pr__set_monitor`
    with `auto_fix: true` and the PR's URL. If the call is denied, tell the user in
    one line that CI failures won't wake you until they turn on Auto-fix in the PR
-   bar or allow the call, and carry on.
-
-## 3. Start the reviewer
-
-Call `start_session` with `initiation: "user_asked"` (this command is the user's
-request for it), `context: "fresh"`, `use_worktree: false` (it only reads code),
-`name: "review-pr-<number>"`, a `title`, and:
-
-- `prompt`: `/unnatural-designs-agent-tools:review-work-item <number> <work item>`.
-  The work item is the link the user gave, or their text verbatim, plus every
-  answer or decision the user has given about the work so far, verbatim. Never your paraphrase, plan or summary: the reviewer
-  exists to catch a misreading, and your words would carry it over.
-- `background` (80+ characters): the repo's conventions, and that the user
-  decides disagreements. Leave out the work and your approach.
+   bar or allow the call.
 
 Then end your turn. The app continues you when the reviewer finishes or CI fails;
 don't poll. If the app stops continuing you (it holds notes after many in a row),
@@ -139,7 +148,7 @@ summary for the user's review before merging:
 
 ## 6. After notifying
 
-A CI failure on the PR head still wakes you (step 2's monitor). Decide as in
+A CI failure on the PR head still wakes you (step 3's monitor). Decide as in
 step 4 whether the PR caused it. If it's unrelated, surface it as step 4 says.
 If the PR caused it, send a brief `PushNotification` and message saying you have
 work left, with a concise summary of what failed, fix it as in step 4, and
