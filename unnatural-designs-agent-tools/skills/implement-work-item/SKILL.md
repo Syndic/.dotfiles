@@ -17,8 +17,8 @@ final review and merges it themself.
 Before step 2's PR, load the deferred tools this uses with one `ToolSearch`:
 `mcp__ccd_pr__set_monitor`, `mcp__ccd_session__start_session`, `mcp__ccd_session_mgmt__list_events` and
 `PushNotification`. If session tools aren't available here (for example in the
-CLI), stop and tell the user before step 3, and ask whether to run the review in
-a subagent instead.
+CLI), skip step 3.1: do step 3.2, then stop, tell the user, and ask whether to
+run the review in a subagent instead.
 
 ## 1. Understand the work before touching code
 
@@ -61,10 +61,10 @@ notice into the turn, after which the app has refused `user_asked` starts.
    - `background` (80+ characters): the repo's conventions, and that the user
      decides disagreements. Leave out the work and your approach.
 
-   If it's refused because the turn is automated, propose the same session with
+   If the app refuses it, propose the same session with
    `initiation: "own_initiative"` and the same `prompt` and `background`, and
-   tell the user in one line that the app refused to start it from this turn, so
-   they need to start it from the card.
+   tell the user in one line the app's reason and that they need to start it
+   from the card.
 2. Turn on the app's CI monitor so failures wake you: `mcp__ccd_pr__set_monitor`
    with `auto_fix: true` and the PR's URL. If the call is denied, tell the user in
    one line that CI failures won't wake you until they turn on Auto-fix in the PR
