@@ -22,13 +22,13 @@ jobs:
           # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
           version: '0.13.9'
           enable-cache: false
-      # CI's ~/.venv-runtime: the frozen CLT Python; see CLAUDE.md "Python 3.9 pin".
+      # CI's ~/.venv-baseline: the frozen CLT Python; see CLAUDE.md "Python 3.9 pin".
       - run: |
-          uv venv --python 3.9.6 "$RUNNER_TEMP/venv-runtime"
-          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv-runtime" >> "$GITHUB_ENV"
-          echo "$RUNNER_TEMP/venv-runtime/bin" >> "$GITHUB_PATH"
+          uv venv --python 3.9.6 "$RUNNER_TEMP/venv-baseline"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv-baseline" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv-baseline/bin" >> "$GITHUB_PATH"
       - run: uv pip install -r test-requirements.txt
-      # The runtime run; testpaths in pytest.ini.
+      # The baseline run; testpaths in pytest.ini.
       - run: pytest -v
 
   python-tooling:

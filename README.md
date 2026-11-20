@@ -164,7 +164,7 @@ molecule, yamllint, and ansible-lint, so no host-side setup is needed.
 ```bash
 ./tests/run                         # everything (python + bash + lint + molecule)
 ./tests/run fast                    # python + bash + lint (skip molecule — no docker)
-./tests/run python                  # pytest: the 3.9 runtime run + the tooling run, in parallel
+./tests/run python                  # pytest: the 3.9 baseline run + the tooling run, in parallel
 ./tests/run bash                    # bats only
 ./tests/run lint                    # yamllint + ansible-lint
 ./tests/run molecule                # molecule per-role scenarios (needs docker)

@@ -177,7 +177,7 @@ plumbing), whereas `--dry-run` is a registry-only resolve. The reconcile is what
 keeps `--dry-run`'s full re-resolution from flapping unchanged digests — do
 **not** commit `upgrade`'s output directly. The pure functions
 (`parse_features`, `reconcile`, `serialize`) carry all the logic and are unit-
-tested in `tests/python/runtime/test_regenerate_devcontainer_lock.py`; the
+tested in `tests/python/baseline/test_regenerate_devcontainer_lock.py`; the
 driver's subprocess wiring is exercised by the workflow on real Renovate PRs.
 
 `.github/workflows/renovate-devcontainer-lock.yml` runs it: on `pull_request`
@@ -248,11 +248,11 @@ Concrete consequences:
 ## Python 3.9 pin
 
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.
-The pin is enforced in three places: the runtime (`/usr/bin/python3` in
-install.sh), CI (`uv venv --python 3.9.6` in the `python` job of
+The pin is enforced in three places: the baseline environment (`/usr/bin/python3`
+in install.sh; the term is defined in `CONTEXT.md`), CI (`uv venv --python 3.9.6` in the `python` job of
 `.github/workflows/tests.yml`), and the devcontainer (`uv venv --python 3.9.6`
 in `.devcontainer/post-create.sh`), both pinned to the exact CLT patch. Keep all
-three in step; `test_ci_runtime_python_matches_the_devcontainer` guards the two
+three in step; `test_ci_baseline_python_matches_the_devcontainer` guards the two
 `uv venv` lines.
 
 The devcontainer provisions Python with **uv**, not the devcontainers `python`
@@ -262,8 +262,8 @@ of the old startup time; the feature compiled both interpreters every build).
 uv is baked into the image in `.devcontainer/Dockerfile`
 (`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
 
-`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv-runtime`
-(the frozen 3.9.6 — the runtime pytest run + the default `python3` on PATH) and
+`post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv-baseline`
+(the frozen 3.9.6 — the baseline pytest run + the default `python3` on PATH) and
 `~/.venv-tooling` (`tooling_python` — everything else: the Ansible dev stack,
 `ansible-core`, `ansible-lint`, `molecule`, the docker driver, all in one venv
 so they share a single ansible-core, since a second copy is what produced the
@@ -278,7 +278,7 @@ resolves to the frozen 3.9.6 through PATH. Their bin dirs are put on PATH via
 step.
 
 Package versions come from pinned `*-requirements.txt` files at the repo root
-(`test-` for `~/.venv-runtime`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
+(`test-` for `~/.venv-baseline`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
 for `~/.venv-tooling`), which the matching CI jobs in `tests.yml` install from
 too — one pinned source per tooling set, shared between devcontainer and CI
 (the `python-tooling` job installs all four `~/.venv-tooling` files; see "Two
@@ -289,19 +289,19 @@ CI installs them with uv too: each Python job in `tests.yml` runs one shared
 `uv pip install --system -r …` into the setup-python interpreter. The `python`
 job uses no setup-python, because setup-python ships no 3.9 build for the
 current `ubuntu-latest`. It builds a 3.9.6 venv with uv, the CI copy of
-`~/.venv-runtime`, and installs into that. The venv is needed because uv refuses
+`~/.venv-baseline`, and installs into that. The venv is needed because uv refuses
 `--system` installs into a Python it manages. setup-uv's `version:` must equal the devcontainer's
 `COPY --from=ghcr.io/astral-sh/uv:<tag>`; how Renovate keeps the two together
 is under "Dependency updates". setup-uv's cache is off (`enable-cache:
 false`), because an uncached install of these pinned files already takes
 only a few seconds.
 
-Only the **runtime** pytest run is pinned: tests of code a user's Mac runs as
+Only the **baseline** pytest run is pinned: tests of code a user's Mac runs as
 `python3` — the repo-root modules and the plugin's host scripts. Tests of dev
 tooling run on `tooling_python` instead; the split is under "Tests" ("Two pytest
 runs").
 
-`test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv-runtime` and the
+`test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv-baseline` and the
 `python` CI job), so a `packageRule` in `renovate.json` caps pytest at
 `allowedVersions: <9` — pytest 9 dropped 3.9 (needs >= 3.10) with no 8.x
 backport, so an un-capped bump PR fails `pip install` forever.
@@ -333,7 +333,7 @@ without a disable rule.
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.
-**Runtime code must remain 3.9-compatible.** No `match` statements, no
+**Code that runs in the baseline environment must remain 3.9-compatible.** No `match` statements, no
 parenthesized context managers, no `Self` imports, no `ExceptionGroup`. The
 failure mode is "fresh-Mac bootstrap dies at parse time, after CLT install" —
 the worst possible UX moment.
@@ -749,14 +749,14 @@ lockstep with `roles/flatpak/tasks/main.yml`.
 The 3.9 pin (see "Python 3.9 pin") only needs to cover code that a user's Mac
 executes as `python3`, so pytest runs twice, split by directory:
 
-- **Runtime run** — `tests/python/runtime/` plus
+- **Baseline run** — `tests/python/baseline/` plus
   `unnatural-designs-agent-tools/tests/` (the plugin's tests stay in its folder
   so it extracts unchanged). Tests of `phase2`, `_dotfiles_common`, `uninstall`,
   `dotfiles_manager`, `regenerate_devcontainer_lock`, and the plugin's
-  `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-runtime`, the
+  `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-baseline`, the
   `python` CI job, and bare `pytest` (`pytest.ini`'s `testpaths`). Running the
   tests on 3.9 is what proves those modules still parse and run there.
-  `regenerate_devcontainer_lock` is runtime even though its workflow uses the
+  `regenerate_devcontainer_lock` is in the baseline run even though its workflow uses the
   runner's `python3`: its pre-commit hook runs it as `python3`, which is 3.9.6
   in the devcontainer and on a Mac.
 - **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
@@ -769,25 +769,25 @@ executes as `python3`, so pytest runs twice, split by directory:
   file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
   tooling test that imports, say, `yaml` sees it in both places;
   `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
-  VS Code's Test Explorer shows only the runtime run (its interpreter is
-  `~/.venv-runtime`, which can't load `tests/run`); run the tooling tests via
+  VS Code's Test Explorer shows only the baseline run (its interpreter is
+  `~/.venv-baseline`, which can't load `tests/run`); run the tooling tests via
   `./tests/run python`. `tests/python/tooling/conftest.py`
   loads `tests/run` (syntax too new for 3.9, no `.py` suffix) via
   `SourceFileLoader` and registers it as the module `tests_run`, so its tests
   import the real thing rather than regex its source. The molecule `image:` parser lives in
   `tests/run` for the same reason — its pin guards import it from there.
 
-`./tests/run python` runs both as parallel suites: the runtime run via
-`pytest` on PATH (`~/.venv-runtime/bin` comes first in `remoteEnv`), the tooling run
+`./tests/run python` runs both as parallel suites: the baseline run via
+`pytest` on PATH (`~/.venv-baseline/bin` comes first in `remoteEnv`), the tooling run
 via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
 shebang's `python3.14` resolves to `~/.venv-tooling`'s, the one interpreter
 guaranteed able to load `tests/run`.
 
 `tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
-test file under `tests/python/` (at any depth) sits under `runtime/` or
-`tooling/`, no tooling test imports a runtime module
+test file under `tests/python/` (at any depth) sits under `baseline/` or
+`tooling/`, no tooling test imports a baseline module
 (repo-root `*.py` or the plugin's `scripts/`, discovered from disk), and every
-runtime test imports one. A test that imports `phase2` therefore can't land in
+baseline test imports one. A test that imports `phase2` therefore can't land in
 the run that wouldn't catch a 3.9 regression.
 
 ### Homebrew molecule scenarios
@@ -1198,7 +1198,7 @@ repo is their only home.
 `unnatural-designs-agent-tools/scripts/` runs on the **host**, not in the
 devcontainer, so it is standard-library Python kept 3.9-compatible (same
 constraint as `phase2.py`); its tests in `unnatural-designs-agent-tools/tests/`
-run in the devcontainer as part of the runtime pytest run (`pytest.ini`'s
+run in the devcontainer as part of the baseline pytest run (`pytest.ini`'s
 `testpaths` lists it for both `./tests/run python` and CI's `python` job).
 
 The `claude_code` role registers it as a **`directory` marketplace** (absolute

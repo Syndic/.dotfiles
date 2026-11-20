@@ -181,7 +181,7 @@ def test_main_python_runs_both_pytest_runs_in_parallel(monkeypatch):
     monkeypatch.setattr(tests_run, "run_parallel", lambda suites: calls.append(suites) or 0)
     assert tests_run.main(["python"]) == 0
     (suites,) = calls
-    assert [s.name for s in suites] == ["python:runtime", "python:tooling"]
+    assert [s.name for s in suites] == ["python:baseline", "python:tooling"]
     # The tooling run must share tests/run's interpreter, which is what can load it.
     assert suites[1].argv[:3] == [sys.executable, "-m", "pytest"]
     caches = [arg for s in suites for arg in s.argv if arg.startswith("cache_dir=")]

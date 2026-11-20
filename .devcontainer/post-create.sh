@@ -14,11 +14,11 @@ PLUMBING_WORKSPACE="$repo_root" \
 
 # Provision dev/test venvs with uv, one per interpreter — full rationale in
 # CLAUDE.md "Python 3.9 pin":
-#   ~/.venv-runtime  frozen 3.9.6, pytest (runtime run), default python3 on PATH
-#   ~/.venv-tooling  tooling_python: ansible-core, ansible-lint, yamllint,
-#                    molecule (one venv so they share ansible-core and avoid
-#                    duplicate-collection warnings #46/#48), pytest for the
-#                    tooling run, and pre-commit
+#   ~/.venv-baseline  frozen 3.9.6, pytest (baseline run), default python3 on PATH
+#   ~/.venv-tooling   tooling_python: ansible-core, ansible-lint, yamllint,
+#                     molecule (one venv so they share ansible-core and avoid
+#                     duplicate-collection warnings #46/#48), pytest for the
+#                     tooling run, and pre-commit
 # PATH wiring lives in devcontainer.json's remoteEnv — keep both in step.
 
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
@@ -29,9 +29,9 @@ tooling_python='3.15'
 # ansible-core, not `ansible` — the bundle's collections would be a second
 # resolution root. See CLAUDE.md "Galaxy collections come from requirements
 # files, not a bundle" and "Dependency updates".
-setup_runtime_env() {
-  uv venv --python 3.9.6 "$HOME/.venv-runtime"
-  uv pip install --python "$HOME/.venv-runtime/bin/python" -r "$repo_root/test-requirements.txt"
+setup_baseline_env() {
+  uv venv --python 3.9.6 "$HOME/.venv-baseline"
+  uv pip install --python "$HOME/.venv-baseline/bin/python" -r "$repo_root/test-requirements.txt"
 }
 
 setup_tooling_env() {
@@ -49,13 +49,13 @@ setup_tooling_env() {
 }
 
 # set -e doesn't propagate from backgrounded jobs — capture PIDs, OR exit codes.
-setup_runtime_env &
-runtime_pid=$!
+setup_baseline_env &
+baseline_pid=$!
 setup_tooling_env &
 tooling_pid=$!
 
 rc=0
-wait "$runtime_pid" || rc=$?
+wait "$baseline_pid" || rc=$?
 wait "$tooling_pid" || rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
 
