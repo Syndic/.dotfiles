@@ -1,7 +1,7 @@
 ---
 name: review-work-item
-description: The reviewer half of implement-work-item — judge a PR against the work item it implements, post findings with /code-review --comment, re-check the implementer's fixes each round, and reply to and resolve its own threads.
-argument-hint: <pr-number> <work item link, or its text verbatim>
+description: The reviewer half of implement-work-item — judge a PR against the work item it implements, post findings with /code-review --comment, read changed docs as a newcomer, re-check the implementer's fixes each round, and reply to and resolve its own threads.
+argument-hint: <pr-number> <work item link, or its text verbatim> [Claim check: <report>]
 disable-model-invocation: true
 ---
 
@@ -14,9 +14,13 @@ the implementer disagree on.
 
 ## Ground rules
 
-- The work item is everything after the PR number. If it's a link, read it
-  yourself with `gh` (body and comments). Judge against it, not against the PR's
-  description of itself.
+- The work item is everything after the PR number, up to a `Claim check:` line
+  if there is one. If it's a link, read it yourself with `gh` (body and
+  comments). Judge against it, not against the PR's description of itself.
+- After `Claim check:` comes a separate read-only check of the work item's
+  claims, each marked confirmed, refuted or unverified with evidence. Where the
+  PR departs from the work item because a claim was refuted, don't report that
+  as a misreading; check that the evidence holds.
 - Read only for code: no edits, commits, branch switches or pushes. Your only
   writes are on the PR: review comments, thread replies and thread resolutions.
   Never merge it or enable auto-merge; the user merges after their own review.
@@ -35,7 +39,11 @@ the implementer disagree on.
 2. Judge the PR as a whole against the work item: is anything it asks for
    missing, or anything built that it didn't ask for? Post each such finding as
    an inline comment too, so every finding has a thread.
-3. End your turn with the verdict line.
+3. For each doc the PR adds or changes, read it as someone new to the code would
+   and report what's unclear (an undefined term, a step that assumes context the
+   doc doesn't give), not only what's inaccurate. Post these as inline comments,
+   like any other finding.
+4. End your turn with the verdict line.
 
 ## Later rounds
 
