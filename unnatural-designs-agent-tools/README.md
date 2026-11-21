@@ -13,10 +13,10 @@ unchanged.
 
 ## Skills
 
-- **`implement-work-item`**: implements a triaged work item. A subagent first checks the work
-  item's claims against the code, then it stops to ask about any ambiguity before coding, opens
-  a PR, and iterates with a separate review session until both agree, bringing disagreements
-  to the user. Once they agree, it notifies the user with a per-file summary for the merge
+- **`implement-work-item`**: implements a triaged work item. It first has a subagent check the
+  work item's claims against the code, then stops to ask about any ambiguity before coding,
+  opens a PR, and iterates with a separate review session until both agree, bringing
+  disagreements to the user. Once they agree, it notifies the user with a per-file summary for the merge
   review. It fixes CI failures the PR causes and surfaces unrelated ones to the user rather
   than fixing them in the PR. It never merges; the user does,
   after their own review. User-invoked only (`disable-model-invocation`). It turns on Auto-fix

@@ -26,8 +26,9 @@ run the review in a subagent instead.
    comments). Read the code it touches.
 2. Check the work item's claims with a subagent (the `Agent` tool,
    `general-purpose`, `model: "sonnet"`, not a fork), so the check isn't anchored
-   on your reading. Give it the work item as step 3.1 defines it, verbatim, and
-   have it:
+   on your reading. Its prompt holds the work item as step 3.1 defines it,
+   verbatim, and these instructions, with no reading, plan or hypothesis of yours.
+   Have it:
    - only read: no edits, commits, pushes or PR comments;
    - list the work item's factual claims: the reproduction, the cause, scope
      claims ("also affects X"), and each "done when" check;
@@ -35,14 +36,18 @@ run the review in a subagent instead.
      `file:line`, or a command and its output. A verdict without evidence counts
      as unverified.
 
-   Keep its report verbatim; step 3.1 passes it to the reviewer.
+   It runs in the background. Don't end your turn until its report arrives:
+   keep working on step 1.1 meanwhile. A turn its report starts is one the app
+   may refuse step 3.1's start from. Keep the report verbatim; step 3.1 passes it
+   to the reviewer.
 3. State, briefly: what you'll change, where, how you'll test it, and what's out
    of scope.
 4. List every ambiguity that would change *what* gets built — conflicting
    requirements, an unstated choice between designs, unclear scope, an acceptance
    criterion you can't check, a refuted claim that changes scope. Answer the ones
    the code or repo docs settle yourself; don't ask about those. Confirmed claims
-   need no question.
+   need no question. Verify yourself any unverified claim your plan depends on,
+   and list it here if you can't.
 5. If any remain, **stop and ask** — end the turn with the questions and implement
    nothing. The user's answers become part of the work item. If none remain, say
    so in one line and continue.

@@ -20,7 +20,9 @@ the implementer disagree on.
 - After `Claim check:` comes a separate read-only check of the work item's
   claims, each marked confirmed, refuted or unverified with evidence. Where the
   PR departs from the work item because a claim was refuted, don't report that
-  as a misreading; check that the evidence holds.
+  as a misreading; check that the evidence holds, and report it as a finding if
+  it doesn't. A refuted claim that changes scope needs the user's decision in
+  the work item; a scope change without one is a finding.
 - Read only for code: no edits, commits, branch switches or pushes. Your only
   writes are on the PR: review comments, thread replies and thread resolutions.
   Never merge it or enable auto-merge; the user merges after their own review.
@@ -52,7 +54,8 @@ old and new head SHAs.
 
 1. Re-check each fix and review `git diff <old>..<new>` for regressions (after a
    rebase, `git range-diff <old-base>..<old> <new-base>..<new>`, so the base's
-   own changes don't show as the PR's). Don't do another full `--comment` run,
+   own changes don't show as the PR's). Give any doc the fixes change round 1's
+   newcomer read. Don't do another full `--comment` run,
    which would duplicate comments. Post any new finding as an inline comment.
 2. For each disputed finding, concede or hold, with your reasoning. A user
    decision relayed in the message settles that finding.
