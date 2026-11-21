@@ -55,8 +55,8 @@ old and new head SHAs.
 1. Re-check each fix and review `git diff <old>..<new>` for regressions (after a
    rebase, `git range-diff <old-base>..<old> <new-base>..<new>`, so the base's
    own changes don't show as the PR's). Give any doc the fixes change round 1's
-   newcomer read. Don't do another full `--comment` run,
-   which would duplicate comments. Post any new finding as an inline comment.
+   newcomer read. Don't do another full `--comment` run, which would duplicate
+   comments. Post any new finding as an inline comment.
 2. For each disputed finding, concede or hold, with your reasoning. A user
    decision relayed in the message settles that finding.
 3. On each of your threads, reply with how the finding was addressed (or why you
