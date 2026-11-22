@@ -1393,8 +1393,8 @@ Issues live in GitHub Issues on `Syndic/.dotfiles`, driven via the `gh` CLI. See
 
 ### Triage labels
 
-The five canonical triage roles, each label string equal to its name. See
-`docs/agents/triage-labels.md`.
+The five canonical triage roles, each label string equal to its name, plus the
+repo-local `blocked` label. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
