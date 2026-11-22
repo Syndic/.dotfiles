@@ -1,6 +1,6 @@
 ---
 name: implement-work-item
-description: Implement a triaged work item end to end — surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once they agree, fixing CI failures the PR causes and surfacing unrelated ones. Never merges; the user does.
+description: Implement a triaged work item end to end — check the work item's claims and surface ambiguity before coding, ship it as a PR, then iterate with a separate review session (review-work-item) until both sessions agree, escalating disagreements to the user, and notify the user with a per-file summary once they agree, fixing CI failures the PR causes and surfacing unrelated ones. Never merges; the user does.
 argument-hint: <issue number or URL, or a description of the work>
 disable-model-invocation: true
 ---
@@ -24,13 +24,31 @@ run the review in a subagent instead.
 
 1. If the argument names an issue or PR, read it in full with `gh` (body and
    comments). Read the code it touches.
-2. State, briefly: what you'll change, where, how you'll test it, and what's out
+2. Check the work item's claims with a subagent (the `Agent` tool,
+   `general-purpose`, `model: "sonnet"`, not a fork), so the check isn't anchored
+   on your reading. Its prompt holds the work item as step 3.1 defines it,
+   verbatim, and these instructions, with no reading, plan or hypothesis of yours.
+   Have it:
+   - only read: no edits, commits, pushes or PR comments;
+   - list the work item's factual claims: the reproduction, the cause, scope
+     claims ("also affects X"), and each "done when" check;
+   - mark each **confirmed**, **refuted** or **unverified**, with evidence: a
+     `file:line`, or a command and its output. A verdict without evidence counts
+     as unverified.
+
+   It runs in the background. Don't end your turn until its report arrives:
+   keep working on step 1.1 meanwhile. A turn its report starts is one the app
+   may refuse step 3.1's start from. Keep the report verbatim; step 3.1 passes it
+   to the reviewer.
+3. State, briefly: what you'll change, where, how you'll test it, and what's out
    of scope.
-3. List every ambiguity that would change *what* gets built — conflicting
+4. List every ambiguity that would change *what* gets built — conflicting
    requirements, an unstated choice between designs, unclear scope, an acceptance
-   criterion you can't check. Answer the ones the code or repo docs settle
-   yourself; don't ask about those.
-4. If any remain, **stop and ask** — end the turn with the questions and implement
+   criterion you can't check, a refuted claim that changes scope. Answer the ones
+   the code or repo docs settle yourself; don't ask about those. Confirmed claims
+   need no question. Verify yourself any unverified claim your plan depends on,
+   and list it here if you can't.
+5. If any remain, **stop and ask** — end the turn with the questions and implement
    nothing. The user's answers become part of the work item. If none remain, say
    so in one line and continue.
 
@@ -40,7 +58,9 @@ run the review in a subagent instead.
    with a name you choose and say which; invoking this command is the go-ahead,
    so don't stop to ask.
 2. Implement, including the docs and tests the change needs. Validate with the
-   project's own checks (tests, linters) and fix what fails.
+   project's own checks (tests, linters) and fix what fails. Run every check the
+   repo's docs say covers the files you changed, including slow or manual ones;
+   if you skip one, say which and why in the PR.
 3. Commit (signed, per the repo's rules), push, and open a PR whose body links the
    work item and says how it was validated. Note the PR number.
 
@@ -57,7 +77,8 @@ notice into the turn, after which the app has refused `user_asked` starts.
      The work item is the link the user gave, or their text verbatim, plus every
      answer or decision the user has given about the work so far, verbatim. Never
      your paraphrase, plan or summary: the reviewer exists to catch a misreading,
-     and your words would carry it over.
+     and your words would carry it over. After it, a line `Claim check:` and step
+     1.2's report, verbatim.
    - `background` (80+ characters): the repo's conventions, and that the user
      decides disagreements. Leave out the work and your approach.
 
@@ -144,7 +165,8 @@ summary for the user's review before merging:
 - **CI** on the PR head: required checks passed or still running; any
   non-required failure (and whether you're fixing it); any unrelated failure,
   with the evidence.
-- **Not verified**: anything no check covered.
+- **Not verified**: anything no check covered, including any check the docs
+  require that you didn't run (step 2.2).
 
 ## 6. After notifying
 
