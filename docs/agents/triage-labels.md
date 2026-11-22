@@ -20,7 +20,7 @@ These are **not** triage roles. They sit orthogonal to the state role: an issue 
 | --------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `blocked` | Waiting on a condition before the work can start. The condition is written in the issue body under a `## Trigger to revisit` heading. |
 
-`blocked` covers both external gating (an upstream release, someone else's merge) and internal gating (another issue in this repo landing first). The trigger says which. When the blocker is a GitHub issue, also add a native issue dependency on it (see "Blocking" in [issue-tracker.md](issue-tracker.md)).
+`blocked` covers both external gating (an upstream release, someone else's merge) and internal gating (another issue in this repo landing first). The trigger says which. When the blocker is a GitHub issue, also add a native issue dependency on it (the `dependencies/blocked_by` call under "Wayfinding operations" → "Blocking" in [issue-tracker.md](issue-tracker.md); it works for any issue, not only wayfinder tickets).
 
 A `blocked` issue keeps its state role, and `ready-for-agent` + `blocked` is the useful combination: the brief is written, so the moment the trigger fires an agent can take it. That is why **`blocked` must be excluded from agent discovery**; see the agent-grabbable query in [issue-tracker.md](issue-tracker.md). An agent that grabs a blocked issue works on something it cannot finish.
 
