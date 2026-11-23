@@ -250,10 +250,11 @@ Concrete consequences:
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.
 The pin is enforced in three places: the baseline environment (`/usr/bin/python3`
 in install.sh; the term is defined in `CONTEXT.md`), CI (`uv venv --python 3.9.6` in the `python` job of
-`.github/workflows/tests.yml`), and the devcontainer (`uv venv --python 3.9.6`
-in `.devcontainer/post-create.sh`), both pinned to the exact CLT patch. Keep all
-three in step; `test_ci_baseline_python_matches_the_devcontainer` guards the two
-`uv venv` lines.
+`.github/workflows/tests.yml`), and the devcontainer (`baseline_python='3.9.6'`
+in `.devcontainer/post-create.sh`, which its baseline `uv venv` uses), both pinned
+to the exact CLT patch. Keep all three in step;
+`test_ci_baseline_python_matches_the_devcontainer` guards the CI `uv venv` line
+against the `baseline_python` assignment.
 
 The devcontainer provisions Python with **uv**, not the devcontainers `python`
 feature. uv fetches prebuilt CPython from python-build-standalone — including
@@ -327,9 +328,22 @@ needs >= 3.10) — not part of the pin. Renovate keeps it current while leaving
 the same file is never touched; a second keeping every annotated
 `python-version` in tests.yml — the tooling-Python jobs — in step, with the
 github-actions manager's own extraction of them disabled so that customManager is
-their one owner). The frozen 3.9.6 lives in plain `uv venv --python 3.9.6` lines
-(post-create.sh and tests.yml) that no Renovate manager matches, so it stays put
-without a disable rule.
+their one owner). The frozen 3.9.6 lives where no Renovate manager matches it, so
+it stays put without a disable rule: the unannotated `baseline_python` assignment
+in post-create.sh (keep it unannotated) and the plain `uv venv --python 3.9.6` line
+in tests.yml.
+
+`post-create.sh` fetches both interpreters with one `uv python install` before
+it starts the two venv builds in parallel. If each build downloaded its own
+interpreter, they'd both need uv's single Python-install lock. uv gives up on
+that lock after 300s, so on a slow link the second build would fail, and the
+devcontainer CLI would then skip `postStartCommand`. One install downloads both
+at once, so the downloads still overlap. It passes `--no-bin`: without it uv
+links `python3.X` into `~/.local/bin`, which comes ahead of the venvs on PATH, so
+the `tests/run` shebang's `python3.15` would resolve to a bare interpreter with no
+pytest.
+`test_devcontainer_installs_every_venv_python_before_the_parallel_builds` guards
+the ordering.
 
 `from __future__ import annotations` is at the top of `phase2.py`, so type
 hints can use 3.10+ syntax (`X | None`, etc.) — they're evaluated lazily.

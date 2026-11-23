@@ -21,6 +21,9 @@ PLUMBING_WORKSPACE="$repo_root" \
 #                     tooling run, and pre-commit
 # PATH wiring lives in devcontainer.json's remoteEnv — keep both in step.
 
+# The frozen CLT patch: no renovate annotation, so nothing ever bumps it.
+baseline_python='3.9.6'
+
 # Tracked with the molecule + lint CI jobs' python-version by renovate.json.
 # renovate: datasource=python-version depName=python
 tooling_python='3.15'
@@ -30,7 +33,7 @@ tooling_python='3.15'
 # resolution root. See CLAUDE.md "Galaxy collections come from requirements
 # files, not a bundle" and "Dependency updates".
 setup_baseline_env() {
-  uv venv --python 3.9.6 "$HOME/.venv-baseline"
+  uv venv --python "$baseline_python" "$HOME/.venv-baseline"
   uv pip install --python "$HOME/.venv-baseline/bin/python" -r "$repo_root/test-requirements.txt"
 }
 
@@ -47,6 +50,9 @@ setup_tooling_env() {
   "$HOME/.venv-tooling/bin/ansible-galaxy" collection install -r "$repo_root/requirements.yml"
   "$HOME/.venv-tooling/bin/ansible-galaxy" collection install -r "$repo_root/requirements-dev.yml"
 }
+
+# Before the builds, so neither waits on uv's install lock: CLAUDE.md "Python 3.9 pin".
+uv python install --no-bin "$baseline_python" "$tooling_python"
 
 # set -e doesn't propagate from backgrounded jobs — capture PIDs, OR exit codes.
 setup_baseline_env &
