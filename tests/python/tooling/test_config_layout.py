@@ -3,6 +3,7 @@ import json
 import os
 import pkgutil
 import re
+import shlex
 import shutil
 import subprocess
 import sysconfig
@@ -896,17 +897,76 @@ def test_homebrew_image_tag_covers_everything_the_build_reads() -> None:
 def test_ci_baseline_python_matches_the_devcontainer() -> None:
     """CI's baseline venv is built on the same frozen 3.9 patch as the
     devcontainer's ~/.venv-baseline. See CLAUDE.md "Python 3.9 pin"."""
-    pattern = re.compile(r"uv venv --python (\S+) \S*venv-baseline")
     tests_yml = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text()
     post_create = (REPO_ROOT / ".devcontainer" / "post-create.sh").read_text()
 
-    ci = pattern.findall(tests_yml)
-    devcontainer = pattern.findall(post_create)
+    ci = re.findall(r"uv venv --python (\S+) \S*venv-baseline", tests_yml)
+    devcontainer = re.findall(r"^baseline_python='([^']*)'$", post_create, re.MULTILINE)
 
     assert len(ci) == 1, "expected one baseline `uv venv --python` in tests.yml"
-    assert len(devcontainer) == 1, "expected one baseline `uv venv --python` in post-create.sh"
+    assert len(devcontainer) == 1, "expected one `baseline_python='…'` assignment in post-create.sh"
     assert re.fullmatch(r"3\.9\.\d+", devcontainer[0])
     assert ci == devcontainer
+    assert re.search(r'uv venv --python "\$baseline_python" \S*venv-baseline', post_create), (
+        "post-create.sh's baseline venv isn't built from $baseline_python"
+    )
+
+
+def test_devcontainer_installs_every_venv_python_before_the_parallel_builds() -> None:
+    """post-create.sh fetches every venv's interpreter in one top-level, foreground
+    `uv python install --no-bin` before backgrounding the venv builds. See CLAUDE.md
+    "Python 3.9 pin"."""
+    text = (REPO_ROOT / ".devcontainer" / "post-create.sh").read_text()
+    statements = _shell_statements(text)
+    assignments = {
+        name: value for name, _, value in re.findall(r"""^([A-Za-z_]\w*)=(['"])(.*)\2$""", text, re.MULTILINE)
+    }
+
+    def resolve(arg: str) -> str:
+        name = re.fullmatch(r"\$\{?(\w+)\}?", arg)
+        if not name:
+            return arg
+        assert name.group(1) in assignments, f"post-create.sh: ${name.group(1)} isn't a plain quoted assignment"
+        return assignments[name.group(1)]
+
+    def venv_python(st: str) -> str:
+        argv = shlex.split(st)
+        for i, arg in enumerate(argv):
+            if arg in ("--python", "-p") and i + 1 < len(argv):
+                return argv[i + 1]
+            if arg.startswith("--python="):
+                return arg.partition("=")[2]
+        raise AssertionError(f"post-create.sh: can't find the interpreter in {st!r}")
+
+    builders: set[str] = set()
+    venv_pythons = set()
+    installs = []
+    current = None
+    for i, st in enumerate(statements):
+        if opened := re.fullmatch(r"(\w+)\(\)\s*\{", st):
+            current = opened.group(1)
+        elif st == "}":
+            current = None
+        elif st.startswith("uv venv "):
+            venv_pythons.add(resolve(venv_python(st)))
+            if current:
+                builders.add(current)
+        elif st.startswith("uv python install "):
+            installs.append((i, current, st))
+    assert venv_pythons, "post-create.sh builds no `uv venv --python` venv"
+
+    assert len(installs) == 1, f"expected one `uv python install` in post-create.sh, found {len(installs)}"
+    index, function, install = installs[0]
+    assert function is None, f"`uv python install` is inside {function}(), not run before the builds"
+    assert not install.endswith("&"), "`uv python install` is backgrounded, so the builds can race it"
+    install_args = shlex.split(install)[3:]
+    installed = {resolve(arg) for arg in install_args if not arg.startswith("-")}
+    assert venv_pythons <= installed, f"`uv python install` misses {sorted(venv_pythons - installed)}"
+    assert "--no-bin" in install_args, "`uv python install` would put python3.X ahead of the venvs on PATH"
+
+    backgrounded = [i for i, st in enumerate(statements) if st.endswith("&") and st[:-1].strip() in builders]
+    assert backgrounded, "post-create.sh no longer backgrounds a venv build"
+    assert index < backgrounded[0], "`uv python install` runs after a venv build has started"
 
 
 def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
