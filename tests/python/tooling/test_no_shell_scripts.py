@@ -1,17 +1,14 @@
-"""`install.sh` is the project's only shell; see CLAUDE.md "The two-language split is intentional".
-
-PENDING_PORTS lists the shell that predates the rule, each entry tagged with the #157 sub-issue
-that ports it. A port deletes its own entries; an entry that matches nothing fails, so the list
-only shrinks.
-"""
+"""`install.sh` is the project's only shell; see CLAUDE.md "The two-language split is intentional"."""
 from __future__ import annotations
 
 import ast
 import json
 import re
+import shlex
 import subprocess
+from collections import Counter
 from pathlib import Path, PurePosixPath
-from typing import Iterator, List, Set, Tuple
+from typing import Iterator, List, Optional, Sequence, Tuple
 
 import pytest
 import yaml
@@ -20,55 +17,106 @@ REPO = Path(__file__).resolve().parents[3]
 
 PERMITTED_SHELL_SCRIPTS = {"install.sh"}
 # Homebrew ships its installer and uninstaller only as bash scripts.
-THIRD_PARTY_SHELL = {
+THIRD_PARTY_SHELL = [
     'phase2.py: ["/bin/bash", "-c", install_script]',
     'uninstall.py: ["/bin/bash", "-c", script, "uninstall.sh", "--force"]',
-}
-# The user's shell dotfiles, symlinked into $HOME: configuration, not code the project runs.
+]
 EXCLUDED_DIRS = ("home_source/",)
 
 SHELL_EXTENSIONS = {".sh", ".bash", ".bats", ".zsh", ".ksh"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "bats"}
-ANSIBLE_SHELL_MODULES = {
-    prefix + name for prefix in ("", "ansible.builtin.", "ansible.legacy.") for name in ("shell", "raw")
+_ANSIBLE_PREFIXES = ("", "ansible.builtin.", "ansible.legacy.")
+ANSIBLE_SHELL_MODULES = {prefix + name for prefix in _ANSIBLE_PREFIXES for name in ("shell", "raw", "script")}
+ANSIBLE_COMMAND_MODULES = {prefix + "command" for prefix in _ANSIBLE_PREFIXES}
+# Python calls that hand their argument to a shell.
+PYTHON_SHELL_CALLS = {
+    ("os", "system"), ("os", "popen"), ("subprocess", "getoutput"), ("subprocess", "getstatusoutput"),
+    ("asyncio", "create_subprocess_shell"),
 }
-# Python calls that hand their argument to /bin/sh.
-PYTHON_SHELL_CALLS = {("os", "system"), ("os", "popen"), ("subprocess", "getoutput"), ("subprocess", "getstatusoutput")}
 DEVCONTAINER_LIFECYCLE_KEYS = (
     "initializeCommand", "onCreateCommand", "updateContentCommand",
     "postCreateCommand", "postStartCommand", "postAttachCommand",
 )
-SHELL_OPERATOR = re.compile(r"[&|;<>`\n]|\$\(")
 
+# Each entry admits one occurrence. The value is the #157 sub-issue that ports it.
 PENDING_PORTS = {
-    # #173
     "roles/homebrew/molecule/image-tag.sh: shell script": "#173",
     'tests/run: ["bash", "-c", "yamllint . && ansible-lint"]': "#173",
     'tests/run: ["bash", "-c", f"cd roles/{role} && molecule test -s {scenario.name}"]': "#173",
-    # #174
     "roles/homebrew/tasks/uninstall.yml: `ansible.builtin.shell` task "
     "'Uninstall packages listed in each existing Brewfile layer'": "#174",
-    # #175
     ".devcontainer/initialize.sh: shell script": "#175",
     ".devcontainer/post-create.sh: shell script": "#175",
     ".devcontainer/post-start.sh: shell script": "#175",
-    # #176
     "tests/e2e-linux.sh: shell script": "#176",
     "tests/e2e-roundtrip-linux.sh: shell script": "#176",
     "tests/lib/e2e-common.sh: shell script": "#176",
-    # #177 (the initialize and image-tag suites move with their scripts, #175 and #173)
+    # The initialize and image-tag suites move with their scripts, in #175 and #173.
     "tests/bash/test_devcontainer_initialize.bats: shell script": "#177",
     "tests/bash/test_homebrew_image_tag.bats: shell script": "#177",
     "tests/bash/test_install.bats: shell script": "#177",
     "tests/bash/test_uninstall.bats: shell script": "#177",
-    # #178
-    '.github/workflows/devcontainer.yml: multi-line run: `set -euo pipefail`': "#178",
+    ".github/workflows/tests.yml: compound run: `sudo apt-get update && sudo apt-get install -y bats`": "#177",
+    ".github/workflows/publish-molecule-images.yml: compound run: "
+    "`echo \"value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')\" >> \"$GITHUB_OUTPUT\"`":
+        "#178",
+    ".github/workflows/publish-molecule-images.yml: compound run: "
+    '`echo "value=$(roles/homebrew/molecule/image-tag.sh)" >> "$GITHUB_OUTPUT"`': "#178",
+    '.github/workflows/tests.yml: compound run: `./tests/run pull ${{ matrix.role }} > "$RUNNER_TEMP/pull.log" 2>&1 &`':
+        "#178",
+    ".github/workflows/devcontainer.yml: multi-line run: `set -euo pipefail`": "#178",
     '.github/workflows/tests.yml: multi-line run: `uv venv --python 3.9.6 "$RUNNER_TEMP/venv-baseline"`': "#178",
     ".github/workflows/tests.yml: multi-line run: "
     "`uv pip install --system -r lint-requirements.txt -r molecule-requirements.txt \\`": "#178",
     ".github/workflows/tests.yml: multi-line run: `ansible-galaxy collection install -r requirements.yml`": "#178",
     ".github/workflows/tests.yml: multi-line run: `result='${{ needs.molecule.result }}'`": "#178",
 }
+
+
+# --- shared helpers ---
+
+
+def _skip_env(words: Sequence[Optional[str]]) -> int:
+    """Index of the command after a leading `env` and its flags and NAME=value assignments."""
+    if not words or words[0] is None or PurePosixPath(words[0]).name != "env":
+        return 0
+    i = 1
+    while i < len(words) and words[i] is not None and (words[i].startswith("-") or "=" in words[i]):
+        i += 1
+    return i
+
+
+def runs_shell_dash_c(words: Sequence[Optional[str]]) -> bool:
+    """An argv that runs `<shell> … -c`, directly or through `env`. None marks a non-literal word."""
+    i = _skip_env(words)
+    if i >= len(words) or words[i] is None or PurePosixPath(words[i]).name not in SHELLS:
+        return False
+    i += 1
+    while i < len(words) and words[i] and words[i][0] in "-+":
+        if re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", words[i]):
+            return True
+        i += 2 if words[i] in ("-o", "+o", "-O", "+O") else 1  # these take an argument
+    return False
+
+
+_EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
+
+
+def is_compound(command: str, allow_redirects: bool) -> bool:
+    """More than one command, as a shell would run the string. `${{ }}` expressions are ignored."""
+    command = _EXPRESSION.sub("x", command)
+    if "\n" in command.strip() or "$(" in command or "`" in command:
+        return True
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:  # unbalanced quotes: no way to tell, so make someone look
+        return True
+    operators = [t for t in tokens if t and set(t) <= set("&|;<>()")]
+    if allow_redirects:
+        operators = [t for t in operators if not set(t) & set("<>")]
+    return bool(operators)
 
 
 # --- detectors: each takes a repo-relative path and the file's text, returns findings ---
@@ -80,8 +128,7 @@ def shell_script_findings(path: str, text: str) -> List[str]:
         return []
     first = text.split("\n", 1)[0]
     words = first[2:].split() if first.startswith("#!") else []
-    if words and PurePosixPath(words[0]).name == "env":
-        words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+    words = words[_skip_env(words):]
     interpreter = PurePosixPath(words[0]).name if words else ""
     if PurePosixPath(path).suffix in SHELL_EXTENSIONS or interpreter in SHELLS:
         return [f"{path}: shell script"]
@@ -103,8 +150,22 @@ def _mapping(node: yaml.MappingNode) -> dict:
     return {k.value: v for k, v in node.value if isinstance(k, yaml.ScalarNode)}
 
 
+def _command_words(module_value: yaml.Node, args: Optional[yaml.Node]) -> List[Optional[str]]:
+    """The argv a `command` task runs: free-form, `cmd`, or `argv`, under the module or `args`."""
+    if isinstance(module_value, yaml.ScalarNode) and module_value.value:
+        return module_value.value.split()
+    for node in (module_value, args):
+        params = _mapping(node) if isinstance(node, yaml.MappingNode) else {}
+        if isinstance(params.get("argv"), yaml.SequenceNode):
+            return [w.value if isinstance(w, yaml.ScalarNode) else None for w in params["argv"].value]
+        if isinstance(params.get("cmd"), yaml.ScalarNode):
+            return params["cmd"].value.split()
+    return []
+
+
 def ansible_shell_findings(path: str, text: str) -> List[str]:
-    """A task (a mapping in a list) that calls `shell` or `raw`, short or FQCN."""
+    """A task (a mapping in a list) that calls `shell`, `raw` or `script`, short or FQCN, or a
+    `command` task that runs `<shell> -c`."""
     found = []
     for doc in yaml.compose_all(text):
         for node in _yaml_nodes(doc) if doc is not None else ():
@@ -113,90 +174,83 @@ def ansible_shell_findings(path: str, text: str) -> List[str]:
             for task in (item for item in node.value if isinstance(item, yaml.MappingNode)):
                 keys = _mapping(task)
                 name = keys["name"].value if isinstance(keys.get("name"), yaml.ScalarNode) else "<unnamed>"
-                found += [f"{path}: `{module}` task {name!r}" for module in keys if module in ANSIBLE_SHELL_MODULES]
+                for module, value in keys.items():
+                    if module in ANSIBLE_SHELL_MODULES:
+                        found.append(f"{path}: `{module}` task {name!r}")
+                    elif module in ANSIBLE_COMMAND_MODULES and runs_shell_dash_c(_command_words(value, keys.get("args"))):
+                        found.append(f"{path}: `{module}` task {name!r} runs a shell")
     return found
 
 
-def _is_shell_dash_c(node: ast.AST) -> bool:
-    if not isinstance(node, (ast.List, ast.Tuple)) or len(node.elts) < 2:
-        return False
-    shell, flag = node.elts[:2]
-    return (
-        isinstance(shell, ast.Constant) and isinstance(shell.value, str)
-        and PurePosixPath(shell.value).name in SHELLS
-        and isinstance(flag, ast.Constant) and isinstance(flag.value, str)
-        and re.fullmatch(r"-[a-z]*c[a-z]*", flag.value) is not None
-    )
-
-
-def _is_shell_call(node: ast.AST) -> bool:
-    func = node.func if isinstance(node, ast.Call) else None
-    return (
-        isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
-        and (func.value.id, func.attr) in PYTHON_SHELL_CALLS
-    )
+def _literal(node: ast.AST) -> Optional[str]:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
 def python_shell_findings(path: str, text: str) -> List[str]:
-    """`shell=True`, an argv list running `<shell> -c`, or a call that always goes through /bin/sh."""
-    found = []
-    for node in ast.walk(ast.parse(text, filename=path)):
-        hits = [kw for kw in getattr(node, "keywords", []) if kw.arg == "shell"
-                and isinstance(kw.value, ast.Constant) and kw.value.value is True]
-        hits += [node] if _is_shell_dash_c(node) or _is_shell_call(node) else []
-        for hit in hits:
-            source = " ".join((ast.get_source_segment(text, hit) or "").split())
-            found.append(f"{path}: {source}")
-    return found
+    """`shell=True`, an argv list running `<shell> -c`, or a call (or from-import) of a function
+    that always goes through a shell."""
+    tree = ast.parse(text, filename=path)
+    modules = {}  # local name -> module it binds
+    hits: List[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                modules[alias.asname or top] = alias.name if alias.asname else top
+        elif isinstance(node, ast.ImportFrom) and any((node.module, a.name) in PYTHON_SHELL_CALLS for a in node.names):
+            hits.append(node)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.keyword):
+            if node.arg == "shell" and isinstance(node.value, ast.Constant) and node.value.value is True:
+                hits.append(node)
+        elif isinstance(node, (ast.List, ast.Tuple)):
+            if runs_shell_dash_c([_literal(e) for e in node.elts]):
+                hits.append(node)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                    and (modules.get(func.value.id), func.attr) in PYTHON_SHELL_CALLS):
+                hits.append(node)
+    return [f"{path}: {' '.join((ast.get_source_segment(text, hit) or '').split())}" for hit in hits]
 
 
 def workflow_run_findings(path: str, text: str) -> List[str]:
-    """A `run:` written as a block scalar (`|` or `>`): one command per step instead."""
+    """A `run:` that isn't one command: a block scalar (`|` or `>`), or a line chaining commands.
+    Redirections pass, since step outputs are written with `>> "$GITHUB_OUTPUT"`."""
     found = []
     for doc in yaml.compose_all(text):
         for node in _yaml_nodes(doc) if doc is not None else ():
             run = _mapping(node).get("run") if isinstance(node, yaml.MappingNode) else None
-            if isinstance(run, yaml.ScalarNode) and run.style in ("|", ">"):
+            if not isinstance(run, yaml.ScalarNode):
+                continue
+            if run.style in ("|", ">"):
                 first = next((line.strip() for line in run.value.splitlines() if line.strip()), "")
                 found.append(f"{path}: multi-line run: `{first}`")
+            elif is_compound(run.value, allow_redirects=True):
+                found.append(f"{path}: compound run: `{run.value}`")
     return found
 
 
+_JSON_STRING = r'"(?:\\.|[^"\\])*"'
+
+
 def _strip_jsonc(text: str) -> str:
-    """Drop `//` and `/* */` comments and trailing commas outside strings."""
-    out, i, in_string = [], 0, False
-    while i < len(text):
-        ch = text[i]
-        if in_string:
-            out.append(text[i:i + 2] if ch == "\\" else ch)
-            i += 2 if ch == "\\" else 1
-            in_string = ch != '"'
-        elif ch == '"':
-            out.append(ch)
-            in_string, i = True, i + 1
-        elif text.startswith("//", i):
-            end = text.find("\n", i)
-            i = len(text) if end < 0 else end
-        elif text.startswith("/*", i):
-            i = text.index("*/", i) + 2
-        elif ch == "," and re.match(r"\s*[}\]]", text[i + 1:]):
-            i += 1
-        else:
-            out.append(ch)
-            i += 1
-    return "".join(out)
+    """Drop comments, then trailing commas, both outside strings."""
+    keep_strings = lambda m: m.group(0) if m.group(0).startswith('"') else ""  # noqa: E731
+    text = re.sub(rf"{_JSON_STRING}|//[^\n]*|/\*.*?\*/", keep_strings, text, flags=re.DOTALL)
+    return re.sub(rf"{_JSON_STRING}|,(?=\s*[}}\]])", keep_strings, text)
 
 
 def devcontainer_command_findings(path: str, text: str) -> List[str]:
-    """A lifecycle command string with a shell operator; a single command or an argv list passes.
-    The object form runs each value as its own command, so each is checked the same way."""
+    """A lifecycle command string a shell would read as more than one command; a single command or
+    an argv list passes. The object form runs each value as its own command."""
     config = json.loads(_strip_jsonc(text))
     found = []
     for key in DEVCONTAINER_LIFECYCLE_KEYS:
         value = config.get(key)
         commands = value.items() if isinstance(value, dict) else [(None, value)]
         for name, command in commands:
-            if isinstance(command, str) and SHELL_OPERATOR.search(command):
+            if isinstance(command, str) and is_compound(command, allow_redirects=False):
                 label = key if name is None else f"{key}.{name}"
                 found.append(f"{path}: {label} {command!r}")
     return found
@@ -242,22 +296,27 @@ def live_findings() -> List[str]:
     return found
 
 
-def unexpected_and_stale(found: List[str], allowlist: Set[str]) -> Tuple[List[str], List[str]]:
-    return sorted(set(found) - allowlist), sorted(allowlist - set(found))
+def unexpected_and_stale(found: Sequence[str], allowlist: Sequence[str]) -> Tuple[List[str], List[str]]:
+    """Compared as multisets, so an entry admits exactly one occurrence."""
+    found_count, allowed_count = Counter(found), Counter(allowlist)
+    return sorted((found_count - allowed_count).elements()), sorted((allowed_count - found_count).elements())
 
 
 def test_live_tree_has_no_shell_beyond_the_allowlists() -> None:
-    unexpected, stale = unexpected_and_stale(live_findings(), set(PENDING_PORTS) | THIRD_PARTY_SHELL)
+    unexpected, stale = unexpected_and_stale(live_findings(), [*PENDING_PORTS, *THIRD_PARTY_SHELL])
     assert not unexpected, (
         "Shell outside install.sh; see CLAUDE.md \"The two-language split is intentional\" for where "
         "this logic goes instead:\n" + "\n".join(unexpected)
     )
-    assert not stale, "Gone, so delete from PENDING_PORTS / THIRD_PARTY_SHELL:\n" + "\n".join(stale)
+    assert not stale, "Gone, so delete from PENDING_PORTS / THIRD_PARTY_SHELL:\n" + "\n".join(
+        f"{entry} ({PENDING_PORTS.get(entry, 'THIRD_PARTY_SHELL')})" for entry in stale
+    )
 
 
-def test_new_finding_is_unexpected_and_unmatched_entry_is_stale() -> None:
-    assert unexpected_and_stale(["a: shell script", "b: shell script"], {"b: shell script", "c: shell script"}) == (
-        ["a: shell script"], ["c: shell script"],
+def test_allowlist_entry_admits_one_occurrence_and_unmatched_entry_is_stale() -> None:
+    found = ["a: shell script", "b: shell script", "b: shell script"]
+    assert unexpected_and_stale(found, ["b: shell script", "c: shell script"]) == (
+        ["a: shell script", "b: shell script"], ["c: shell script"],
     )
 
 
@@ -288,23 +347,37 @@ def test_non_shell_file_passes(path: str, text: str) -> None:
     assert shell_script_findings(path, text) == []
 
 
-def test_ansible_shell_and_raw_tasks_are_flagged_in_any_form_and_nesting() -> None:
+def test_ansible_shell_raw_and_script_tasks_are_flagged_in_any_form_and_nesting() -> None:
     text = (
         "- name: Short\n  shell: echo hi\n"
         "- name: Wrapped\n  block:\n    - name: Fqcn\n      ansible.builtin.shell: |\n        a && b\n"
         "- ansible.legacy.raw: uname\n"
+        "- name: Local script\n  ansible.builtin.script: files/setup.sh\n"
     )
     assert sorted(ansible_shell_findings("roles/x/tasks/main.yml", text)) == [
+        "roles/x/tasks/main.yml: `ansible.builtin.script` task 'Local script'",
         "roles/x/tasks/main.yml: `ansible.builtin.shell` task 'Fqcn'",
         "roles/x/tasks/main.yml: `ansible.legacy.raw` task '<unnamed>'",
         "roles/x/tasks/main.yml: `shell` task 'Short'",
     ]
 
 
-def test_ansible_command_tasks_and_non_task_keys_pass() -> None:
+@pytest.mark.parametrize("task", [
+    "ansible.builtin.command: bash -c 'a && b'",
+    "command:\n    argv: [/bin/sh, -ec, 'a && b']",
+    "ansible.builtin.command:\n    cmd: env FOO=1 bash -c 'a'",
+    "ansible.legacy.command:\n  args:\n    argv: [bash, -o, pipefail, -c, a]",
+])
+def test_ansible_command_running_a_shell_is_flagged(task: str) -> None:
+    findings = ansible_shell_findings("site.yml", f"- name: T\n  {task}\n")
+    assert len(findings) == 1 and findings[0].endswith("task 'T' runs a shell")
+
+
+def test_ansible_argv_commands_and_non_task_keys_pass() -> None:
     text = (
         "- name: Argv\n  ansible.builtin.command:\n    argv: [brew, list]\n"
         "  vars:\n    raw: 1\n    shell: zsh\n"
+        "- name: Script arg\n  command: bash setup.sh -c\n"
     )
     assert ansible_shell_findings("site.yml", text) == []
 
@@ -313,8 +386,12 @@ def test_ansible_command_tasks_and_non_task_keys_pass() -> None:
     ("subprocess.run('a && b', shell=True)", "shell=True"),
     ('subprocess.run(["bash", "-c", "a && b"])', '["bash", "-c", "a && b"]'),
     ('subprocess.run(("/bin/sh", "-ec", cmd))', '("/bin/sh", "-ec", cmd)'),
-    ("os.system('ls')", "os.system('ls')"),
-    ("subprocess.getoutput('ls')", "subprocess.getoutput('ls')"),
+    ('subprocess.run(["/usr/bin/env", "bash", "-c", "a"])', '["/usr/bin/env", "bash", "-c", "a"]'),
+    ('subprocess.run(["bash", "-e", "-c", "a"])', '["bash", "-e", "-c", "a"]'),
+    ("import os\nos.system('ls')", "os.system('ls')"),
+    ("import subprocess as sp\nsp.getoutput('ls')", "sp.getoutput('ls')"),
+    ("import asyncio\nasyncio.create_subprocess_shell('ls')", "asyncio.create_subprocess_shell('ls')"),
+    ("from os import system", "from os import system"),
 ])
 def test_python_shell_is_flagged(source: str, expected: str) -> None:
     assert python_shell_findings("x.py", source) == [f"x.py: {expected}"]
@@ -322,29 +399,49 @@ def test_python_shell_is_flagged(source: str, expected: str) -> None:
 
 @pytest.mark.parametrize("source", [
     "subprocess.run(['ls', '-l'], shell=False)",
-    'subprocess.run(["bash", "script.sh"])',
+    'subprocess.run(["bash", "script.sh", "-c"])',
     'note = "shell=True and [\\"bash\\", \\"-c\\"]"',
     'SHELLS = ("bash", "sh")',
+    "import platform\nplatform.system()",
+    "from os import path",
 ])
 def test_python_argv_and_strings_pass(source: str) -> None:
     assert python_shell_findings("x.py", source) == []
 
 
-def test_block_scalar_runs_are_flagged_and_single_line_runs_pass() -> None:
+def test_multi_line_and_compound_runs_are_flagged() -> None:
     text = (
         "jobs:\n  a:\n    steps:\n"
-        "      - run: pytest -v\n"
         "      - run: |\n          one\n          two\n"
         "      - run: >-\n          folded \\\n          line\n"
-        "      - uses: some/action@v1\n        with:\n          args: |\n            not a run\n"
+        "      - run: a && b\n"
+        '      - run: "a\\nb"\n'
+        "      - run: ./tests/run pull x > log 2>&1 &\n"
+        '      - run: echo "v=$(date)" >> "$GITHUB_OUTPUT"\n'
     )
     assert workflow_run_findings("w.yml", text) == [
         "w.yml: multi-line run: `one`",
         "w.yml: multi-line run: `folded \\ line`",
+        "w.yml: compound run: `a && b`",
+        "w.yml: compound run: `a\nb`",
+        "w.yml: compound run: `./tests/run pull x > log 2>&1 &`",
+        'w.yml: compound run: `echo "v=$(date)" >> "$GITHUB_OUTPUT"`',
     ]
 
 
-@pytest.mark.parametrize("command", ["a && b", "a || b", "a; b", "a | b", "a\nb", "a > log", "echo $(date)"])
+def test_single_command_runs_pass() -> None:
+    text = (
+        "jobs:\n  a:\n    steps:\n"
+        "      - run: pytest -v\n"
+        "      - run: ./tests/run molecule ${{ matrix.role || 'all' }}\n"
+        "      - run: echo \"value=x\" >> \"$GITHUB_OUTPUT\"\n"
+        "      - run: grep -E 'a|b;c' file\n"
+        "      - uses: some/action@v1\n        with:\n          args: |\n            not a run\n"
+    )
+    assert workflow_run_findings("w.yml", text) == []
+
+
+@pytest.mark.parametrize("command", ["a && b", "a || b", "a; b", "a | b", "a\nb", "a > log", "echo $(date)", "a &"])
 def test_compound_devcontainer_command_is_flagged(command: str) -> None:
     text = "{\n  // comment\n  \"postCreateCommand\": " + json.dumps(command) + ",\n}\n"
     assert devcontainer_command_findings("d.json", text) == [f"d.json: postCreateCommand {command!r}"]
@@ -359,6 +456,8 @@ def test_single_devcontainer_commands_and_argv_lists_pass() -> None:
     text = (
         '{\n  /* block */ "initializeCommand": ".devcontainer/initialize.sh", // trailing\n'
         '  "postCreateCommand": ["uv", "run", "a && b"],\n'
-        '  "mounts": ["source=${localWorkspaceFolder}/x,target=/x;y"]\n}\n'
+        '  "mounts": ["source=${localWorkspaceFolder}/x,target=/x;y", "a // not a comment",],\n'
+        '  "postStartCommand": "tool", // a comment after the trailing comma\n'
+        "}\n"
     )
     assert devcontainer_command_findings("d.json", text) == []

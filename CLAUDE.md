@@ -254,8 +254,9 @@ exist here, and nothing else has it. Logic goes instead:
 - **Dev tooling:** Python, or a `tests/run` subcommand.
 
 Acceptable shell: an argv `command` task, a `subprocess` argv list without
-`shell=True`, a single-command workflow `run:` or `devcontainer.json` lifecycle
-command, Dockerfile `RUN` lines, and running a third-party installer that ships
+`shell=True`, a single-command workflow `run:` (a redirect such as
+`>> "$GITHUB_OUTPUT"` is fine) or `devcontainer.json` lifecycle command,
+Dockerfile `RUN` lines, and running a third-party installer that ships
 only as a shell script (Homebrew's install and uninstall scripts). `home_source/`
 is the user's shell configuration, not project code, and is out of scope.
 
