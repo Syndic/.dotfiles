@@ -913,42 +913,60 @@ def test_ci_baseline_python_matches_the_devcontainer() -> None:
 
 
 def test_devcontainer_installs_every_venv_python_before_the_parallel_builds() -> None:
-    """post-create.sh fetches every venv's interpreter in one `uv python install` before
-    backgrounding the venv builds: a build that downloads its own interpreter waits on
-    uv's Python-install lock, which times out after 300s on a slow link."""
+    """post-create.sh fetches every venv's interpreter in one top-level, foreground
+    `uv python install --no-bin` before backgrounding the venv builds. See CLAUDE.md
+    "Python 3.9 pin"."""
     text = (REPO_ROOT / ".devcontainer" / "post-create.sh").read_text()
     statements = _shell_statements(text)
-    assignments = dict(re.findall(r"^([A-Za-z_]\w*)='([^']*)'$", text, re.MULTILINE))
+    assignments = {
+        name: value for name, _, value in re.findall(r"""^([A-Za-z_]\w*)=(['"])(.*)\2$""", text, re.MULTILINE)
+    }
 
     def resolve(arg: str) -> str:
         name = re.fullmatch(r"\$\{?(\w+)\}?", arg)
-        return assignments[name.group(1)] if name else arg
+        if not name:
+            return arg
+        assert name.group(1) in assignments, f"post-create.sh: ${name.group(1)} isn't a plain quoted assignment"
+        return assignments[name.group(1)]
+
+    def venv_python(st: str) -> str:
+        argv = shlex.split(st)
+        for i, arg in enumerate(argv):
+            if arg in ("--python", "-p") and i + 1 < len(argv):
+                return argv[i + 1]
+            if arg.startswith("--python="):
+                return arg.partition("=")[2]
+        raise AssertionError(f"post-create.sh: can't find the interpreter in {st!r}")
 
     builders: set[str] = set()
-    current = None
     venv_pythons = set()
-    for st in statements:
+    installs = []
+    current = None
+    for i, st in enumerate(statements):
         if opened := re.fullmatch(r"(\w+)\(\)\s*\{", st):
             current = opened.group(1)
         elif st == "}":
             current = None
         elif st.startswith("uv venv "):
-            argv = shlex.split(st)
-            venv_pythons.add(resolve(argv[argv.index("--python") + 1]))
+            venv_pythons.add(resolve(venv_python(st)))
             if current:
                 builders.add(current)
+        elif st.startswith("uv python install "):
+            installs.append((i, current, st))
     assert venv_pythons, "post-create.sh builds no `uv venv --python` venv"
 
-    installs = [i for i, st in enumerate(statements) if st.startswith("uv python install ")]
     assert len(installs) == 1, f"expected one `uv python install` in post-create.sh, found {len(installs)}"
-    install_args = shlex.split(statements[installs[0]])[3:]
+    index, function, install = installs[0]
+    assert function is None, f"`uv python install` is inside {function}(), not run before the builds"
+    assert not install.endswith("&"), "`uv python install` is backgrounded, so the builds can race it"
+    install_args = shlex.split(install)[3:]
     installed = {resolve(arg) for arg in install_args if not arg.startswith("-")}
     assert venv_pythons <= installed, f"`uv python install` misses {sorted(venv_pythons - installed)}"
     assert "--no-bin" in install_args, "`uv python install` would put python3.X ahead of the venvs on PATH"
 
     backgrounded = [i for i, st in enumerate(statements) if st.endswith("&") and st[:-1].strip() in builders]
     assert backgrounded, "post-create.sh no longer backgrounds a venv build"
-    assert installs[0] < backgrounded[0], "`uv python install` runs after a venv build has started"
+    assert index < backgrounded[0], "`uv python install` runs after a venv build has started"
 
 
 def test_ci_uv_matches_the_devcontainer_and_renovate_tracks_it() -> None:
