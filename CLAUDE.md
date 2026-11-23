@@ -245,6 +245,25 @@ Concrete consequences:
   Ansible roles, not phase 2.** Cert install, dotfile symlinks, package
   installs, macOS defaults — all are Ansible-native. Phase 2 should stay thin.
 
+**`install.sh` is the only shell script.** Timing is bash's only reason to
+exist here, and nothing else has it. Logic goes instead:
+
+- **Bootstrap and uninstall code in the baseline environment:** stdlib-only,
+  3.9-compatible Python, tested in the baseline run.
+- **Role logic:** Ansible tasks, or a module in the role's `library/`.
+- **Dev tooling:** Python, or a `tests/run` subcommand.
+
+Acceptable shell: an argv `command` task, a `subprocess` argv list without
+`shell=True`, a single-command workflow `run:` or `devcontainer.json` lifecycle
+command, Dockerfile `RUN` lines, and running a third-party installer that ships
+only as a shell script (Homebrew's install and uninstall scripts). `home_source/`
+is the user's shell configuration, not project code, and is out of scope.
+
+`tests/python/tooling/test_no_shell_scripts.py` enforces this. Its
+`PENDING_PORTS` lists the shell that predates the rule, tagged with the #157
+sub-issue that ports each entry; a port deletes its own entries, and an entry
+that matches nothing fails the test.
+
 ## Python 3.9 pin
 
 Phase 2 runs under the macOS system Python from Xcode CLT — currently 3.9.6.

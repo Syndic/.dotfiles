@@ -215,6 +215,9 @@ devcontainer up --workspace-folder .
 devcontainer exec --workspace-folder . ansible-lint
 ```
 
+`install.sh` is the only shell script; new logic goes in Python or Ansible. See
+CLAUDE.md, "The two-language split is intentional".
+
 ## How the short URL works
 
 `https://install.yanch.ar` is a Cloudflare redirect to the raw
