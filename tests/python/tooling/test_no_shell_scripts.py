@@ -51,9 +51,8 @@ PENDING_PORTS = {
     "tests/e2e-linux.sh: shell script": "#176",
     "tests/e2e-roundtrip-linux.sh: shell script": "#176",
     "tests/lib/e2e-common.sh: shell script": "#176",
-    # The initialize and image-tag suites move with their scripts, in #175 and #173.
-    "tests/bash/test_devcontainer_initialize.bats: shell script": "#177",
-    "tests/bash/test_homebrew_image_tag.bats: shell script": "#177",
+    "tests/bash/test_devcontainer_initialize.bats: shell script": "#175",
+    "tests/bash/test_homebrew_image_tag.bats: shell script": "#173",
     "tests/bash/test_install.bats: shell script": "#177",
     "tests/bash/test_uninstall.bats: shell script": "#177",
     ".github/workflows/tests.yml: compound run: `sudo apt-get update && sudo apt-get install -y bats`": "#177",
@@ -102,12 +101,28 @@ def runs_shell_dash_c(words: Sequence[Optional[str]]) -> bool:
 _EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
 
 
+def _has_substitution(command: str) -> bool:
+    """`$(` or a backtick outside single quotes, where the shell would run it."""
+    quote = None
+    for i, ch in enumerate(command):
+        if quote == "'":
+            quote = None if ch == "'" else quote
+        elif ch in "'\"" and quote is None:
+            quote = ch
+        elif ch == '"' and quote == '"':
+            quote = None
+        elif ch == "`" or command.startswith("$(", i):
+            return True
+    return False
+
+
 def is_compound(command: str, allow_redirects: bool) -> bool:
     """More than one command, as a shell would run the string. `${{ }}` expressions are ignored."""
     command = _EXPRESSION.sub("x", command)
-    if "\n" in command.strip() or "$(" in command or "`" in command:
+    if "\n" in command.strip() or _has_substitution(command):
         return True
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    # Non-POSIX mode keeps quotes on tokens, so a quoted `'|'` is never read as an operator.
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
         tokens = list(lexer)
@@ -436,6 +451,9 @@ def test_single_command_runs_pass() -> None:
         "      - run: ./tests/run molecule ${{ matrix.role || 'all' }}\n"
         "      - run: echo \"value=x\" >> \"$GITHUB_OUTPUT\"\n"
         "      - run: grep -E 'a|b;c' file\n"
+        "      - run: tr '|' ','\n"
+        "      - run: echo \";\"\n"
+        "      - run: echo '$(x)' '`y`'\n"
         "      - uses: some/action@v1\n        with:\n          args: |\n            not a run\n"
     )
     assert workflow_run_findings("w.yml", text) == []
