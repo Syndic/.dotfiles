@@ -191,6 +191,17 @@ def test_main_python_runs_both_pytest_runs_in_parallel(monkeypatch):
     assert len(caches) == len(set(caches)) == 2, "parallel runs would overwrite one cache"
 
 
+def test_baseline_suite_dies_before_spawning_without_its_venv(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(tests_run, "BASELINE_PYTEST", tmp_path / "missing" / "pytest")
+    spawned = []
+    monkeypatch.setattr(tests_run.subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    with pytest.raises(SystemExit) as exc:
+        tests_run.run_parallel(tests_run.PYTHON_SUITES)
+    assert exc.value.code == 1
+    assert not spawned
+    assert "rebuild the devcontainer" in capsys.readouterr().err
+
+
 def test_main_rejects_unknown_argv(capsys):
     assert tests_run.main(["nope"]) == 2
     assert capsys.readouterr().err.startswith("usage:")

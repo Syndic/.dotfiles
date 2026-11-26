@@ -1,4 +1,5 @@
 {
+  "typeCheckingMode": "off",
   "executionEnvironments": [
     { "root": "tests/python/baseline", "pythonVersion": "3.9", "extraPaths": ["."] },
     { "root": "tests", "extraPaths": [".devcontainer"] },

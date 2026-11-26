@@ -71,6 +71,7 @@ jobs:
             test "$(python3 -c 'import sys; print(sys.prefix)')" = "$HOME/.venv-tooling"
             ~/.venv-baseline/bin/python --version | grep '^Python 3\.9\.'
             bats --version
+            test "$(command -v pytest)" = "$HOME/.venv-tooling/bin/pytest"
             pytest --version
             ~/.venv-baseline/bin/pytest --version
             pre-commit --version

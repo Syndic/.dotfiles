@@ -841,7 +841,9 @@ baseline command names anything but `tests/python/baseline`.
 The same split decides what Pylance checks against 3.9. `pyrightconfig.json`
 gives the repo-root modules and `tests/python/baseline/` `pythonVersion: 3.9`,
 so 3.10+ syntax there is flagged in the editor, and leaves every other root on
-the interpreter's version (`tooling_python`). pyright applies the first
+the interpreter's version (`tooling_python`). It sets `typeCheckingMode: off`:
+a `pyrightconfig.json` replaces Pylance's `python.analysis.*` settings, so
+without it pyright's `standard` checking would apply. pyright applies the first
 `executionEnvironments` entry whose root holds a file, so the catch-all `.`
 root (3.9, for the repo-root modules) comes last, after a root for each
 directory of tooling Python. A new directory of tooling Python needs its own
