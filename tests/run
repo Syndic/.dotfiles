@@ -175,13 +175,14 @@ def prepare_homebrew_image() -> None:
 
 
 # See CLAUDE.md "Two pytest runs". Own cache dirs: they run at once from one rootdir.
-TOOLING_TEST_PATHS = ["tests/python/tooling", "unnatural-designs-agent-tools/tests"]
+BASELINE_PYTEST = Path.home() / ".venv-baseline" / "bin" / "pytest"
+BASELINE_TEST_PATH = "tests/python/baseline"
 PYTHON_SUITES = [
-    Suite("python:baseline", ["pytest", "-v", "-o", "cache_dir=.pytest_cache/baseline"]),
     Suite(
-        "python:tooling",
-        [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling", *TOOLING_TEST_PATHS],
+        "python:baseline",
+        [str(BASELINE_PYTEST), "-v", "-o", "cache_dir=.pytest_cache/baseline", BASELINE_TEST_PATH],
     ),
+    Suite("python:tooling", [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling"]),
 ]
 BASH_SUITE = Suite("bash", ["bats", "tests/bash"])
 # `&&` so a yamllint failure short-circuits ansible-lint.

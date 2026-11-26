@@ -14,7 +14,7 @@ repos:
       # workflow / manual runs) — see CLAUDE.md "Devcontainer lock regeneration".
       - id: devcontainer-lock-consistency
         name: check devcontainer-lock.json is in sync with devcontainer.json
-        entry: python3 regenerate_devcontainer_lock.py --verify-refs
+        entry: python3 .devcontainer/regenerate_devcontainer_lock.py --verify-refs
         language: system
         pass_filenames: false
         files: ^\.devcontainer/devcontainer(-lock)?\.json$

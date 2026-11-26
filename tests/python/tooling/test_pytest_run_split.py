@@ -2,24 +2,27 @@
 
 The baseline run (tests/python/baseline/) executes on the frozen 3.9 so it
 proves the bootstrap's modules still run there; the tooling run (tests/python/tooling/
-plus the plugin's own tests) executes on tooling_python. See CLAUDE.md "Two pytest runs"."""
+plus the plugin's own tests, pytest.ini's testpaths) executes on tooling_python. See
+CLAUDE.md "Two pytest runs"."""
 
 import ast
 import configparser
 import glob
+import json
 import shlex
+import subprocess
 from pathlib import Path
 
 import yaml
-from tests_run import PYTHON_SUITES, TOOLING_TEST_PATHS
+from tests_run import BASELINE_TEST_PATH, PYTHON_SUITES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHON_TESTS = REPO_ROOT / "tests" / "python"
 PLUGIN_ROOT = REPO_ROOT / "unnatural-designs-agent-tools"
 PLUGIN_TESTS = PLUGIN_ROOT / "tests"
+BASELINE_TESTS = PYTHON_TESTS / "baseline"
 
-# Every module the bootstrap, uninstall, or pre-commit hooks run as `python3` —
-# on macOS, the frozen 3.9.
+# Every module the bootstrap or uninstall can run on the frozen 3.9 (macOS's /usr/bin/python3).
 BASELINE_MODULES = {p.stem for p in REPO_ROOT.glob("*.py")}
 
 
@@ -82,34 +85,76 @@ def _suite_argv(name: str) -> list:
     return suite.argv
 
 
-def test_plugin_is_outside_the_baseline_run():
-    """The plugin's scripts target the tooling Python, so the frozen 3.9 must not collect them."""
+def _named_paths(argv: list) -> list:
+    """The repo paths a pytest command line names (the interpreter and options aren't)."""
+    return [
+        arg
+        for arg in argv
+        if not arg.startswith("-") and not Path(arg).is_absolute() and (REPO_ROOT / arg.split("::")[0]).exists()
+    ]
+
+
+def _testpaths() -> dict:
+    """Each pytest.ini testpaths entry, mapped to what pytest expands it to (glob.iglob, recursive)."""
     ini = configparser.ConfigParser()
     ini.read(REPO_ROOT / "pytest.ini")
     entries = ini["pytest"]["testpaths"].split()
     assert entries
-    # pytest expands each testpaths entry with glob.iglob(entry, recursive=True).
-    bad = [
-        entry
+    return {
+        entry: [(REPO_ROOT / p).resolve() for p in glob.glob(entry, root_dir=REPO_ROOT, recursive=True)]
         for entry in entries
-        if any(
-            _overlaps((REPO_ROOT / p).resolve(), PLUGIN_ROOT)
-            for p in glob.glob(entry, root_dir=REPO_ROOT, recursive=True)
-        )
-    ]
-    assert not bad, f"pytest.ini testpaths (the baseline run) reach the plugin: {bad}"
+    }
 
 
-def test_baseline_run_takes_its_paths_only_from_testpaths():
-    """A path on either baseline command would bypass the testpaths check above."""
-    for where, argv in [("tests/run python:baseline", _suite_argv("python:baseline")),
-                        ("tests.yml python job", _ci_pytest_argv("python"))]:
-        paths = [arg for arg in argv if (REPO_ROOT / arg.split("::")[0]).exists()]
+def test_testpaths_stay_out_of_the_baseline_tests():
+    """Bare `pytest` is the tooling run; collecting the baseline tests on tooling_python fails."""
+    bad = [entry for entry, paths in _testpaths().items() if any(_overlaps(p, BASELINE_TESTS) for p in paths)]
+    assert not bad, f"pytest.ini testpaths (the tooling run) reach tests/python/baseline: {bad}"
+
+
+def test_testpaths_collect_every_tooling_test():
+    paths = [p for expanded in _testpaths().values() for p in expanded]
+    files = sorted((PYTHON_TESTS / "tooling").rglob("test_*.py")) + sorted(PLUGIN_TESTS.rglob("test_*.py"))
+    assert files
+    missed = [str(f.relative_to(REPO_ROOT)) for f in files if not any(_overlaps(f, p) for p in paths)]
+    assert not missed, f"pytest.ini testpaths (the tooling run) miss these tests: {missed}"
+
+
+def test_tooling_commands_take_their_paths_from_testpaths():
+    """A path on either tooling command would make it disagree with bare `pytest`."""
+    for where, argv in [("tests/run python:tooling", _suite_argv("python:tooling")),
+                        ("tests.yml python-tooling job", _ci_pytest_argv("python-tooling"))]:
+        paths = _named_paths(argv)
         assert not paths, f"{where} names test paths; put them in pytest.ini's testpaths: {paths}"
 
 
-def test_tooling_run_covers_the_plugin_tests_locally_and_in_ci():
-    assert {"tests/python/tooling", "unnatural-designs-agent-tools/tests"} <= set(TOOLING_TEST_PATHS)
-    tail = len(TOOLING_TEST_PATHS)
-    assert _suite_argv("python:tooling")[-tail:] == TOOLING_TEST_PATHS
-    assert _ci_pytest_argv("python-tooling")[-tail:] == TOOLING_TEST_PATHS
+def test_baseline_commands_name_only_the_baseline_tests():
+    """The baseline run collects tests/python/baseline and nothing else (the plugin included)."""
+    assert (REPO_ROOT / BASELINE_TEST_PATH).resolve() == BASELINE_TESTS
+    for where, argv in [("tests/run python:baseline", _suite_argv("python:baseline")),
+                        ("tests.yml python job", _ci_pytest_argv("python"))]:
+        paths = [(REPO_ROOT / p).resolve() for p in _named_paths(argv)]
+        assert paths == [BASELINE_TESTS], f"{where} must name exactly {BASELINE_TEST_PATH}: {_named_paths(argv)}"
+
+
+def _is_baseline_code(rel: Path) -> bool:
+    return len(rel.parts) == 1 or rel.parts[:3] == ("tests", "python", "baseline")
+
+
+def test_pylance_checks_exactly_the_baseline_code_against_python_3_9():
+    """pyright (Pylance) applies the first executionEnvironment whose root holds the file."""
+    config = json.loads((REPO_ROOT / "pyrightconfig.json").read_text())
+    assert "pythonVersion" not in config, "a top-level pythonVersion would pin the tooling code too"
+    envs = config["executionEnvironments"]
+    files = subprocess.run(
+        ["git", "ls-files", "*.py"], cwd=REPO_ROOT, check=True, capture_output=True, text=True
+    ).stdout.split()
+    assert files
+    wrong = {}
+    for name in files:
+        rel = Path(name)
+        env = next((e for e in envs if rel.parts[: len(Path(e["root"]).parts)] == Path(e["root"]).parts), {})
+        want = "3.9" if _is_baseline_code(rel) else None  # None: the interpreter's, i.e. tooling_python
+        if env.get("pythonVersion") != want:
+            wrong[name] = env.get("pythonVersion")
+    assert not wrong, f"pyrightconfig.json checks these against the wrong Python (want 3.9 only for baseline code): {wrong}"

@@ -160,7 +160,7 @@ edits — batched into the non-major group rather than one PR each, see
 "Dependency updates" — for a lock that never silently ages behind a floating
 tag.
 
-`regenerate_devcontainer_lock.py` (repo root) closes the gap. It runs
+`.devcontainer/regenerate_devcontainer_lock.py` closes the gap. It runs
 `devcontainer upgrade --workspace-folder <ws> --dry-run` — which resolves every
 current reference to stdout with **no Docker build** — then reconciles that
 fresh resolution against the committed lock:
@@ -182,7 +182,7 @@ plumbing), whereas `--dry-run` is a registry-only resolve. The reconcile is what
 keeps `--dry-run`'s full re-resolution from flapping unchanged digests — do
 **not** commit `upgrade`'s output directly. The pure functions
 (`parse_features`, `reconcile`, `serialize`) carry all the logic and are unit-
-tested in `tests/python/baseline/test_regenerate_devcontainer_lock.py`; the
+tested in `tests/python/tooling/test_regenerate_devcontainer_lock.py`; the
 driver's subprocess wiring is exercised by the workflow on real Renovate PRs.
 
 `.github/workflows/renovate-devcontainer-lock.yml` runs it: on `pull_request`
@@ -209,12 +209,12 @@ and abandon the branch.
 
 A `devcontainer-lock-consistency` **pre-commit hook** guards the *manual*-edit
 path the Renovate workflow doesn't cover (a human adding/removing/bumping a
-feature by hand). It runs `regenerate_devcontainer_lock.py --verify-refs`, an
+feature by hand). It runs `.devcontainer/regenerate_devcontainer_lock.py --verify-refs`, an
 **offline** check that just compares the feature reference keys in
 `devcontainer.json` against the lock's keys — no CLI, no network, so it fits
 pre-commit's fast/local model. It can't regenerate (that needs the registry);
 on a mismatch it fails with the copy/paste `python3
-regenerate_devcontainer_lock.py` command. `config_feature_refs` (JSONC-tolerant)
+.devcontainer/regenerate_devcontainer_lock.py` command. `config_feature_refs` (JSONC-tolerant)
 and the diff/message helpers are unit-tested alongside the reconcile logic.
 
 **One-time infra prerequisite (external — the workflow is inert until done):**
@@ -286,19 +286,22 @@ uv is baked into the image in `.devcontainer/Dockerfile`
 (`COPY --from=ghcr.io/astral-sh/uv:<pin>`); `post-create.sh` drives it.
 
 `post-create.sh` builds two venvs in parallel, one per interpreter: `~/.venv-baseline`
-(the frozen 3.9.6 — the baseline pytest run + the default `python3` on PATH) and
-`~/.venv-tooling` (`tooling_python` — everything else: the Ansible dev stack,
-`ansible-core`, `ansible-lint`, `molecule`, the docker driver, all in one venv
-so they share a single ansible-core, since a second copy is what produced the
+(the frozen 3.9.6 — only the baseline pytest run, which calls it by path) and
+`~/.venv-tooling` (`tooling_python` — the default `python3`, and everything
+else: the Ansible dev stack, `ansible-core`, `ansible-lint`, `molecule`, the
+docker driver, all in one venv so they share a single ansible-core, since a
+second copy is what produced the
 duplicate-version warnings, #46/#48; plus pytest for the tooling run and
 `pre-commit`). Both are plain venvs rather than `uv tool` installs because only
 a venv exposes every package's entry points (`ansible-playbook`,
 `ansible-galaxy`, `ansible-lint`, `molecule`) and installs from a requirements
 file. pre-commit can share the tooling venv because every hook is `language:
-system` — it builds no hook environments, and its hooks' `python3` still
-resolves to the frozen 3.9.6 through PATH. Their bin dirs are put on PATH via
-`remoteEnv` in `devcontainer.json` — keep that layout and `post-create.sh` in
-step.
+system` — it builds no hook environments. Only the tooling venv's bin dir is on
+PATH, via `remoteEnv` in `devcontainer.json`, and VS Code's
+`python.defaultInterpreterPath` names the same venv — keep that layout and
+`post-create.sh` in step. The baseline venv stays off PATH so nothing reaches 3.9
+by accident: the devcontainer is for developing the repo, and the baseline run is
+the one thing there that needs the frozen interpreter.
 
 Package versions come from pinned `*-requirements.txt` files at the repo root
 (`test-` for `~/.venv-baseline`, `lint-` + `molecule-` + `tooling-test-` + `pre-commit-`
@@ -361,7 +364,7 @@ interpreter, they'd both need uv's single Python-install lock. uv gives up on
 that lock after 300s, so on a slow link the second build would fail, and the
 devcontainer CLI would then skip `postStartCommand`. One install downloads both
 at once, so the downloads still overlap. It passes `--no-bin`: without it uv
-links `python3.X` into `~/.local/bin`, which comes ahead of the venvs on PATH, so
+links `python3.X` into `~/.local/bin`, which comes ahead of the tooling venv on PATH, so
 the `tests/run` shebang's `python3.15` would resolve to a bare interpreter with no
 pytest.
 `test_devcontainer_installs_every_venv_python_before_the_parallel_builds` guards
@@ -783,58 +786,67 @@ lockstep with `roles/flatpak/tasks/main.yml`.
 ### Two pytest runs
 
 The 3.9 pin (see "Python 3.9 pin") only needs to cover code whose `python3` can
-be the frozen 3.9: `/usr/bin/python3` before the bootstrap has installed a
-current Python, or the devcontainer's default `python3`. So pytest runs twice,
-split by directory:
+be the frozen 3.9: `/usr/bin/python3` on a Mac before the bootstrap has
+installed a current Python. So pytest runs twice, split by directory:
 
 - **Baseline run** — `tests/python/baseline/`. Tests of `phase2`,
-  `_dotfiles_common`, `uninstall`, `dotfiles_manager`, and
-  `regenerate_devcontainer_lock`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-baseline`, the
-  `python` CI job, and bare `pytest` (`pytest.ini`'s `testpaths`). Running the
-  tests on 3.9 is what proves those modules still parse and run there.
+  `_dotfiles_common`, `uninstall`, and `dotfiles_manager`. Runs on the frozen
+  3.9.6 with pytest 8: `~/.venv-baseline/bin/pytest tests/python/baseline` (the
+  `python:baseline` suite in `tests/run`) and the `python` CI job. Both name the
+  directory themselves; it isn't in `testpaths`. Running the tests on 3.9 is
+  what proves those modules still parse and run there.
   `tests/python/baseline/conftest.py` fails the run on any other interpreter,
-  so a PATH that misses `~/.venv-baseline` can't pass it on `tooling_python`.
-  `regenerate_devcontainer_lock` is in the baseline run even though its workflow uses the
-  runner's `python3`: its pre-commit hook runs it as `python3`, which is 3.9.6
-  in the devcontainer and on a Mac.
+  so the baseline tests can't pass on `tooling_python` by mistake.
 - **Tooling run** — `tests/python/tooling/`: `tests/run`, CI/Renovate/config
-  layout, role-file shape checks, and role `library/` modules. Those modules
-  run under Ansible's interpreter (on a host, the Python of Homebrew's
-  `ansible`, as `group_vars/all.yml` sets it), never `/usr/bin/python3`, so
-  the 3.9 pin doesn't cover them. Plus `unnatural-designs-agent-tools/tests/`
+  layout, role-file shape checks, role `library/` modules, and
+  `.devcontainer/regenerate_devcontainer_lock.py`. Role modules run under
+  Ansible's interpreter (on a host, the Python of Homebrew's `ansible`, as
+  `group_vars/all.yml` sets it), never `/usr/bin/python3`; the lock script runs
+  only on a CI runner's `python3` and in the devcontainer's pre-commit hook. So
+  the 3.9 pin covers neither. Plus `unnatural-designs-agent-tools/tests/`
   (kept in the plugin's folder so it extracts unchanged). The plugin's scripts
   run on a bootstrapped host, whose `python3` is Homebrew's (a dependency of
   the `ansible` phase 2 installs, ahead of `/usr/bin` once `.zprofile` runs
   `brew shellenv`). They target the tooling Python, the version they're tested
   on, and declare no lower limit. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
-  job, and `pytest tests/python/tooling unnatural-designs-agent-tools/tests`
-  (`TOOLING_TEST_PATHS` in `tests/run`). The CI job installs every requirements
-  file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
-  tooling test that imports, say, `yaml` sees it in both places;
-  `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
-  VS Code's Test Explorer shows only the baseline run (its interpreter is
-  `~/.venv-baseline`, which can't load `tests/run`); run the tooling tests via
-  `./tests/run python`. `tests/python/tooling/conftest.py`
-  loads `tests/run` (syntax too new for 3.9, no `.py` suffix) via
-  `SourceFileLoader` and registers it as the module `tests_run`, so its tests
-  import the real thing rather than regex its source. The molecule `image:` parser lives in
-  `tests/run` for the same reason — its pin guards import it from there.
+  job, and bare `pytest` — `pytest.ini`'s `testpaths` holds the tooling run's
+  paths, and no tooling command names its own. The CI job installs every
+  requirements file `~/.venv-tooling` does (lint + molecule + tooling-test +
+  pre-commit), so a tooling test that imports, say, `yaml` sees it in both
+  places; `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards
+  that. VS Code's interpreter is `~/.venv-tooling`, so Test Explorer shows the
+  tooling run (bare `pytest`'s `testpaths`) but not the baseline run (#140).
+  `tests/python/tooling/conftest.py` loads `tests/run` (syntax too new for 3.9,
+  no `.py` suffix) via `SourceFileLoader` and registers it as the module
+  `tests_run`, so its tests import the real thing rather than regex its source.
+  The molecule `image:` parser lives in `tests/run` for the same reason — its
+  pin guards import it from there.
 
 `./tests/run python` runs both as parallel suites: the baseline run via
-`pytest` on PATH (`~/.venv-baseline/bin` comes first in `remoteEnv`), the tooling run
-via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
-shebang's interpreter resolves to `~/.venv-tooling`'s, the one interpreter
-guaranteed able to load `tests/run`.
+`~/.venv-baseline/bin/pytest`, the tooling run via `tests/run`'s own interpreter
+(`sys.executable -m pytest`) — the shebang's interpreter resolves to
+`~/.venv-tooling`'s, the one interpreter guaranteed able to load `tests/run`.
 
 `tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
 test file under `tests/python/` (at any depth) sits under `baseline/` or
 `tooling/`, no tooling test (the plugin's included) imports a baseline module
 (repo-root `*.py`, discovered from disk), and every baseline test imports one.
 A test that imports `phase2` therefore can't land in the run that wouldn't
-catch a 3.9 regression. It also fails if `pytest.ini`'s `testpaths` reach the
-plugin (globs expanded), if either baseline command names paths of its own, or
-if `tests/run` and the `python-tooling` job name different tooling paths.
+catch a 3.9 regression. It also fails if `pytest.ini`'s `testpaths` reach
+`tests/python/baseline` or miss a tooling test (globs expanded as pytest
+expands them), if either tooling command names paths of its own, or if either
+baseline command names anything but `tests/python/baseline`.
+
+The same split decides what Pylance checks against 3.9. `pyrightconfig.json`
+gives the repo-root modules and `tests/python/baseline/` `pythonVersion: 3.9`,
+so 3.10+ syntax there is flagged in the editor, and leaves every other root on
+the interpreter's version (`tooling_python`). pyright applies the first
+`executionEnvironments` entry whose root holds a file, so the catch-all `.`
+root (3.9, for the repo-root modules) comes last, after a root for each
+directory of tooling Python. A new directory of tooling Python needs its own
+root there; `test_pylance_checks_exactly_the_baseline_code_against_python_3_9`
+fails until it has one.
 
 ### Homebrew molecule scenarios
 

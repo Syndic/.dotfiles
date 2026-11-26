@@ -28,8 +28,8 @@ jobs:
           echo "VIRTUAL_ENV=$RUNNER_TEMP/venv-baseline" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/venv-baseline/bin" >> "$GITHUB_PATH"
       - run: uv pip install -r test-requirements.txt
-      # The baseline run; testpaths in pytest.ini.
-      - run: pytest -v
+      # The baseline run names its path; testpaths is the tooling run's.
+      - run: pytest -v tests/python/baseline
 
   python-tooling:
     # Tests of dev tooling (tests/run, CI/Renovate config) and the plugin's scripts — no 3.9 constraint.
@@ -45,8 +45,8 @@ jobs:
       - run: |
           uv pip install --system -r lint-requirements.txt -r molecule-requirements.txt \
             -r tooling-test-requirements.txt -r pre-commit-requirements.txt
-      # Same paths as TOOLING_TEST_PATHS in tests/run.
-      - run: pytest -v tests/python/tooling unnatural-designs-agent-tools/tests
+      # The tooling run: testpaths in pytest.ini.
+      - run: pytest -v
 
   bash:
     runs-on: ubuntu-latest

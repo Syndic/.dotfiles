@@ -1,6 +1,7 @@
 """tests/run: image selection, role resolution, and argv dispatch."""
 
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -182,6 +183,8 @@ def test_main_python_runs_both_pytest_runs_in_parallel(monkeypatch):
     assert tests_run.main(["python"]) == 0
     (suites,) = calls
     assert [s.name for s in suites] == ["python:baseline", "python:tooling"]
+    # The baseline run calls the frozen venv by path: it's off PATH in the devcontainer.
+    assert suites[0].argv[0] == str(Path.home() / ".venv-baseline" / "bin" / "pytest")
     # The tooling run must share tests/run's interpreter, which is what can load it.
     assert suites[1].argv[:3] == [sys.executable, "-m", "pytest"]
     caches = [arg for s in suites for arg in s.argv if arg.startswith("cache_dir=")]

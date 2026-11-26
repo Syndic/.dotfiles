@@ -17,8 +17,6 @@ the pre-commit hook — that compares the lock's feature keys against devcontain
 without the CLI or network.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import re
@@ -31,7 +29,7 @@ DEFAULT_LOCK_RELPATH = ".devcontainer/devcontainer-lock.json"
 DEFAULT_CONFIG_RELPATH = ".devcontainer/devcontainer.json"
 
 # The command a stale-lock failure tells the user to run (copy/paste-ready).
-REGEN_COMMAND = "python3 regenerate_devcontainer_lock.py"
+REGEN_COMMAND = "python3 .devcontainer/regenerate_devcontainer_lock.py"
 
 
 # ── Pure functions (the part the tests exercise) ──────────────────────────────

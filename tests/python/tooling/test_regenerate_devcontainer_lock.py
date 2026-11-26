@@ -7,10 +7,14 @@ workflow on a real Renovate PR — mocking the CLI here would be low-value.
 """
 import json
 import re
+import sys
 import textwrap
 from pathlib import Path
 
-from regenerate_devcontainer_lock import (
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEVCONTAINER = REPO_ROOT / ".devcontainer"
+sys.path.insert(0, str(DEVCONTAINER))
+from regenerate_devcontainer_lock import (  # noqa: E402
     REGEN_COMMAND,
     config_feature_refs,
     diff_refs,
@@ -21,8 +25,6 @@ from regenerate_devcontainer_lock import (
     serialize,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEVCONTAINER = REPO_ROOT / ".devcontainer"
 COMMITTED_LOCK = DEVCONTAINER / "devcontainer-lock.json"
 COMMITTED_CONFIG = DEVCONTAINER / "devcontainer.json"
 
