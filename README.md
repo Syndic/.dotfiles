@@ -215,6 +215,8 @@ devcontainer up --workspace-folder .
 devcontainer exec --workspace-folder . ansible-lint
 ```
 
+Before adding shell, see CLAUDE.md, "The two-language split is intentional".
+
 ## How the short URL works
 
 `https://install.yanch.ar` is a Cloudflare redirect to the raw
