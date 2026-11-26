@@ -6,6 +6,7 @@ plus the plugin's own tests) executes on tooling_python. See CLAUDE.md "Two pyte
 
 import ast
 import configparser
+import glob
 import shlex
 from pathlib import Path
 
@@ -87,9 +88,15 @@ def test_plugin_is_outside_the_baseline_run():
     ini.read(REPO_ROOT / "pytest.ini")
     entries = ini["pytest"]["testpaths"].split()
     assert entries
-    # pytest expands globs in testpaths, so match them against the tree as it does.
-    testpaths = [p.resolve() for entry in entries for p in REPO_ROOT.glob(entry)]
-    bad = [str(p.relative_to(REPO_ROOT)) for p in testpaths if _overlaps(p, PLUGIN_ROOT)]
+    # pytest expands each testpaths entry with glob.iglob(entry, recursive=True).
+    bad = [
+        entry
+        for entry in entries
+        if any(
+            _overlaps((REPO_ROOT / p).resolve(), PLUGIN_ROOT)
+            for p in glob.glob(entry, root_dir=REPO_ROOT, recursive=True)
+        )
+    ]
     assert not bad, f"pytest.ini testpaths (the baseline run) reach the plugin: {bad}"
 
 
