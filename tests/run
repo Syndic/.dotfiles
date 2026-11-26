@@ -175,11 +175,12 @@ def prepare_homebrew_image() -> None:
 
 
 # See CLAUDE.md "Two pytest runs". Own cache dirs: they run at once from one rootdir.
+TOOLING_TEST_PATHS = ["tests/python/tooling", "unnatural-designs-agent-tools/tests"]
 PYTHON_SUITES = [
     Suite("python:baseline", ["pytest", "-v", "-o", "cache_dir=.pytest_cache/baseline"]),
     Suite(
         "python:tooling",
-        [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling", "tests/python/tooling"],
+        [sys.executable, "-m", "pytest", "-v", "-o", "cache_dir=.pytest_cache/tooling", *TOOLING_TEST_PATHS],
     ),
 ]
 BASH_SUITE = Suite("bash", ["bats", "tests/bash"])

@@ -32,7 +32,7 @@ jobs:
       - run: pytest -v
 
   python-tooling:
-    # Tests of dev tooling (tests/run, CI/Renovate config) — no 3.9 constraint.
+    # Tests of dev tooling (tests/run, CI/Renovate config) and the plugin's scripts — no 3.9 constraint.
     # Installs the same files as ~/.venv-tooling; see CLAUDE.md "Two pytest runs".
     runs-on: ubuntu-latest
     steps:
@@ -45,7 +45,8 @@ jobs:
       - run: |
           uv pip install --system -r lint-requirements.txt -r molecule-requirements.txt \
             -r tooling-test-requirements.txt -r pre-commit-requirements.txt
-      - run: pytest -v tests/python/tooling
+      # Same paths as TOOLING_TEST_PATHS in tests/run.
+      - run: pytest -v tests/python/tooling unnatural-designs-agent-tools/tests
 
   bash:
     runs-on: ubuntu-latest

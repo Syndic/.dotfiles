@@ -22,6 +22,11 @@ overview.
 
 ## Use the devcontainer for dev tooling
 
+The devcontainer is for work on this repo's contents: it gives every
+contributor the same tool versions, whatever is installed on their own
+machine. Work that isn't about the repo's contents, such as `/dev-cleanup`
+sweeping the host's worktrees, runs on the host.
+
 This repo ships a Debian devcontainer (`.devcontainer/`) that's the
 intended environment for any work that needs dev tools beyond the
 bootstrap path. `bats` is apt-installed in the Dockerfile; `post-create.sh`
@@ -39,18 +44,18 @@ The exceptions are the bootstrap surfaces themselves — `install.sh` and
 prereqs they install themselves. Those get exercised end-to-end by
 `tests/e2e-linux.sh` (also containerized).
 
-**`gh` is a host command, and the image deliberately doesn't carry it.**
-The container exists so tools that read, build, test or commit the tree run
-at pinned versions, with pre-commit hooks resolving them from PATH and commits
-signed through the bridged agent (see "Lint" and "Devcontainer host
-plumbing"). None of that reaches `gh`: it talks to the GitHub API and never
-reads, builds or tests the tree, no pre-commit hook calls it, and it signs
-nothing, so its version can't move a build or check result. Running it
-in-container would mean forwarding a GitHub credential there (`GH_TOKEN` or
-a `~/.config/gh` mount) for no reproducibility gain. Leaving it out makes an
-in-container call fail as "not found" rather than run logged out.
-`devcontainer.yml`'s smoke job fails if `gh` reaches the image's PATH;
-`test_devcontainer_smoke_test_refuses_gh` runs that check.
+**`gh` runs on the host, and the image deliberately doesn't carry it.** With
+credentials forwarded, it could do most of what a session uses it for from
+inside the container. But the only credentials available are account-wide:
+getting them in is work, and narrowing them to the repo being worked on is
+more work again. `gh` is already on the host with credentials, where it's also
+used for work that isn't about one repo, so sessions use it there. Leaving it
+unpinned costs nothing: it never reads, builds, tests or signs the tree, and
+no pre-commit hook calls it, so its version can't change a build or check
+result. Leaving it out of the image makes an in-container call fail as "not
+found" rather than run logged out. `devcontainer.yml`'s smoke job fails if
+`gh` reaches the image's PATH; `test_devcontainer_smoke_test_refuses_gh` runs
+that check.
 
 ## Comment style — lean terse, and feel free to tighten what's already here
 
@@ -315,8 +320,8 @@ false`), because an uncached install of these pinned files already takes
 only a few seconds.
 
 Only the **baseline** pytest run is pinned: tests of code a user's Mac runs as
-`python3` — the repo-root modules and the plugin's host scripts. Tests of dev
-tooling run on `tooling_python` instead; the split is under "Tests" ("Two pytest
+`python3` — the repo-root modules. Tests of dev tooling and the plugin's scripts
+run on `tooling_python` instead; the split is under "Tests" ("Two pytest
 runs").
 
 `test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv-baseline` and the
@@ -780,11 +785,9 @@ lockstep with `roles/flatpak/tasks/main.yml`.
 The 3.9 pin (see "Python 3.9 pin") only needs to cover code that a user's Mac
 executes as `python3`, so pytest runs twice, split by directory:
 
-- **Baseline run** — `tests/python/baseline/` plus
-  `unnatural-designs-agent-tools/tests/` (the plugin's tests stay in its folder
-  so it extracts unchanged). Tests of `phase2`, `_dotfiles_common`, `uninstall`,
-  `dotfiles_manager`, `regenerate_devcontainer_lock`, and the plugin's
-  `dev_cleanup`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-baseline`, the
+- **Baseline run** — `tests/python/baseline/`. Tests of `phase2`,
+  `_dotfiles_common`, `uninstall`, `dotfiles_manager`, and
+  `regenerate_devcontainer_lock`. Runs on the frozen 3.9.6 with pytest 8: `~/.venv-baseline`, the
   `python` CI job, and bare `pytest` (`pytest.ini`'s `testpaths`). Running the
   tests on 3.9 is what proves those modules still parse and run there.
   `tests/python/baseline/conftest.py` fails the run on any other interpreter,
@@ -796,9 +799,13 @@ executes as `python3`, so pytest runs twice, split by directory:
   layout, role-file shape checks, and role `library/` modules. Those modules
   run under Ansible's interpreter (on a host, the Python of Homebrew's
   `ansible`, as `group_vars/all.yml` sets it), never `/usr/bin/python3`, so
-  the 3.9 pin doesn't cover them. Runs on `tooling_python` with uncapped pytest
+  the 3.9 pin doesn't cover them. Plus `unnatural-designs-agent-tools/tests/`
+  (kept in the plugin's folder so it extracts unchanged): the plugin's scripts
+  target the tooling Python, the version they're tested on, and declare no
+  lower limit. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
-  job, and `pytest tests/python/tooling`. The CI job installs every requirements
+  job, and `pytest tests/python/tooling unnatural-designs-agent-tools/tests`
+  (`TOOLING_TEST_PATHS` in `tests/run`). The CI job installs every requirements
   file `~/.venv-tooling` does (lint + molecule + tooling-test + pre-commit), so a
   tooling test that imports, say, `yaml` sees it in both places;
   `test_ci_tooling_run_installs_what_the_local_tooling_venv_has` guards that.
@@ -818,10 +825,12 @@ guaranteed able to load `tests/run`.
 
 `tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
 test file under `tests/python/` (at any depth) sits under `baseline/` or
-`tooling/`, no tooling test imports a baseline module
-(repo-root `*.py` or the plugin's `scripts/`, discovered from disk), and every
-baseline test imports one. A test that imports `phase2` therefore can't land in
-the run that wouldn't catch a 3.9 regression.
+`tooling/`, no tooling test (the plugin's included) imports a baseline module
+(repo-root `*.py`, discovered from disk), and every baseline test imports one.
+A test that imports `phase2` therefore can't land in the run that wouldn't
+catch a 3.9 regression. It also fails if `pytest.ini`'s `testpaths` reach the
+plugin, or if `tests/run` and the `python-tooling` job name different tooling
+paths.
 
 ### Homebrew molecule scenarios
 
@@ -1228,11 +1237,10 @@ script's tiers, session guard, and fail-closed apply). Personal skills and
 commands live here, not in `~/.claude/commands/` or `~/.claude/skills/`, so the
 repo is their only home.
 
-`unnatural-designs-agent-tools/scripts/` runs on the **host**, not in the
-devcontainer, so it is standard-library Python kept 3.9-compatible (same
-constraint as `phase2.py`); its tests in `unnatural-designs-agent-tools/tests/`
-run in the devcontainer as part of the baseline pytest run (`pytest.ini`'s
-`testpaths` lists it for both `./tests/run python` and CI's `python` job).
+`unnatural-designs-agent-tools/scripts/` runs on the **host** (see "Use the
+devcontainer for dev tooling") and stays standard-library Python unless there's
+a compelling reason otherwise. Its tests in `unnatural-designs-agent-tools/tests/`
+run in the devcontainer as part of the tooling pytest run (see "Two pytest runs").
 
 The `claude_code` role registers it as a **`directory` marketplace** (absolute
 `path`, from `playbook_dir`, so the `~/.dotfiles` checkout in real use).
