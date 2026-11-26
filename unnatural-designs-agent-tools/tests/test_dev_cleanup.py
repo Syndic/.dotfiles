@@ -8,9 +8,9 @@ import copy
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
 
 import pytest
 
@@ -44,7 +44,7 @@ def test_parse_worktrees_reads_every_flag() -> None:
     ("https://github.com/o/r", "o/r"),
     ("/srv/git/r.git", None),
 ])
-def test_repo_slug(url: str, slug: Optional[str]) -> None:
+def test_repo_slug(url: str, slug: str | None) -> None:
     assert dc.repo_slug(url) == slug
 
 
@@ -61,7 +61,7 @@ def pr(number: int, state: str, head: str = "b", oid: str = "x", cross: bool = F
     ([pr(3, "OPEN"), pr(4, "MERGED")], "open", 3),
     ([pr(5, "MERGED", cross=True)], "none", None),
 ])
-def test_pr_status(prs, status: str, number: Optional[int]) -> None:
+def test_pr_status(prs, status: str, number: int | None) -> None:
     got, chosen = dc.pr_status(prs)
     assert got == status
     assert (chosen or {}).get("number") == number
@@ -293,14 +293,14 @@ def test_main_refuses_to_run_in_a_container(monkeypatch) -> None:
 
 
 class FakeGitHub:
-    def __init__(self, prs: Optional[List[dict]] = None, fail: bool = False) -> None:
+    def __init__(self, prs: list[dict] | None = None, fail: bool = False) -> None:
         self.prs = prs or []
         self.fail = fail
 
-    def list_prs(self, slug: str) -> Optional[List[dict]]:
+    def list_prs(self, slug: str) -> list[dict] | None:
         return None if self.fail or slug != SLUG else copy.deepcopy(self.prs)
 
-    def prs_for_head(self, slug: str, branch: str) -> Optional[List[dict]]:
+    def prs_for_head(self, slug: str, branch: str) -> list[dict] | None:
         return [p for p in self.prs if p["headRefName"] == branch]
 
 
@@ -314,7 +314,7 @@ class FakeDocker:
         self._images = [dict(i) for i in images]
         self._volumes = [dict(v) for v in volumes]
         self._available = available
-        self.calls: List[tuple] = []
+        self.calls: list[tuple] = []
 
     def available(self) -> bool:
         return self._available
@@ -378,7 +378,7 @@ class Repo:
         git(where, "commit", "-qm", name)
         return git(where, "rev-parse", "HEAD")
 
-    def worktree(self, name: str, branch: Optional[str] = None) -> Path:
+    def worktree(self, name: str, branch: str | None = None) -> Path:
         path = self.root / "r" / name
         if branch:
             git(self.main, "worktree", "add", "-q", "-b", branch, str(path), "origin/main")
@@ -417,7 +417,7 @@ def repo(tmp_path: Path) -> Repo:
     return r
 
 
-def context(repo: Repo, index: Optional[dc.SessionIndex] = None, github=None,
+def context(repo: Repo, index: dc.SessionIndex | None = None, github=None,
             docker=None) -> dc.Context:
     config = dict(dc.DEFAULT_CONFIG, worktree_roots=[str(repo.root)], extra_roots=[],
                   extra_repos=[str(repo.main)],
@@ -428,11 +428,11 @@ def context(repo: Repo, index: Optional[dc.SessionIndex] = None, github=None,
                       fetch=False, du=lambda _: None)
 
 
-def items(ctx: dc.Context) -> Dict[str, dict]:
+def items(ctx: dc.Context) -> dict[str, dict]:
     return {i["id"]: i for i in dc.build_inventory(ctx)["items"]}
 
 
-def only(found: Dict[str, dict], kind: str, **match) -> dict:
+def only(found: dict[str, dict], kind: str, **match) -> dict:
     hits = [i for i in found.values() if i["kind"] == kind
             and all(i["details"].get(k) == v or i.get(k) == v for k, v in match.items())]
     assert len(hits) == 1, hits
@@ -912,7 +912,7 @@ def test_removing_a_worktree_reaps_its_stopped_container_and_offers_its_image(re
     assert [i["id"] for i in result["follow_up"]] == ["image:sha256:v"]
 
 
-def dind(folder: str) -> List[str]:
+def dind(folder: str) -> list[str]:
     """The docker-in-docker volume pair a devcontainer on `folder` mounts."""
     did = dc.devcontainer_id(str(folder), f"{folder}/.devcontainer/devcontainer.json")
     return [f"dind-var-lib-{kind}-{did}" for kind in ("docker", "containerd")]
@@ -1024,7 +1024,7 @@ def test_follow_up_offers_only_what_the_apply_exposed(repo) -> None:
     ('{"Images": [], "Volumes": []}', None),
 ])
 def test_one_verbose_df_gives_sizes_and_the_build_cache(out: str, cache) -> None:
-    calls: List[list] = []
+    calls: list[list] = []
 
     def runner(argv, **kwargs):
         calls.append(argv)
@@ -1038,7 +1038,7 @@ def test_one_verbose_df_gives_sizes_and_the_build_cache(out: str, cache) -> None
 
 def test_apply_measures_only_docker_raw(repo) -> None:
     (repo.root / "r" / "stray-folder").mkdir()
-    measured: List[str] = []
+    measured: list[str] = []
     ctx = context(repo)
     ctx.du = lambda path: measured.append(path)
     dc.apply(ctx, ["branch:/nowhere:x@0"])

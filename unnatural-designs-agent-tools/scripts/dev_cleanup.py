@@ -7,8 +7,6 @@ acted on). `apply --ids` recomputes the inventory and acts only on the named
 ids that are still present and actionable; see the plugin README ("dev-cleanup
 design") for what an id pins. Standard library only, because it runs on the host.
 """
-from __future__ import annotations
-
 import argparse
 import calendar
 import hashlib
@@ -20,9 +18,9 @@ import stat
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 AUTO, CONFIRM, REPORT = "auto", "confirm", "report"
 ACTIONABLE = (AUTO, CONFIRM)
@@ -31,7 +29,7 @@ STOPPED = ("exited", "created", "dead")
 # a container before its image.
 KIND_ORDER = ["worktree-stale", "container", "worktree", "branch", "image", "volume"]
 
-DEFAULT_CONFIG: Dict[str, object] = {
+DEFAULT_CONFIG: dict[str, object] = {
     "worktree_roots": ["~/Work/worktrees"],
     "extra_roots": [],
     "extra_repos": [],
@@ -103,7 +101,7 @@ class GitHub:
     def __init__(self, runner: Runner = run) -> None:
         self._run = runner
 
-    def _prs(self, *args: str) -> Optional[List[dict]]:
+    def _prs(self, *args: str) -> list[dict] | None:
         res = self._run(["gh", "pr", "list", *args, "--state", "all", "--json", PR_FIELDS])
         if not res.ok:
             return None
@@ -112,10 +110,10 @@ class GitHub:
         except ValueError:
             return None
 
-    def list_prs(self, slug: str) -> Optional[List[dict]]:
+    def list_prs(self, slug: str) -> list[dict] | None:
         return self._prs("-R", slug, "--limit", str(PR_LIMIT))
 
-    def prs_for_head(self, slug: str, branch: str) -> Optional[List[dict]]:
+    def prs_for_head(self, slug: str, branch: str) -> list[dict] | None:
         return self._prs("-R", slug, "--head", branch)
 
 
@@ -125,7 +123,7 @@ class Docker:
     def __init__(self, runner: Runner = run) -> None:
         self._run = runner
 
-    def _json_lines(self, *args: str) -> Optional[List[dict]]:
+    def _json_lines(self, *args: str) -> list[dict] | None:
         res = self._run(["docker", *args])
         if not res.ok:
             return None
@@ -134,7 +132,7 @@ class Docker:
     def available(self) -> bool:
         return self._run(["docker", "info", "--format", "{{.ServerVersion}}"]).ok
 
-    def containers(self) -> Optional[List[dict]]:
+    def containers(self) -> list[dict] | None:
         ids = self._run(["docker", "ps", "-aq", "--no-trunc"])
         if not ids.ok:
             return None
@@ -156,7 +154,7 @@ class Docker:
             for c in json.loads(res.out)
         ]
 
-    def images(self) -> Optional[List[dict]]:
+    def images(self) -> list[dict] | None:
         ids = self._run(["docker", "image", "ls", "-aq", "--no-trunc"])
         if not ids.ok:
             return None
@@ -177,7 +175,7 @@ class Docker:
             for i in json.loads(res.out)
         ]
 
-    def volumes(self) -> Optional[List[dict]]:
+    def volumes(self) -> list[dict] | None:
         """Every volume, with whether docker considers it dangling (no container refs)."""
         everything = self._json_lines("volume", "ls", "--format", "{{json .}}")
         dangling = self._run(["docker", "volume", "ls", "-q", "-f", "dangling=true"])
@@ -193,7 +191,7 @@ class Docker:
             for v in everything
         ]
 
-    def sizes(self) -> Tuple[Dict[str, int], Optional[int]]:
+    def sizes(self) -> tuple[dict[str, int], int | None]:
         """(image ids and volume names → bytes, build cache bytes), from one
         `docker system df -v`, which takes seconds."""
         res = self._run(["docker", "system", "df", "-v", "--format", "json"])
@@ -211,7 +209,7 @@ class Docker:
         return self._run(["docker", *args])
 
 
-def parse_labels(text: str) -> Dict[str, str]:
+def parse_labels(text: str) -> dict[str, str]:
     """`docker volume ls` renders labels as `k=v,k2=v2`."""
     pairs = (part.split("=", 1) for part in text.split(",") if part)
     return {kv[0]: (kv[1] if len(kv) > 1 else "") for kv in pairs}
@@ -226,7 +224,7 @@ def parse_size(text: str) -> int:
     return int(float(m.group(1)) * _UNITS[m.group(2).upper()]) if m else 0
 
 
-def du_bytes(path: str) -> Optional[int]:
+def du_bytes(path: str) -> int | None:
     """Allocated size, so sparse files like Docker.raw report what they really use."""
     if not os.path.exists(path):
         return None
@@ -249,10 +247,10 @@ class Item:
     tier: str
     title: str
     reason: str
-    path: Optional[str] = None
-    size_bytes: Optional[int] = None
-    age_days: Optional[int] = None
-    details: Dict[str, object] = field(default_factory=dict)
+    path: str | None = None
+    size_bytes: int | None = None
+    age_days: int | None = None
+    details: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -265,9 +263,9 @@ class Session:
 @dataclass
 class SessionIndex:
     available: bool
-    sessions: List[Session]
+    sessions: list[Session]
 
-    def guard(self, path: str) -> Tuple[bool, str]:
+    def guard(self, path: str) -> tuple[bool, str]:
         """(reapable, reason): reapable only when every session in `path` is archived."""
         if not self.available:
             return False, "session list unavailable, so every worktree is protected"
@@ -285,7 +283,7 @@ def is_within(child: str, parent: str) -> bool:
     return child == parent or child.startswith(parent.rstrip("/") + "/")
 
 
-def load_sessions(data: Optional[object], protect: Iterable[str] = ()) -> SessionIndex:
+def load_sessions(data: object | None, protect: Iterable[str] = ()) -> SessionIndex:
     """Sessions JSON from the skill: `{"available": bool, "sessions": [rows]}` or a bare list.
 
     `protect` paths are added as live sessions (the caller's own cwd, which the
@@ -305,11 +303,11 @@ def load_sessions(data: Optional[object], protect: Iterable[str] = ()) -> Sessio
     return SessionIndex(True, sessions)
 
 
-def parse_worktrees(porcelain: str) -> List[Dict[str, object]]:
+def parse_worktrees(porcelain: str) -> list[dict[str, object]]:
     """`git worktree list --porcelain` blocks → dicts."""
-    entries: List[Dict[str, object]] = []
+    entries: list[dict[str, object]] = []
     for block in porcelain.strip().split("\n\n"):
-        entry: Dict[str, object] = {"branch": None, "detached": False, "locked": False,
+        entry: dict[str, object] = {"branch": None, "detached": False, "locked": False,
                                     "prunable": False, "bare": False}
         for line in block.splitlines():
             key, _, value = line.partition(" ")
@@ -326,12 +324,12 @@ def parse_worktrees(porcelain: str) -> List[Dict[str, object]]:
     return entries
 
 
-def repo_slug(url: str) -> Optional[str]:
+def repo_slug(url: str) -> str | None:
     m = GITHUB_SLUG.search(url.strip())
     return m.group("slug") if m else None
 
 
-def pr_status(prs: Optional[List[dict]]) -> Tuple[str, Optional[dict]]:
+def pr_status(prs: list[dict] | None) -> tuple[str, dict | None]:
     """Ground truth for one head branch: any open PR wins, else the newest PR's state."""
     if prs is None:
         return "unknown", None
@@ -343,8 +341,8 @@ def pr_status(prs: Optional[List[dict]]) -> Tuple[str, Optional[dict]]:
     return newest["state"].lower(), newest
 
 
-def classify_branch(status: str, pr: Optional[dict], contained: Optional[bool],
-                    pr_copy: bool = False) -> Tuple[str, str]:
+def classify_branch(status: str, pr: dict | None, contained: bool | None,
+                    pr_copy: bool = False) -> tuple[str, str]:
     """Tier for deleting a local branch (or a worktree's branch).
 
     Offered only when its PR is merged — or, for a local `pr-NNN` copy, merged or
@@ -365,10 +363,10 @@ def classify_branch(status: str, pr: Optional[dict], contained: Optional[bool],
     return CONFIRM, f"{label} is {status}"
 
 
-def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
-                      on_default: Optional[bool], branch_verdict: Tuple[str, str],
-                      guard: Tuple[bool, str],
-                      running_containers: Sequence[str] = ()) -> Tuple[str, str]:
+def classify_worktree(*, dirty: bool | None, locked: bool, detached: bool,
+                      on_default: bool | None, branch_verdict: tuple[str, str],
+                      guard: tuple[bool, str],
+                      running_containers: Sequence[str] = ()) -> tuple[str, str]:
     if locked:
         return REPORT, "worktree is locked"
     if dirty is None:
@@ -397,7 +395,7 @@ def classify_worktree(*, dirty: Optional[bool], locked: bool, detached: bool,
 OUT_OF_SCOPE = "outside the worktree roots (an unmounted volume, or a moved repo?)"
 
 
-def classify_stale(locked: bool, in_scope: bool) -> Tuple[str, str]:
+def classify_stale(locked: bool, in_scope: bool) -> tuple[str, str]:
     """A worktree entry whose folder is missing; apply unregisters just that entry."""
     if locked:
         return REPORT, "folder is missing, but the worktree is locked"
@@ -407,7 +405,7 @@ def classify_stale(locked: bool, in_scope: bool) -> Tuple[str, str]:
 
 
 def classify_container(folder_exists: bool, state: str,
-                       in_scope: bool = True) -> Optional[Tuple[str, str]]:
+                       in_scope: bool = True) -> tuple[str, str] | None:
     """A devcontainer follows its worktree; None means leave it alone (and its volumes)."""
     if folder_exists:
         return None
@@ -418,8 +416,8 @@ def classify_container(folder_exists: bool, state: str,
     return CONFIRM, f"worktree is gone; container is {state}"
 
 
-def classify_dind_volume(reaped: bool, folder: Optional[str], folder_exists: bool,
-                         in_scope: bool) -> Optional[Tuple[str, str]]:
+def classify_dind_volume(reaped: bool, folder: str | None, folder_exists: bool,
+                         in_scope: bool) -> tuple[str, str] | None:
     """A docker-in-docker volume no container mounts; None means leave it alone.
 
     `reaped`: a container this apply removed mounted it. `folder`: the worktree its
@@ -464,10 +462,10 @@ def devcontainer_id(folder: str, config_file: str) -> str:
     return digits.rjust(52, "0")
 
 
-def dind_owners(folders: Iterable[str]) -> Dict[str, str]:
+def dind_owners(folders: Iterable[str]) -> dict[str, str]:
     """devcontainerId → folder, for each folder's standard config paths (and, while the
     folder exists, `.devcontainer/<name>/devcontainer.json`)."""
-    owners: Dict[str, str] = {}
+    owners: dict[str, str] = {}
     for folder in sorted(folders):
         devc = os.path.join(folder, ".devcontainer")
         configs = [os.path.join(devc, "devcontainer.json"),
@@ -478,7 +476,7 @@ def dind_owners(folders: Iterable[str]) -> Dict[str, str]:
     return owners
 
 
-def map_vsc_image(repo: str, candidates: Iterable[str]) -> Optional[str]:
+def map_vsc_image(repo: str, candidates: Iterable[str]) -> str | None:
     """The folder a `vsc-*` image was built for, proven by its hash; None if unproven."""
     m = VSC_IMAGE.fullmatch(repo)
     if not m:
@@ -493,7 +491,7 @@ def with_tag(ref: str) -> str:
     return ref if ":" in ref.rsplit("/", 1)[-1] else f"{ref}:latest"
 
 
-def image_refs(text: str) -> Tuple[Set[str], Set[str]]:
+def image_refs(text: str) -> tuple[set[str], set[str]]:
     """(digests, tag refs) a Dockerfile, devcontainer.json or compose file could pull:
     every sha256 anywhere, plus digest-less FROM and `image` refs. Over-matching only
     keeps more images."""
@@ -503,24 +501,24 @@ def image_refs(text: str) -> Tuple[Set[str], Set[str]]:
     return set(DIGEST.findall(text)), tags
 
 
-def image_repos(image: dict) -> Set[str]:
+def image_repos(image: dict) -> set[str]:
     tagged = {t.rsplit(":", 1)[0] for t in image["tags"]}
     return tagged | {d.split("@", 1)[0] for d in image["digests"]}
 
 
-def classify_base_images(images: List[dict], digests: Set[str], tags: Set[str],
-                         in_use: Set[str], pattern: str,
-                         unread: Sequence[str] = ()) -> List[Tuple[dict, str, str]]:
+def classify_base_images(images: list[dict], digests: set[str], tags: set[str],
+                         in_use: set[str], pattern: str,
+                         unread: Sequence[str] = ()) -> list[tuple[dict, str, str]]:
     """Per devcontainer-base repository: keep every referenced or in-use image and the
     newest; the rest are confirm-tier, or report-tier when some checkout's config names
     a file that couldn't be read (`unread`). Returns (image, tier-or-'keep', reason)."""
     family = re.compile(pattern)
-    by_repo: Dict[str, List[dict]] = {}
+    by_repo: dict[str, list[dict]] = {}
     for image in images:
         for repo in image_repos(image):
             if family.search(repo):
                 by_repo.setdefault(repo, []).append(image)
-    verdicts: Dict[str, Tuple[dict, str, str]] = {}
+    verdicts: dict[str, tuple[dict, str, str]] = {}
     for repo, members in sorted(by_repo.items()):
         newest = max(members, key=lambda i: i["created"])["id"]
         for image in members:
@@ -550,17 +548,17 @@ def expand(path: str) -> str:
     return os.path.abspath(os.path.expanduser(path))
 
 
-def subdirs(path: str) -> List[str]:
+def subdirs(path: str) -> list[str]:
     try:
         return sorted(e.path for e in os.scandir(path) if e.is_dir(follow_symlinks=False))
     except OSError:
         return []
 
 
-def candidate_folders(roots: Iterable[str]) -> List[str]:
+def candidate_folders(roots: Iterable[str]) -> list[str]:
     """Folders a worktree root holds: `<root>/<repo>/<worktree>` (hidden repos included),
     or `<root>/<worktree>` when the child is itself a checkout."""
-    found: List[str] = []
+    found: list[str] = []
     for root in roots:
         for child in subdirs(root):
             if os.path.lexists(os.path.join(child, ".git")):
@@ -570,7 +568,7 @@ def candidate_folders(roots: Iterable[str]) -> List[str]:
     return found
 
 
-def main_checkout(folder: str) -> Optional[str]:
+def main_checkout(folder: str) -> str | None:
     res = git(folder, "rev-parse", "--path-format=absolute", "--git-common-dir")
     if not res.ok:
         return None
@@ -578,7 +576,7 @@ def main_checkout(folder: str) -> Optional[str]:
     return os.path.dirname(common) if os.path.basename(common) == ".git" else None
 
 
-def commit_age_days(repo: str, rev: str, now: float) -> Optional[int]:
+def commit_age_days(repo: str, rev: str, now: float) -> int | None:
     res = git(repo, "log", "-1", "--format=%ct", rev)
     try:
         return int((now - int(res.out.strip())) // 86400)
@@ -586,21 +584,21 @@ def commit_age_days(repo: str, rev: str, now: float) -> Optional[int]:
         return None
 
 
-def contained_in(repo: str, tip: str, head_oid: str) -> Optional[bool]:
+def contained_in(repo: str, tip: str, head_oid: str) -> bool | None:
     if tip == head_oid:
         return True
     res = git(repo, "merge-base", "--is-ancestor", tip, head_oid)
     return {0: True, 1: False}.get(res.rc)
 
 
-def worktree_dirty(path: str) -> Optional[bool]:
+def worktree_dirty(path: str) -> bool | None:
     """Tracked changes or untracked files; None if git can't tell. Ignored files don't count."""
     # Explicit, so a `status.showUntrackedFiles=no` config can't hide untracked files.
     res = git(path, "status", "--porcelain", "--untracked-files=all")
     return bool(res.out.strip()) if res.ok else None
 
 
-def worktree_registered(repo: str, path: str) -> Optional[bool]:
+def worktree_registered(repo: str, path: str) -> bool | None:
     res = git(repo, "worktree", "list", "--porcelain")
     if not res.ok:
         return None
@@ -608,7 +606,7 @@ def worktree_registered(repo: str, path: str) -> Optional[bool]:
                                       for e in parse_worktrees(res.out)}
 
 
-def make_removable(path: str) -> Optional[str]:
+def make_removable(path: str) -> str | None:
     """Give every directory u+rwx; None on success, else the error. Only for leftovers of a
     removal git already approved: it unregisters first, then stops at a read-only directory."""
     def grant(folder: str) -> None:
@@ -629,7 +627,7 @@ def make_removable(path: str) -> Optional[str]:
     return None
 
 
-def read_text(path: str) -> Optional[str]:
+def read_text(path: str) -> str | None:
     try:
         with open(path, errors="replace") as fh:
             return fh.read(1_000_000)
@@ -637,13 +635,13 @@ def read_text(path: str) -> Optional[str]:
         return None
 
 
-def devcontainer_sources(checkout: str) -> Tuple[List[str], List[str]]:
+def devcontainer_sources(checkout: str) -> tuple[list[str], list[str]]:
     """Files a checkout's devcontainer setup builds or pulls from: everything under
     `.devcontainer/`, a root `.devcontainer.json`, and the Dockerfiles and compose files
     they name. Returns (readable files, named files that couldn't be found)."""
-    found: List[str] = []
-    seen: Set[str] = set()
-    unread: List[str] = []
+    found: list[str] = []
+    seen: set[str] = set()
+    unread: list[str] = []
 
     def add(path: str) -> None:
         path = os.path.normpath(path)
@@ -687,7 +685,7 @@ def devcontainer_sources(checkout: str) -> Tuple[List[str], List[str]]:
     return found, unread
 
 
-def default_branch(repo: str) -> Optional[str]:
+def default_branch(repo: str) -> str | None:
     res = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
     if res.ok:
         return res.out.strip()
@@ -698,19 +696,19 @@ def default_branch(repo: str) -> Optional[str]:
 class PrIndex:
     """One bulk `gh pr list` per repo, with per-branch queries if it may be truncated."""
 
-    def __init__(self, github: GitHub, slug: Optional[str]) -> None:
+    def __init__(self, github: GitHub, slug: str | None) -> None:
         self._github, self._slug = github, slug
         self._all = github.list_prs(slug) if slug else None
         self._truncated = self._all is not None and len(self._all) >= PR_LIMIT
 
-    def for_head(self, branch: str) -> Optional[List[dict]]:
+    def for_head(self, branch: str) -> list[dict] | None:
         if self._slug is None or self._all is None:
             return None
         if self._truncated:
             return self._github.prs_for_head(self._slug, branch)
         return [p for p in self._all if p["headRefName"] == branch]
 
-    def by_number(self, number: int) -> Optional[List[dict]]:
+    def by_number(self, number: int) -> list[dict] | None:
         if self._all is None:
             return None
         hits = [p for p in self._all if p["number"] == number]
@@ -719,21 +717,21 @@ class PrIndex:
 
 @dataclass
 class Context:
-    config: Dict[str, object]
+    config: dict[str, object]
     sessions: SessionIndex
     github: GitHub
     docker: Docker
     fetch: bool = True
     now: float = field(default_factory=time.time)
-    du: Callable[[str], Optional[int]] = du_bytes
+    du: Callable[[str], int | None] = du_bytes
 
 
 @dataclass
 class Scope:
     """Where discovery looked, and so what the script may act on."""
-    roots: List[str]
-    registered: Set[str] = field(default_factory=set)  # realpaths of every listed worktree
-    known: Set[str] = field(default_factory=set)  # every folder seen, to prove vsc-* images
+    roots: list[str]
+    registered: set[str] = field(default_factory=set)  # realpaths of every listed worktree
+    known: set[str] = field(default_factory=set)  # every folder seen, to prove vsc-* images
 
     def owns(self, folder: str) -> bool:
         """Under a worktree root, or a worktree git lists (folder present or not)."""
@@ -743,19 +741,19 @@ class Scope:
 
 @dataclass
 class DockerState:
-    containers: List[dict]
-    images: List[dict]
-    volumes: List[dict]
-    sizes: Dict[str, int]
-    build_cache: Optional[int] = None
+    containers: list[dict]
+    images: list[dict]
+    volumes: list[dict]
+    sizes: dict[str, int]
+    build_cache: int | None = None
 
-    def running(self) -> List[dict]:
+    def running(self) -> list[dict]:
         """Devcontainers not in a stopped state, which pin their worktree's id."""
         return [c for c in self.containers
                 if c["labels"].get(FOLDER_LABEL) and c["state"] not in STOPPED]
 
 
-def read_docker(docker: Docker, sizes: bool = True) -> Tuple[Optional[DockerState], str]:
+def read_docker(docker: Docker, sizes: bool = True) -> tuple[DockerState | None, str]:
     if not docker.available():
         return None, "unavailable"
     containers, images, volumes = docker.containers(), docker.images(), docker.volumes()
@@ -767,7 +765,7 @@ def read_docker(docker: Docker, sizes: bool = True) -> Tuple[Optional[DockerStat
     return DockerState(containers, images, volumes, measured, cache), "ok"
 
 
-def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> Tuple[str, str, Optional[int]]:
+def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> tuple[str, str, int | None]:
     copy = PR_COPY.fullmatch(name)
     status, pr = pr_status(prs.by_number(int(copy.group("number"))) if copy else prs.for_head(name))
     contained = contained_in(repo, tip, pr["headRefOid"]) if pr else None
@@ -775,8 +773,8 @@ def branch_verdict(repo: str, prs: PrIndex, name: str, tip: str) -> Tuple[str, s
     return tier, reason, pr["number"] if pr else None
 
 
-def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], items: List[Item],
-                   notes: List[str]) -> None:
+def inventory_repo(ctx: Context, repo: str, scope: Scope, running: list[dict], items: list[Item],
+                   notes: list[str]) -> None:
     """Worktree + branch items for one main checkout; records its worktrees in `scope`."""
     if ctx.fetch:
         res = git(repo, "fetch", "--prune", "--quiet", "origin")
@@ -840,13 +838,13 @@ def inventory_repo(ctx: Context, repo: str, scope: Scope, running: List[dict], i
                           details={"repo": repo, "branch": name, "tip": tip, "pr": number}))
 
 
-SourceRefs = Tuple[Set[str], Set[str], List[str]]
+SourceRefs = tuple[set[str], set[str], list[str]]
 
 
 def devcontainer_refs(checkout: str) -> SourceRefs:
     """Image digests and tags a checkout's devcontainer setup names, and files it couldn't read."""
-    digests: Set[str] = set()
-    tags: Set[str] = set()
+    digests: set[str] = set()
+    tags: set[str] = set()
     files, missing = devcontainer_sources(checkout)
     for path in files:
         d, t = image_refs(read_text(path) or "")
@@ -855,14 +853,14 @@ def devcontainer_refs(checkout: str) -> SourceRefs:
     return digests, tags, missing
 
 
-def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List[Item],
-                     summary: Dict[str, object], sources: Dict[str, SourceRefs],
+def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: list[Item],
+                     summary: dict[str, object], sources: dict[str, SourceRefs],
                      reaped: Iterable[str] = ()) -> None:
     """`sources`: devcontainer_refs per checkout, filled as needed and reused across apply's
     passes. `reaped`: volumes mounted by containers this apply removed."""
     containers, images, volumes, sizes = state.containers, state.images, state.volumes, state.sizes
-    claimed_images: Set[str] = set()
-    claimed_volumes: Set[str] = set()
+    claimed_images: set[str] = set()
+    claimed_volumes: set[str] = set()
     folders = set(scope.known)
 
     for c in containers:
@@ -886,7 +884,7 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
     guesses = set(folders)
     for parent in parents:
         guesses.update(subdirs(parent))
-    mapped: Set[str] = set()
+    mapped: set[str] = set()
     for image in images:
         tag = next((t for t in image["tags"] if VSC_IMAGE.fullmatch(t.rsplit(":", 1)[0])), None)
         if tag is None:
@@ -907,9 +905,9 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
             items.append(Item(f"image:{image['id']}", "image", tier, tag, reason, path=folder,
                               size_bytes=image["size"]))
 
-    digests: Set[str] = set()
-    tags: Set[str] = set()
-    unread: Set[str] = set()
+    digests: set[str] = set()
+    tags: set[str] = set()
+    unread: set[str] = set()
     for checkout in sorted(p for p in folders if os.path.isdir(p)):
         if checkout not in sources:
             sources[checkout] = devcontainer_refs(checkout)
@@ -973,20 +971,20 @@ def inventory_docker(ctx: Context, state: DockerState, scope: Scope, items: List
 
 @dataclass
 class Inventory:
-    items: List[Item]
-    notes: List[str]
-    summary: Dict[str, object]
+    items: list[Item]
+    notes: list[str]
+    summary: dict[str, object]
     scope: Scope
-    sources: Dict[str, SourceRefs] = field(default_factory=dict)
+    sources: dict[str, SourceRefs] = field(default_factory=dict)
 
 
 def collect(ctx: Context, measure: bool = True) -> Inventory:
     """Every item. `measure=False` skips sizes, which apply doesn't need."""
     cfg = ctx.config
     scope = Scope([expand(str(r)) for r in list(cfg["worktree_roots"]) + list(cfg["extra_roots"])])
-    items: List[Item] = []
-    notes: List[str] = []
-    summary: Dict[str, object] = {"sessions_available": ctx.sessions.available}
+    items: list[Item] = []
+    notes: list[str] = []
+    summary: dict[str, object] = {"sessions_available": ctx.sessions.available}
     docker, why = read_docker(ctx.docker, sizes=measure)
     if docker is None:
         summary["docker"] = why
@@ -1017,7 +1015,7 @@ def collect(ctx: Context, measure: bool = True) -> Inventory:
     return inventory
 
 
-def disk_usage(ctx: Context, summary: Dict[str, object]) -> None:
+def disk_usage(ctx: Context, summary: dict[str, object]) -> None:
     """Sizes of what the script never touches; `du` on these can take minutes."""
     cfg = ctx.config
     codex = expand(str(cfg["codex_worktrees"]))
@@ -1028,7 +1026,7 @@ def disk_usage(ctx: Context, summary: Dict[str, object]) -> None:
     summary["docker_raw_bytes"] = ctx.du(expand(str(cfg["docker_raw"])))
 
 
-def build_inventory(ctx: Context) -> Dict[str, object]:
+def build_inventory(ctx: Context) -> dict[str, object]:
     inv = collect(ctx)
     disk_usage(ctx, inv.summary)
     return {"version": 1, "generated_at": int(ctx.now), "items": [asdict(i) for i in inv.items],
@@ -1040,14 +1038,14 @@ def build_inventory(ctx: Context) -> Dict[str, object]:
 # --------------------------------------------------------------------------- #
 
 
-def checked_out_branches(repo: str) -> Optional[Set[str]]:
+def checked_out_branches(repo: str) -> set[str] | None:
     res = git(repo, "worktree", "list", "--porcelain")
     if not res.ok:
         return None
     return {str(e["branch"]) for e in parse_worktrees(res.out) if e["branch"] and not e["prunable"]}
 
 
-def delete_branch(repo: str, branch: str, tip: str) -> Tuple[bool, str]:
+def delete_branch(repo: str, branch: str, tip: str) -> tuple[bool, str]:
     live = checked_out_branches(repo)
     if live is None or branch in live:
         return False, "branch is checked out in a worktree"
@@ -1059,7 +1057,7 @@ def delete_branch(repo: str, branch: str, tip: str) -> Tuple[bool, str]:
     return True, f"deleted branch {branch} (was {tip[:12]})"
 
 
-def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
+def apply_item(ctx: Context, item: dict[str, object]) -> tuple[bool, str]:
     kind, details = item["kind"], item["details"]
     assert isinstance(details, dict)
     if kind == "worktree-stale":
@@ -1072,9 +1070,9 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
     if kind == "worktree":
         path, repo = str(item["path"]), str(details["repo"])
         containers = [str(c) for c in details.get("containers") or []]
-        stopped: List[str] = []
+        stopped: list[str] = []
 
-        def failed(why: str) -> Tuple[bool, str]:
+        def failed(why: str) -> tuple[bool, str]:
             # Stopped containers are left (with their volumes) whenever removal fails.
             note = f" (stopped, not removed: {', '.join(stopped)})" if stopped else ""
             return False, f"{why}{note}"
@@ -1145,7 +1143,7 @@ def apply_item(ctx: Context, item: Dict[str, object]) -> Tuple[bool, str]:
     return False, f"unknown kind {kind}"
 
 
-def record(done: List[Dict[str, str]], skipped: List[Dict[str, str]], item: Dict[str, object],
+def record(done: list[dict[str, str]], skipped: list[dict[str, str]], item: dict[str, object],
            ok: bool, msg: str) -> None:
     if ok:
         done.append({"id": str(item["id"]), "result": msg})
@@ -1153,12 +1151,12 @@ def record(done: List[Dict[str, str]], skipped: List[Dict[str, str]], item: Dict
         skipped.append({"id": str(item["id"]), "reason": msg})
 
 
-def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
+def apply(ctx: Context, ids: Sequence[str]) -> dict[str, object]:
     """Recompute, then act on each requested id still present at an actionable tier."""
     inventory = collect(ctx, measure=False)
     fresh = {i.id: asdict(i) for i in inventory.items}
-    done: List[Dict[str, str]] = []
-    skipped: List[Dict[str, str]] = []
+    done: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
     queue = []
     for item_id in dict.fromkeys(ids):
         item = fresh.get(item_id)
@@ -1169,9 +1167,9 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
         else:
             queue.append(item)
     queue.sort(key=lambda i: KIND_ORDER.index(str(i["kind"])))
-    reaped: Set[str] = set()
+    reaped: set[str] = set()
 
-    def act(item: Dict[str, object]) -> None:
+    def act(item: dict[str, object]) -> None:
         ok, msg = apply_item(ctx, item)
         record(done, skipped, item, ok, msg)
         if ok and item["kind"] in ("worktree", "container"):
@@ -1184,13 +1182,13 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
     # named volumes: reap what is now auto-tier until nothing new appears, and hand back
     # anything that now needs confirming. Only Docker state changed. Items the report already
     # showed are the user's answered question, so only newly exposed ones count.
-    follow_up: List[Dict[str, object]] = []
+    follow_up: list[dict[str, object]] = []
     handled = set(fresh) | {d["id"] for d in done} | {s["id"] for s in skipped}
     while reaped or any(i["kind"] == "worktree" for i in queue):
         docker = read_docker(ctx.docker, sizes=False)[0]
         if docker is None:
             break
-        exposed: List[Item] = []
+        exposed: list[Item] = []
         inventory_docker(ctx, docker, inventory.scope, exposed, {}, inventory.sources, reaped)
         new = [i for i in map(asdict, exposed) if i["id"] not in handled]
         follow_up = [i for i in new if i["tier"] == CONFIRM]
@@ -1209,7 +1207,7 @@ def apply(ctx: Context, ids: Sequence[str]) -> Dict[str, object]:
 # --------------------------------------------------------------------------- #
 
 
-def load_config(path: Optional[str]) -> Dict[str, object]:
+def load_config(path: str | None) -> dict[str, object]:
     config = dict(DEFAULT_CONFIG)
     target = expand(path or DEFAULT_CONFIG_PATH)
     if not os.path.exists(target):
@@ -1233,7 +1231,7 @@ def load_config(path: Optional[str]) -> Dict[str, object]:
     return config
 
 
-def read_json_arg(value: Optional[str]) -> Optional[object]:
+def read_json_arg(value: str | None) -> object | None:
     if value is None:
         return None
     if value == "-":
@@ -1242,7 +1240,7 @@ def read_json_arg(value: Optional[str]) -> Optional[object]:
         return json.load(fh)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("inventory", "apply"):
