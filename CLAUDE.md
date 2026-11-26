@@ -319,9 +319,9 @@ is under "Dependency updates". setup-uv's cache is off (`enable-cache:
 false`), because an uncached install of these pinned files already takes
 only a few seconds.
 
-Only the **baseline** pytest run is pinned: tests of code a user's Mac runs as
-`python3` — the repo-root modules. Tests of dev tooling and the plugin's scripts
-run on `tooling_python` instead; the split is under "Tests" ("Two pytest
+Only the **baseline** pytest run is pinned: tests of the repo-root modules,
+which can run under a frozen-3.9 `python3`. Tests of dev tooling and the
+plugin's scripts run on `tooling_python` instead; the split is under "Tests" ("Two pytest
 runs").
 
 `test-requirements.txt` feeds that frozen 3.9 run (both `~/.venv-baseline` and the
@@ -782,8 +782,10 @@ lockstep with `roles/flatpak/tasks/main.yml`.
 
 ### Two pytest runs
 
-The 3.9 pin (see "Python 3.9 pin") only needs to cover code that a user's Mac
-executes as `python3`, so pytest runs twice, split by directory:
+The 3.9 pin (see "Python 3.9 pin") only needs to cover code whose `python3` can
+be the frozen 3.9: `/usr/bin/python3` before the bootstrap has installed a
+current Python, or the devcontainer's default `python3`. So pytest runs twice,
+split by directory:
 
 - **Baseline run** — `tests/python/baseline/`. Tests of `phase2`,
   `_dotfiles_common`, `uninstall`, `dotfiles_manager`, and
@@ -800,9 +802,11 @@ executes as `python3`, so pytest runs twice, split by directory:
   run under Ansible's interpreter (on a host, the Python of Homebrew's
   `ansible`, as `group_vars/all.yml` sets it), never `/usr/bin/python3`, so
   the 3.9 pin doesn't cover them. Plus `unnatural-designs-agent-tools/tests/`
-  (kept in the plugin's folder so it extracts unchanged): the plugin's scripts
-  target the tooling Python, the version they're tested on, and declare no
-  lower limit. Runs on `tooling_python` with uncapped pytest
+  (kept in the plugin's folder so it extracts unchanged). The plugin's scripts
+  run on a bootstrapped host, whose `python3` is Homebrew's (a dependency of
+  the `ansible` phase 2 installs, ahead of `/usr/bin` once `.zprofile` runs
+  `brew shellenv`). They target the tooling Python, the version they're tested
+  on, and declare no lower limit. Runs on `tooling_python` with uncapped pytest
   (`tooling-test-requirements.txt`): `~/.venv-tooling`, the `python-tooling` CI
   job, and `pytest tests/python/tooling unnatural-designs-agent-tools/tests`
   (`TOOLING_TEST_PATHS` in `tests/run`). The CI job installs every requirements
@@ -820,7 +824,7 @@ executes as `python3`, so pytest runs twice, split by directory:
 `./tests/run python` runs both as parallel suites: the baseline run via
 `pytest` on PATH (`~/.venv-baseline/bin` comes first in `remoteEnv`), the tooling run
 via `tests/run`'s own interpreter (`sys.executable -m pytest`) — the
-shebang's `python3.14` resolves to `~/.venv-tooling`'s, the one interpreter
+shebang's interpreter resolves to `~/.venv-tooling`'s, the one interpreter
 guaranteed able to load `tests/run`.
 
 `tests/python/tooling/test_pytest_run_split.py` keeps the split honest: every
@@ -829,8 +833,8 @@ test file under `tests/python/` (at any depth) sits under `baseline/` or
 (repo-root `*.py`, discovered from disk), and every baseline test imports one.
 A test that imports `phase2` therefore can't land in the run that wouldn't
 catch a 3.9 regression. It also fails if `pytest.ini`'s `testpaths` reach the
-plugin, or if `tests/run` and the `python-tooling` job name different tooling
-paths.
+plugin (globs expanded), if either baseline command names paths of its own, or
+if `tests/run` and the `python-tooling` job name different tooling paths.
 
 ### Homebrew molecule scenarios
 

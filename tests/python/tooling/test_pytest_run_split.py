@@ -68,24 +68,41 @@ def test_baseline_tests_each_import_a_baseline_module():
     assert not idle, f"these baseline tests test no 3.9 baseline module; move them to tests/python/tooling/: {idle}"
 
 
+def _ci_pytest_argv(job: str) -> list:
+    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text())
+    runs = [step["run"] for step in workflow["jobs"][job]["steps"] if "run" in step]
+    pytest_runs = [shlex.split(run) for run in runs if run.lstrip().startswith("pytest")]
+    assert len(pytest_runs) == 1, f"expected one pytest step in the {job} job"
+    return pytest_runs[0]
+
+
+def _suite_argv(name: str) -> list:
+    (suite,) = [s for s in PYTHON_SUITES if s.name == name]
+    return suite.argv
+
+
 def test_plugin_is_outside_the_baseline_run():
     """The plugin's scripts target the tooling Python, so the frozen 3.9 must not collect them."""
     ini = configparser.ConfigParser()
     ini.read(REPO_ROOT / "pytest.ini")
-    testpaths = [(REPO_ROOT / p).resolve() for p in ini["pytest"]["testpaths"].split()]
-    assert testpaths
+    entries = ini["pytest"]["testpaths"].split()
+    assert entries
+    # pytest expands globs in testpaths, so match them against the tree as it does.
+    testpaths = [p.resolve() for entry in entries for p in REPO_ROOT.glob(entry)]
     bad = [str(p.relative_to(REPO_ROOT)) for p in testpaths if _overlaps(p, PLUGIN_ROOT)]
     assert not bad, f"pytest.ini testpaths (the baseline run) reach the plugin: {bad}"
 
 
+def test_baseline_run_takes_its_paths_only_from_testpaths():
+    """A path on either baseline command would bypass the testpaths check above."""
+    for where, argv in [("tests/run python:baseline", _suite_argv("python:baseline")),
+                        ("tests.yml python job", _ci_pytest_argv("python"))]:
+        paths = [arg for arg in argv if (REPO_ROOT / arg.split("::")[0]).exists()]
+        assert not paths, f"{where} names test paths; put them in pytest.ini's testpaths: {paths}"
+
+
 def test_tooling_run_covers_the_plugin_tests_locally_and_in_ci():
     assert {"tests/python/tooling", "unnatural-designs-agent-tools/tests"} <= set(TOOLING_TEST_PATHS)
-    (tooling,) = [s for s in PYTHON_SUITES if s.name == "python:tooling"]
-    assert tooling.argv[-len(TOOLING_TEST_PATHS):] == TOOLING_TEST_PATHS
-
-    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text())
-    runs = [step["run"] for step in workflow["jobs"]["python-tooling"]["steps"] if "run" in step]
-    pytest_runs = [shlex.split(run) for run in runs if run.lstrip().startswith("pytest")]
-    assert len(pytest_runs) == 1, "expected one pytest step in the python-tooling job"
-    ci_paths = [arg for arg in pytest_runs[0][1:] if not arg.startswith("-")]
-    assert ci_paths == TOOLING_TEST_PATHS
+    tail = len(TOOLING_TEST_PATHS)
+    assert _suite_argv("python:tooling")[-tail:] == TOOLING_TEST_PATHS
+    assert _ci_pytest_argv("python-tooling")[-tail:] == TOOLING_TEST_PATHS

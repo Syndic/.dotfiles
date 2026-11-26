@@ -1,4 +1,4 @@
-# Test tooling for the pytest *tooling* run (tests/python/tooling/) — the
+# Test tooling for the pytest *tooling* run — the
 # `~/.venv-tooling` devcontainer venv (post-create.sh) and the `python-tooling`
 # CI job (tests.yml). Runs on tooling_python, so no 3.9 cap; see CLAUDE.md
 # "Tests" and "Dependency updates".
