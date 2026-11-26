@@ -11,6 +11,7 @@ import glob
 import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -158,3 +159,42 @@ def test_pylance_checks_exactly_the_baseline_code_against_python_3_9():
         if env.get("pythonVersion") != want:
             wrong[name] = env.get("pythonVersion")
     assert not wrong, f"pyrightconfig.json checks these against the wrong Python (want 3.9 only for baseline code): {wrong}"
+
+
+PYRIGHT_PROBE = """from __future__ import annotations
+
+
+def f(x: int | None) -> int | None:
+    match x:
+        case None:
+            return None
+    return x
+"""
+
+
+def test_pyright_flags_3_10_syntax_only_in_the_3_9_roots(tmp_path):
+    """Run pyright (Pylance's engine) on one probe per executionEnvironments root."""
+    config = json.loads((REPO_ROOT / "pyrightconfig.json").read_text())
+    (tmp_path / "pyrightconfig.json").write_text(json.dumps(config))
+    probes = {}
+    for env in config["executionEnvironments"]:
+        probe = (tmp_path / env["root"] / "pyright_probe.py").resolve()
+        probe.parent.mkdir(parents=True, exist_ok=True)
+        probe.write_text(PYRIGHT_PROBE)
+        probes[str(probe)] = env.get("pythonVersion") == "3.9"
+    result = subprocess.run(
+        [sys.executable, "-m", "pyright", "--outputjson", "--pythonpath", sys.executable,
+         "-p", str(tmp_path / "pyrightconfig.json")],
+        capture_output=True, text=True,
+    )
+    errors = {name: [] for name in probes}
+    for diag in json.loads(result.stdout)["generalDiagnostics"]:
+        if diag["severity"] == "error":
+            errors[diag["file"]].append(diag["message"])
+    for name, on_3_9 in probes.items():
+        where = Path(name).parent.relative_to(tmp_path.resolve())
+        if on_3_9:
+            # Only the match statement: `int | None` is fine under the __future__ import.
+            assert len(errors[name]) == 1 and "3.10" in errors[name][0], f"{where}: {errors[name]}"
+        else:
+            assert not errors[name], f"{where} is checked as 3.9 code: {errors[name]}"

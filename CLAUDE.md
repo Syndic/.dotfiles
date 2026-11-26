@@ -848,7 +848,12 @@ without it pyright's `standard` checking would apply. pyright applies the first
 root (3.9, for the repo-root modules) comes last, after a root for each
 directory of tooling Python. A new directory of tooling Python needs its own
 root there; `test_pylance_checks_exactly_the_baseline_code_against_python_3_9`
-fails until it has one.
+fails until it has one. `test_pyright_flags_3_10_syntax_only_in_the_3_9_roots`
+runs pyright, Pylance's engine (pinned in `tooling-test-requirements.txt`, with
+Node from its `nodejs` extra so it runs offline), on a probe file in each root.
+The probe uses a `match` statement and an `int | None` hint under
+`from __future__ import annotations`; only the `match` may be flagged, and only
+in the 3.9 roots.
 
 ### Homebrew molecule scenarios
 
