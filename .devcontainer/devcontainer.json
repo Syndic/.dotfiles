@@ -45,9 +45,10 @@
   "containerEnv": {
     "SSH_AUTH_SOCK": "/run/host-services/ssh-auth.sock"
   },
-  // PATH for the two uv venvs post-create.sh builds. Keep in sync with that file.
+  // The tooling venv post-create.sh builds is the default Python; the baseline venv is
+  // called by path. Keep in sync with that file.
   "remoteEnv": {
-    "PATH": "/home/vscode/.venv-baseline/bin:/home/vscode/.venv-tooling/bin:${containerEnv:PATH}"
+    "PATH": "/home/vscode/.venv-tooling/bin:${containerEnv:PATH}"
   },
   "customizations": {
     "vscode": {
@@ -64,13 +65,13 @@
         "ryanluker.vscode-coverage-gutters",
         "timonwong.shellcheck"
       ],
-      // Pin to ~/.venv-baseline (frozen 3.9.6 + pytest). useEnvironmentsExtension off
+      // The default interpreter is ~/.venv-tooling. useEnvironmentsExtension off
       // because that extension ignores defaultInterpreterPath here.
       "settings": {
         // Add "ansible" so role/play YAML (reclassified by redhat.ansible)
         // still gets yamllint diagnostics — .ansible-lint skips yaml rules.
         // See CLAUDE.md "Lint".
-        "python.defaultInterpreterPath": "/home/vscode/.venv-baseline/bin/python",
+        "python.defaultInterpreterPath": "/home/vscode/.venv-tooling/bin/python",
         "python.useEnvironmentsExtension": false,
         "todo-tree.ripgrep.ripgrep": "/usr/bin/rg"
       }

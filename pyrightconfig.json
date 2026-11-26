@@ -1,0 +1,11 @@
+{
+  "typeCheckingMode": "off",
+  "executionEnvironments": [
+    { "root": "tests/python/baseline", "pythonVersion": "3.9", "extraPaths": ["."] },
+    { "root": "tests", "extraPaths": [".devcontainer"] },
+    { "root": ".devcontainer" },
+    { "root": "roles" },
+    { "root": "unnatural-designs-agent-tools" },
+    { "root": ".", "pythonVersion": "3.9" }
+  ]
+}

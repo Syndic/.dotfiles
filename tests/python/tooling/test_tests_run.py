@@ -1,6 +1,7 @@
 """tests/run: image selection, role resolution, and argv dispatch."""
 
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -182,10 +183,23 @@ def test_main_python_runs_both_pytest_runs_in_parallel(monkeypatch):
     assert tests_run.main(["python"]) == 0
     (suites,) = calls
     assert [s.name for s in suites] == ["python:baseline", "python:tooling"]
+    # The baseline run calls the frozen venv by path: it's off PATH in the devcontainer.
+    assert suites[0].argv[0] == str(Path.home() / ".venv-baseline" / "bin" / "pytest")
     # The tooling run must share tests/run's interpreter, which is what can load it.
     assert suites[1].argv[:3] == [sys.executable, "-m", "pytest"]
     caches = [arg for s in suites for arg in s.argv if arg.startswith("cache_dir=")]
     assert len(caches) == len(set(caches)) == 2, "parallel runs would overwrite one cache"
+
+
+def test_baseline_suite_dies_before_spawning_without_its_venv(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(tests_run, "BASELINE_PYTEST", tmp_path / "missing" / "pytest")
+    spawned = []
+    monkeypatch.setattr(tests_run.subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    with pytest.raises(SystemExit) as exc:
+        tests_run.run_parallel(tests_run.PYTHON_SUITES)
+    assert exc.value.code == 1
+    assert not spawned
+    assert "rebuild the devcontainer" in capsys.readouterr().err
 
 
 def test_main_rejects_unknown_argv(capsys):

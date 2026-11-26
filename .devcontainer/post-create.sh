@@ -14,11 +14,11 @@ PLUMBING_WORKSPACE="$repo_root" \
 
 # Provision dev/test venvs with uv, one per interpreter — full rationale in
 # CLAUDE.md "Python 3.9 pin":
-#   ~/.venv-baseline  frozen 3.9.6, pytest (baseline run), default python3 on PATH
+#   ~/.venv-baseline  frozen 3.9.6, pytest (baseline run); not on PATH, called by path
 #   ~/.venv-tooling   tooling_python: ansible-core, ansible-lint, yamllint,
 #                     molecule (one venv so they share ansible-core and avoid
 #                     duplicate-collection warnings #46/#48), pytest for the
-#                     tooling run, and pre-commit
+#                     tooling run, and pre-commit; the default python3 on PATH
 # PATH wiring lives in devcontainer.json's remoteEnv — keep both in step.
 
 # The frozen CLT patch: no renovate annotation, so nothing ever bumps it.

@@ -28,11 +28,11 @@ jobs:
           echo "VIRTUAL_ENV=$RUNNER_TEMP/venv-baseline" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/venv-baseline/bin" >> "$GITHUB_PATH"
       - run: uv pip install -r test-requirements.txt
-      # The baseline run; testpaths in pytest.ini.
-      - run: pytest -v
+      # The baseline run names its path; testpaths is the tooling run's.
+      - run: pytest -v tests/python/baseline
 
   python-tooling:
-    # Tests of dev tooling (tests/run, CI/Renovate config) — no 3.9 constraint.
+    # Tests of dev tooling (tests/run, CI/Renovate config) and the plugin's scripts — no 3.9 constraint.
     # Installs the same files as ~/.venv-tooling; see CLAUDE.md "Two pytest runs".
     runs-on: ubuntu-latest
     steps:
@@ -45,7 +45,8 @@ jobs:
       - run: |
           uv pip install --system -r lint-requirements.txt -r molecule-requirements.txt \
             -r tooling-test-requirements.txt -r pre-commit-requirements.txt
-      - run: pytest -v tests/python/tooling
+      # The tooling run: testpaths in pytest.ini.
+      - run: pytest -v
 
   bash:
     runs-on: ubuntu-latest

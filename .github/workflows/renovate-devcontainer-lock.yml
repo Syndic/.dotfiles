@@ -39,7 +39,7 @@ jobs:
         run: npm install --global @devcontainers/cli
 
       - name: Regenerate the lock
-        run: python3 regenerate_devcontainer_lock.py
+        run: python3 .devcontainer/regenerate_devcontainer_lock.py
 
       # Signed via the GraphQL createCommitOnBranch mutation (server-side web-flow
       # signing) so the push satisfies branch protection; no-op if the lock didn't

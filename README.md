@@ -203,8 +203,9 @@ trigger them from the Actions tab.
 ## Dev environment
 
 A Debian-based devcontainer is set up in [`.devcontainer/`](.devcontainer)
-with Python 3.9.6 (the pinned primary), the latest Python (for
-ansible/ansible-lint/molecule and the tooling tests), bats, pytest, and pre-commit pre-installed.
+with the latest Python as its default (for ansible/ansible-lint/molecule, the
+tooling tests, and everyday work), Python 3.9.6 for the baseline test run only,
+bats, pytest, and pre-commit pre-installed.
 It builds on a shared base image published by
 [Syndic/unnatural_designs](https://github.com/Syndic/unnatural_designs), which
 carries the host plumbing (worktree git resolution, host timezone, commit signing).

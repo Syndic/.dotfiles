@@ -56,11 +56,11 @@ jobs:
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
         with:
           push: never
-          # Asserts the default interpreter is still the pinned 3.9.x (this is
-          # ~/.venv-baseline on PATH via remoteEnv; a bump of the frozen pin would fail
+          # Asserts the default python3 is ~/.venv-tooling's (remoteEnv) and the
+          # baseline venv is still the pinned 3.9.x (a bump of the frozen pin would fail
           # here). `bats` confirms the Dockerfile apt install; `pytest` (both
           # runs)/`pre-commit`/`ansible`/`ansible-lint`/`molecule` confirm post-create.sh
-          # built the uv venvs and that remoteEnv put their bin dirs on PATH.
+          # built the uv venvs and that remoteEnv put the tooling bin dir on PATH.
           # `docker info` needs the docker-in-docker daemon, not just its client,
           # and the loop waits out the daemon's startup. The plumbing assertions
           # are explained in CLAUDE.md "Devcontainer host plumbing"; `--file`
@@ -68,10 +68,12 @@ jobs:
           # (runner uid != container uid).
           runCmd: |
             set -euo pipefail
-            python3 --version | grep '^Python 3\.9\.'
+            test "$(python3 -c 'import sys; print(sys.prefix)')" = "$HOME/.venv-tooling"
+            ~/.venv-baseline/bin/python --version | grep '^Python 3\.9\.'
             bats --version
+            test "$(command -v pytest)" = "$HOME/.venv-tooling/bin/pytest"
             pytest --version
-            ~/.venv-tooling/bin/python -m pytest --version
+            ~/.venv-baseline/bin/pytest --version
             pre-commit --version
             ansible --version
             ansible-lint --version
